@@ -7,8 +7,8 @@ import unittest
 import xml.etree.ElementTree as ET
 import zipfile
 
-ROOT = Path(__file__).resolve().parent
-spec = importlib.util.spec_from_file_location('reference', ROOT / 'pp6-doc-compare-ref.py')
+ROOT = Path(__file__).resolve().parent.parent
+spec = importlib.util.spec_from_file_location('reference', ROOT / 'tools/pp6-doc-compare-ref.py')
 ref = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ref)
 

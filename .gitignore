@@ -30,6 +30,10 @@ __pycache__/
 Thumbs.db
 
 # Native build products and local reports.
+/mac-sync/pp6-indexer
+/mac-sync/pp6-doc-compare
+/mac-sync/pp6-thumbnail
+# Preserve exclusions for builds made before the folder reorganization.
 /pp6-indexer
 /pp6-doc-compare
 /pp6-thumbnail

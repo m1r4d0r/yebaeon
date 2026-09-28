@@ -1,6 +1,6 @@
 # 예배온 Studio — 웹 편집기 첫 버전
 
-예배 자료를 준비하는 공간. 전체 프로젝트는 **예배온(YebaeOn)**, 교회 Mac의 동기화 도구는 **예배온 Sync**다. [브랜드 기준](../BRANDING.md).
+예배 자료를 준비하는 공간. 전체 프로젝트는 **예배온(YebaeOn)**, 교회 Mac의 동기화 도구는 **예배온 Sync**다. [브랜드 기준](../docs/BRANDING.md).
 
 [예배온 Studio](https://yebaeon.grace-jean-p.workers.dev/)를 집 Windows PC의 최신 Edge/Chrome에서 열면 됩니다. 로컬 `index.html`도 사용할 수 있습니다. 설치, 계정, 자료 업로드 없이 시작하며, 처음에는 `sample-demo.js`의 안내용 예제 3장이 열립니다. 실제 예배 자료가 없는 소스 공유용 예제이며, PP6에서 직접 여는 호환성은 실기 확인 전입니다. 원본 파일에는 쓰지 않습니다. 사이트는 GitHub Actions로 자동 배포합니다. [배포 구성](../cloudflare/README.md).
 
@@ -8,7 +8,7 @@
 
 아리따부리·나눔고딕·나눔명조는 CDN 웹폰트로 불러옵니다. 인터넷 연결이 필요하며, 연결이 안 되면 설치된 글꼴 또는 대체 글꼴로 계속 편집할 수 있습니다. 슬라이드의 글꼴 적용 상태는 오른쪽 패널에 표시합니다. 문서·미디어는 외부로 전송하지 않습니다. [배포 출처와 글꼴 매핑](FONT-SOURCES.md).
 
-위 내용은 **현재 공개 사이트와 로컬 편집기**의 동작입니다. 문서 편집과 ZIP 생성은 브라우저 안에서 처리합니다. 다음 단계는 전체 `.pro6`·성경 자료·사용 미디어를 보관하는 클라우드 라이브러리와 연결하는 것입니다. [저장 범위·서버 비교·구현 순서](../SERVER-PLAN.md). 서버 업로드와 로그인은 아직 구현하지 않았습니다.
+위 내용은 **현재 공개 사이트와 로컬 편집기**의 동작입니다. 문서 편집과 ZIP 생성은 브라우저 안에서 처리합니다. 다음 단계는 전체 `.pro6`·성경 자료·사용 미디어를 보관하는 클라우드 라이브러리와 연결하는 것입니다. [저장 범위·서버 비교·구현 순서](../docs/SERVER-PLAN.md). 서버 업로드와 로그인은 아직 구현하지 않았습니다.
 
 ## 첨부된 원본 미디어 연결
 
@@ -52,7 +52,7 @@ Node.js와 Playwright가 있는 개발 환경에서:
 
 ```text
 node web-editor/test-browser.cjs
-python test-reference.py
+python tests/test-reference.py
 ```
 
 기본 브라우저 채널은 `msedge`입니다. `PP6_BROWSER_CHANNEL`로 변경할 수 있습니다. 결과는 `web-editor/test-output/`에 남습니다. 자동 테스트가 만든 `edited-package.zip`은 테스트용이며 사용자의 실제 문서 변경물이 아닙니다.

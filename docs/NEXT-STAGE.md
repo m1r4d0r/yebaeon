@@ -2,13 +2,13 @@
 
 확정 이름은 **예배온(YebaeOn)**이며, 웹 편집기는 **예배온 Studio**, Mac 도구는 **예배온 Sync**다. [브랜드 기준](BRANDING.md). [예배온 Studio](https://yebaeon.grace-jean-p.workers.dev/) 배포를 완료했다. 비공개 저장소 [m1r4d0r/yebaeon](https://github.com/m1r4d0r/yebaeon)의 `main`에서 앱 코드가 바뀌면 GitHub Actions가 검사 후 Cloudflare에 자동 배포한다. 실제 예배 자료는 소스와 공개 사이트에서 제외한다.
 
-현재는 **집 Windows PC**, 교회는 **macOS High Sierra + PP6**입니다. [상세 검토와 장소별 계획](PROJECT-REVIEW-2026-09-28.md)을 기준으로 진행합니다.
+현재는 **집 Windows PC**, 교회는 **macOS High Sierra + PP6**입니다. [상세 검토와 장소별 계획](archive/PROJECT-REVIEW-2026-09-28.md)을 기준으로 진행합니다.
 
 ## 우선순위 변경: 웹 편집기·클라우드 라이브러리를 지금 병행
 
 서버 범위는 **전체 `.pro6`·성경 자료·사용된 미디어 업로드**로 정정했습니다. 서버는 라이브러리 저장·편집 버전 관리·동기화를 담당합니다. [저장 범위와 서버 비교/추천](SERVER-PLAN.md)을 최신 기준으로 사용합니다. 편집기 호스팅과 상태 확인 API는 배포했고, 로그인·자료 저장 API는 아직 미구현입니다.
 
-`web-editor/index.html`에 첫 버전을 구현했습니다. 문서 불러오기, 근사 썸네일, 텍스트 수정, 기존 장 기반 추가/복사/삭제, 정렬/그룹 이동, 되돌리기, 미디어 연결/교체, PNG/ZIP 저장을 집에서 시험할 수 있습니다. [사용법과 제한](web-editor/README.md).
+`web-editor/index.html`에 첫 버전을 구현했습니다. 문서 불러오기, 근사 썸네일, 텍스트 수정, 기존 장 기반 추가/복사/삭제, 정렬/그룹 이동, 되돌리기, 미디어 연결/교체, PNG/ZIP 저장을 집에서 시험할 수 있습니다. [사용법과 제한](../web-editor/README.md).
 
 남은 순서:
 

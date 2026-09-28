@@ -1,6 +1,6 @@
 # 집에서 확인할 것
 
-교회 Mac의 새 JSON 없이도 현재 단계는 테스트할 수 있습니다.
+교회 Mac의 새 JSON 없이도 현재 단계는 테스트할 수 있습니다. 아래 명령은 저장소 루트에서 실행합니다. 실제 교회 자료는 GitHub에 없으며 로컬 `test-pair/`에 별도로 준비합니다.
 
 ## 새로 추가된 웹 편집기
 
@@ -10,7 +10,7 @@
 - 미디어 파일/폴더 연결, 이미지/영상 교체, PNG와 업데이트 ZIP 저장.
 - 내보낸 ZIP은 아직 PP6 실기 검증 전이며 media 경로 설치/rewrite가 필요합니다.
 
-[사용법](web-editor/README.md) · [검토 결과와 교회에서 수집할 파일](PROJECT-REVIEW-2026-09-28.md)
+[사용법](../web-editor/README.md) · [검토 결과와 교회에서 수집할 파일](archive/PROJECT-REVIEW-2026-09-28.md)
 
 ## 1. 이미 검증한 실제 토요일 파일 pair
 
@@ -24,7 +24,7 @@
 PC에서:
 
 ```bash
-python pp6-doc-compare-ref.py "test-pair/local-documents/토요일.pro6" "test-pair/update/documents/토요일.pro6" -o my-diff.json
+python tools/pp6-doc-compare-ref.py "test-pair/local-documents/토요일.pro6" "test-pair/update/documents/토요일.pro6" -o my-diff.json
 ```
 
 기대 결과:
@@ -41,7 +41,7 @@ technical: 11
 
 ## 2. UI 확인
 
-`document-diff-viewer.html`을 브라우저에서 열고
+`tools/document-diff-viewer.html`을 브라우저에서 열고
 
 `test-pair/expected-document-diff.json`
 
@@ -60,9 +60,9 @@ technical: 11
 Mac에서:
 
 ```bash
-chmod +x build.command run-index.command run-test-compare.command
-./build.command
-./run-test-compare.command
+chmod +x mac-sync/*.command
+./mac-sync/build.command
+./mac-sync/run-test-compare.command
 ```
 
 Mac Objective-C 결과도 `14 / 32 / 2 / 0 / 11`이면,
@@ -71,7 +71,7 @@ PC reference 알고리즘과 High Sierra Core가 같은 판단을 하는 것입�
 그 뒤:
 
 ```bash
-./run-index.command
+./mac-sync/run-index.command
 ```
 
 으로 실제 전체 `pp6-index-v0.2.json`을 생성합니다.
@@ -81,8 +81,8 @@ PC reference 알고리즘과 High Sierra Core가 같은 판단을 하는 것입�
 별도 빌드라 기본 Core를 방해하지 않습니다.
 
 ```bash
-./build-thumbnail.command
-./pp6-thumbnail --document "$HOME/Documents/ProPresenter6/토요일.pro6" --slide 1
+./mac-sync/build-thumbnail.command
+./mac-sync/pp6-thumbnail --document "$HOME/Documents/ProPresenter6/토요일.pro6" --slide 1
 ```
 
 이 렌더러는 아직 High Sierra 실기 검증 전입니다.

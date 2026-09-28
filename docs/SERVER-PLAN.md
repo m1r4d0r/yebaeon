@@ -9,8 +9,8 @@
 - 전체 프로젝트는 **예배온(YebaeOn)**, 웹은 **예배온 Studio**, Mac은 **예배온 Sync**로 확정했다. GitHub 저장소도 `yebaeon`을 사용한다. [브랜드 기준과 변경 범위](BRANDING.md).
 - 안내한 R2 저장소 이름: `pp6-library-files`, Worker 연결 변수 이름: `FILES`.
 - 안내한 D1 DB 이름: `pp6-library-db`, Worker 연결 변수 이름: `DB`.
-- 사용자가 5단계까지 완료했다고 알렸고, Production Bindings 첨부 화면에서 `DB` → `pp6-library-db`, `FILES` → `pp6-library-files` 연결을 확인했다. DB ID는 `9f78130a-64d2-4fcd-baa6-e5fefca2f5d4`다. 연결 정보는 [Wrangler 설정 조각](cloudflare/wrangler.bindings.jsonc)에 기록했다. 실제 코드에서 DB/R2를 읽고 쓰는 검증은 아직 하지 않았다.
-- GitHub 비공개 저장소 [m1r4d0r/yebaeon](https://github.com/m1r4d0r/yebaeon)의 `main`에서 앱·배포 파일을 변경하면 GitHub Actions가 검사 후 배포한다. 기존 Cloudflare GitHub 앱 연결은 변경하지 않았다. 실제 문서·미디어의 서비스 저장 위치는 R2로 계획한다. [배포 구성과 검증 기록](cloudflare/README.md), [전체 Wrangler 설정](wrangler.jsonc).
+- 사용자가 5단계까지 완료했다고 알렸고, Production Bindings 첨부 화면에서 `DB` → `pp6-library-db`, `FILES` → `pp6-library-files` 연결을 확인했다. DB ID는 `9f78130a-64d2-4fcd-baa6-e5fefca2f5d4`다. 연결 정보는 [Wrangler 설정 조각](archive/cloudflare-bindings-2026-09-28.jsonc)에 기록했다. 실제 코드에서 DB/R2를 읽고 쓰는 검증은 아직 하지 않았다.
+- GitHub 비공개 저장소 [m1r4d0r/yebaeon](https://github.com/m1r4d0r/yebaeon)의 `main`에서 앱·배포 파일을 변경하면 GitHub Actions가 검사 후 배포한다. 기존 Cloudflare GitHub 앱 연결은 변경하지 않았다. 실제 문서·미디어의 서비스 저장 위치는 R2로 계획한다. [배포 구성과 검증 기록](../cloudflare/README.md), [전체 Wrangler 설정](../wrangler.jsonc).
 - 실제 HTTPS 사이트 응답과 예제 편집·슬라이드 복사·ZIP 저장을 확인했다. 첫 배포와 후속 변경 배포가 모두 성공했다. ZIP의 무결성, XML 파싱, 복사 후 4장 구성을 확인했다. PP6에서의 실제 호환성은 교회 Mac에서 검증한다.
 - GitHub 업로드 준비 중 안내용 `sample-demo.js`를 기본 예제로 연결했다. 실제 교회 샘플 `sample-data.js`와 테스트 출력물은 로컬에 보존하고 Git에서 제외한다. 로컬 `web-editor/` 폴더 전체를 공개 정적 파일로 배포하지 않으며, 배포 때 추적 중인 앱 파일만 선별한다. 교회 원본은 로그인 후 접근하는 저장소에 업로드한다.
 

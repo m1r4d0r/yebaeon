@@ -20,8 +20,8 @@
 - 변경된 주소: https://yebaeon.grace-jean-p.workers.dev/
 - 계정 주소의 `grace-jean-p`는 유지한다. 기존 Worker 자체의 이름만 변경한다.
 - R2 `pp6-library-files`와 D1 `pp6-library-db`, 연결 이름 `FILES`와 `DB`는 그대로 사용한다.
-- [배포 설정](wrangler.jsonc)의 `name`은 원격 Worker 이름과 일치한다. [최초 연결 기록](cloudflare/wrangler.bindings.jsonc)은 참고 자료로 유지한다.
-- 2026-09-28 Cloudflare의 `Settings → General → Name`에서 `yebaeon`으로 이름을 변경했다. 2026-09-29 같은 주소에 예배온 Studio를 배포하고 GitHub Actions 자동 배포를 연결했다. `DB`·`FILES` 연결은 유지한다. [배포 구성](cloudflare/README.md).
+- [배포 설정](../wrangler.jsonc)의 `name`은 원격 Worker 이름과 일치한다. [최초 연결 기록](archive/cloudflare-bindings-2026-09-28.jsonc)은 참고 자료로 유지한다.
+- 2026-09-28 Cloudflare의 `Settings → General → Name`에서 `yebaeon`으로 이름을 변경했다. 2026-09-29 같은 주소에 예배온 Studio를 배포하고 GitHub Actions 자동 배포를 연결했다. `DB`·`FILES` 연결은 유지한다. [배포 구성](../cloudflare/README.md).
 
 Worker의 이름은 `workers.dev` 주소에 사용된다. [Cloudflare 공식 설명](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/).
 

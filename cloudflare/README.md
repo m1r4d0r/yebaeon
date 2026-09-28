@@ -10,7 +10,7 @@
 - `npm run build`는 명시한 앱 파일 9개와 응답 헤더만 `dist/`로 복사한다. 실제 자료·테스트 출력·문서는 복사하지 않는다. `dist/`에 예상하지 못한 파일이 있으면 빌드를 중단한다.
 - `cloudflare/worker.mjs`는 `/api/health` 확인만 제공한다. 다른 `/api` 요청은 404로 응답한다. 이 단계에서는 DB·R2 내용을 읽거나 변경하지 않는다.
 - 기존 `DB` → `pp6-library-db`, `FILES` → `pp6-library-files`를 유지한다.
-- `wrangler.bindings.jsonc`는 최초 연결을 기록한 참고 자료다. 실제 배포는 루트 설정을 사용한다.
+- [최초 연결 기록](../docs/archive/cloudflare-bindings-2026-09-28.jsonc)은 과거 설정을 보관한 참고 자료다. 실제 배포는 루트 설정을 사용한다.
 
 ## GitHub 자동 배포
 
