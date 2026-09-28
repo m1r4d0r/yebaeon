@@ -1,0 +1,15 @@
+{
+  "name": "yebaeon",
+  "version": "0.2.0",
+  "private": true,
+  "description": "YebaeOn Studio and PP6 Sync tools",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/deployment.test.mjs",
+    "dev": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:check": "npm run build && wrangler deploy --dry-run"
+  },
+  "devDependencies": { "wrangler": "4.143.0" }
+}

@@ -2,7 +2,7 @@
 
 집에서 예배 자료를 준비하고 교회 Mac과 연결하는 프로젝트. 웹 편집기는 **예배온 Studio**, Mac 동기화 도구는 **예배온 Sync**로 부른다. [이름·주소 기준](BRANDING.md).
 
-현재 패키지는 PP6 Local Sync Core v0.2의 Documents/Media 골조와 로컬 웹 편집기를 포함한다. 서버 연결은 아직 미구현이며, 전체 `.pro6`·성경 자료·사용 미디어를 보관하는 클라우드 라이브러리를 다음 단계로 개발한다.
+현재 패키지는 PP6 Local Sync Core v0.2의 Documents/Media 골조와 웹 편집기를 포함한다. 클라우드 자료 저장은 아직 미구현이며, 전체 `.pro6`·성경 자료·사용 미디어를 보관하는 라이브러리를 다음 단계로 개발한다.
 
 ## GitHub 소스와 로컬 자료
 
@@ -10,7 +10,13 @@
 
 GitHub에는 소스·문서와 안내용 웹 예제 3장만 포함한다. 실제 `.pro6`·성경·미디어·파일 목록, `test-pair/`, 이전 `web-editor/sample-data.js`, 테스트 출력물·인증 정보는 포함하지 않는다. 기존 자료는 집 PC에 그대로 보관한다. 실제 라이브러리는 이후 로그인 기능을 갖춘 R2/D1에 연결한다.
 
-웹 편집기는 `web-editor/index.html`에서 열고, 실제 문서는 **문서 열기**로 선택한다. 교회 샘플이 필요한 회귀 검사는 로컬 자료가 없는 GitHub 복사본에서 건너뛴다. Mac 명령 파일은 LF 줄바꿈으로 관리한다. 아직 Cloudflare에 배포할 전체 설정과 서버 진입점은 없으므로, GitHub 업로드만으로 자동 배포되지는 않는다.
+웹 편집기는 `web-editor/index.html`에서 열고, 실제 문서는 **문서 열기**로 선택한다. 교회 샘플이 필요한 회귀 검사는 로컬 자료가 없는 GitHub 복사본에서 건너뛴다. Mac 명령 파일은 LF 줄바꿈으로 관리한다.
+
+## 웹 배포
+
+사이트 주소는 https://yebaeon.grace-jean-p.workers.dev/ 이다. 루트 `wrangler.jsonc`와 GitHub Actions로 기존 Worker에 배포한다. 앱 파일 9개와 응답 헤더만 선별하며, 원본 자료는 공개하지 않는다. 로그인·클라우드 자료 저장 기능은 아직 없다. [배포 구성과 실행 방법](cloudflare/README.md).
+
+집 Windows에서 Node.js 24를 사용해 `npm ci`, `npm test`, `npm run deploy:check`로 준비 상태를 검사할 수 있다. 교회 High Sierra에서는 기존 Mac 도구를 사용한다.
 
 ## 2026-09-28 · 집 Windows 개발 업데이트
 

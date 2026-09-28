@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "yebaeon",
+  "main": "cloudflare/worker.mjs",
+  "compatibility_date": "2026-09-28",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api", "/api/*"],
+    "not_found_handling": "none"
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "pp6-library-db",
+    "database_id": "9f78130a-64d2-4fcd-baa6-e5fefca2f5d4"
+  }],
+  "r2_buckets": [{
+    "binding": "FILES",
+    "bucket_name": "pp6-library-files"
+  }],
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "invocation_logs": true },
+    "traces": { "enabled": false }
+  }
+}
