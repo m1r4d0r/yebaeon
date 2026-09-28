@@ -1,17 +1,17 @@
-# 예배온 · 서버·자료 업로드 기획 — 2026-09-28
+# 예배온 · 서버·자료 업로드 기획 — 2026-09-29
 
-상태: 사용자 요구사항 반영 및 서비스 비교 완료. 사용자가 Cloudflare를 선택하고 Worker 주소를 공유했다. 현재 웹 편집기는 로컬 버전이며, 편집기 배포·로그인·자료 업로드 기능은 아직 구현하지 않았다.
+상태: Cloudflare에 예배온 Studio를 배포했고 GitHub Actions 자동 배포를 연결했다. 현재 문서·미디어 처리는 브라우저 안에서 이루어진다. 로그인·클라우드 자료 업로드/저장은 다음 구현 단계다.
 
 ## Cloudflare 준비 진행
 
 - 사용자가 공유한 기존 주소: https://pp6-workshop.grace-jean-p.workers.dev/
-- 2026-09-28 Cloudflare `Settings → General → Name`에서 기존 Worker `pp6-workshop`을 `yebaeon`으로 변경하고 `Deploy`로 저장했다. 이름 변경 완료 안내와 새 주소 https://yebaeon.grace-jean-p.workers.dev/ 를 확인했다. `DB`·`FILES` 연결도 유지되었다. Cloudflare 안내상 새 주소의 요청 수신까지 몇 분 걸릴 수 있다. 이번 작업은 이름 변경이며 웹 편집기 코드 배포는 아직 하지 않았다.
+- 2026-09-28 기존 Worker `pp6-workshop`을 `yebaeon`으로 변경했다. 2026-09-29 웹 편집기를 https://yebaeon.grace-jean-p.workers.dev/ 에 배포했다. `DB`·`FILES` 연결을 유지하며, 이 단계에서는 실제 자료를 읽거나 쓰지 않는다.
 - 전체 프로젝트는 **예배온(YebaeOn)**, 웹은 **예배온 Studio**, Mac은 **예배온 Sync**로 확정했다. GitHub 저장소도 `yebaeon`을 사용한다. [브랜드 기준과 변경 범위](BRANDING.md).
 - 안내한 R2 저장소 이름: `pp6-library-files`, Worker 연결 변수 이름: `FILES`.
 - 안내한 D1 DB 이름: `pp6-library-db`, Worker 연결 변수 이름: `DB`.
 - 사용자가 5단계까지 완료했다고 알렸고, Production Bindings 첨부 화면에서 `DB` → `pp6-library-db`, `FILES` → `pp6-library-files` 연결을 확인했다. DB ID는 `9f78130a-64d2-4fcd-baa6-e5fefca2f5d4`다. 연결 정보는 [Wrangler 설정 조각](cloudflare/wrangler.bindings.jsonc)에 기록했다. 실제 코드에서 DB/R2를 읽고 쓰는 검증은 아직 하지 않았다.
-- GitHub 비공개 저장소 [m1r4d0r/yebaeon](https://github.com/m1r4d0r/yebaeon)을 생성했고 로컬 Git의 `origin`으로 연결했다. 기본 브랜치는 `main`이며 소스·문서·안내용 예제만 관리한다. Cloudflare의 GitHub 자동 배포 연결은 아직 하지 않았다. 실제 문서·미디어의 서비스 저장 위치는 R2다. 연결 정보를 기록한 파일은 전체 배포 설정이 아니며, Worker 진입점·선별한 앱 파일을 포함하는 구성은 아직 준비 중이다.
-- 이 환경의 웹 조회는 주소 접근에 실패했고, 별도 HTTPS 읽기도 TLS HandshakeFailure로 실패했다. 실제 사용자 브라우저의 표시 상태나 서버 설정 문제로 단정하지 않는다.
+- GitHub 비공개 저장소 [m1r4d0r/yebaeon](https://github.com/m1r4d0r/yebaeon)의 `main`에서 앱·배포 파일을 변경하면 GitHub Actions가 검사 후 배포한다. 기존 Cloudflare GitHub 앱 연결은 변경하지 않았다. 실제 문서·미디어의 서비스 저장 위치는 R2로 계획한다. [배포 구성과 검증 기록](cloudflare/README.md), [전체 Wrangler 설정](wrangler.jsonc).
+- 실제 HTTPS 사이트 응답과 예제 편집·슬라이드 복사·ZIP 저장을 확인했다. 첫 배포와 후속 변경 배포가 모두 성공했다. ZIP의 무결성, XML 파싱, 복사 후 4장 구성을 확인했다. PP6에서의 실제 호환성은 교회 Mac에서 검증한다.
 - GitHub 업로드 준비 중 안내용 `sample-demo.js`를 기본 예제로 연결했다. 실제 교회 샘플 `sample-data.js`와 테스트 출력물은 로컬에 보존하고 Git에서 제외한다. 로컬 `web-editor/` 폴더 전체를 공개 정적 파일로 배포하지 않으며, 배포 때 추적 중인 앱 파일만 선별한다. 교회 원본은 로그인 후 접근하는 저장소에 업로드한다.
 
 ## 1. 저장 범위
@@ -71,7 +71,7 @@ R2 저장료만 계산하면 월 내내 10GB는 $0, 50GB는 약 $0.60, 100GB는 
 
 ### 추가 비교: 다른 서비스와 계정 분리
 
-사용자는 Cloudflare에서 사이트 두 개를 운영 중이며, 이번 프로젝트는 다른 계정으로 만들 생각이라고 밝혔다. 익숙한 서비스에 한정하지 않고 대안을 비교해도 된다는 요청에 따라 다음을 추가 검토했다. 계정 생성이나 배포는 아직 진행하지 않았다.
+사용자는 Cloudflare에서 사이트 두 개를 운영 중이며, 이번 프로젝트는 다른 계정으로 만들 생각이라고 밝혔다. 익숙한 서비스에 한정하지 않고 대안을 비교해도 된다는 요청에 따라 다음을 검토했고, 이후 Cloudflare를 선택해 위 진행 기록대로 배포했다.
 
 | 대안 | 이 프로젝트에서의 판단 |
 |---|---|
@@ -90,7 +90,7 @@ R2 저장료만 계산하면 월 내내 10GB는 $0, 50GB는 약 $0.60, 100GB는 
 
 | 자료 | 제안한 보관/처리 |
 |---|---|
-| 편집기 HTML/CSS/JavaScript | Workers Static Assets. 현재 로컬 편집기를 연결한다. |
+| 편집기 HTML/CSS/JavaScript | Workers Static Assets에 배포 완료. GitHub Actions로 갱신한다. |
 | `.pro6` 원본과 편집 버전 | R2에 원본 bytes를 보존. D1에 제목·상대경로·버전·본문 검색용 정보·현재 버전 포인터를 둔다. |
 | 이미지·영상·오디오 | R2에 저장. 파일명과 원래 Mac 경로는 별도 메타데이터로 보존하고, 내용 hash로 중복을 줄인다. |
 | 성경 자료 | R2에 원본 보관. 형식 확인 후 번역본/권/장/절을 기준으로 D1 또는 장별 데이터로 가져온다. 검색·구절 선택·슬라이드 생성은 별도 구현한다. |

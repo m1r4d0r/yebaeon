@@ -16,12 +16,20 @@
 
 `.github/workflows/deploy.yml`이 `main`의 앱·배포 파일 변경을 감지한다. 의존성 설치 → 검사 → 허용한 정적 파일 구성 → 기존 `yebaeon` Worker에 배포한다. 문서만 수정하면 자동 배포하지 않는다. GitHub의 Actions에서 수동 실행도 가능하다.
 
-GitHub 저장소 Actions secrets에 다음 두 값을 등록한다. 토큰 원문은 소스·문서·로그에 기록하지 않는다.
+GitHub 저장소 Actions secrets에 다음 두 값을 등록했다. 토큰 원문은 소스·문서·로그에 기록하지 않는다.
 
 - `CLOUDFLARE_ACCOUNT_ID`: 예배온 Worker가 있는 계정.
 - `CLOUDFLARE_API_TOKEN`: 해당 계정의 `Workers Scripts:Edit` 권한으로 만든 `YebaeOn GitHub Actions Deploy` 토큰.
 
 Cloudflare의 기존 GitHub 앱 설치를 해제하거나 다른 사이트의 연결을 바꾸지 않기 위해 저장소의 GitHub Actions에서 배포한다.
+
+## 배포 확인 — 2026-09-29
+
+- [최신 앱 배포 성공](https://github.com/m1r4d0r/yebaeon/actions/runs/36443290192): `8393664`, 검사와 배포 완료. 최초 배포와 후속 변경 배포를 모두 확인했다.
+- `/`와 `/api/health`는 200으로 응답한다. 편집기 응답에 보안 헤더가 적용된다.
+- `/sample-data.js`, `/test-output/edited-package.zip`, `/wrangler.jsonc`, `/_headers`는 404다.
+- 공개 사이트에서 예제 텍스트 수정, 슬라이드 복사(3장 → 4장), ZIP 저장을 확인했다. 내려받은 ZIP의 CRC 무결성, XML 파싱, 4장 구성과 고유 UUID, 수정·복사한 장의 본문 보존을 확인했다. 교회 Mac의 PP6 실기 호환성 검증은 남아 있다.
+- 원본 자료 업로드, 로그인, DB/R2 읽기·쓰기 API는 아직 구현하지 않았다.
 
 ## 집 Windows 개발
 

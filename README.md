@@ -14,7 +14,7 @@ GitHub에는 소스·문서와 안내용 웹 예제 3장만 포함한다. 실제
 
 ## 웹 배포
 
-사이트 주소는 https://yebaeon.grace-jean-p.workers.dev/ 이다. 루트 `wrangler.jsonc`와 GitHub Actions로 기존 Worker에 배포한다. 앱 파일 9개와 응답 헤더만 선별하며, 원본 자료는 공개하지 않는다. 로그인·클라우드 자료 저장 기능은 아직 없다. [배포 구성과 실행 방법](cloudflare/README.md).
+사이트 주소는 https://yebaeon.grace-jean-p.workers.dev/ 이다. 2026-09-29 최초 배포와 후속 자동 배포를 확인했다. 루트 `wrangler.jsonc`와 GitHub Actions를 사용하며, `main`의 앱·배포 파일 변경이 사이트에 반영된다. 앱 파일 9개와 응답 헤더만 선별하며, 원본 자료는 공개하지 않는다. 로그인·클라우드 자료 저장 기능은 아직 없다. [배포 구성과 실행 방법](cloudflare/README.md).
 
 집 Windows에서 Node.js 24를 사용해 `npm ci`, `npm test`, `npm run deploy:check`로 준비 상태를 검사할 수 있다. 교회 High Sierra에서는 기존 Mac 도구를 사용한다.
 
@@ -230,7 +230,7 @@ python pp6-doc-compare-ref.py OLD.pro6 NEW.pro6 -o diff.json
 - `.pro6` source path rewrite
 - 문서 삭제
 - Playlist + Document 트랜잭션 통합
-- 서버 연결 (다음 단계에서 웹 편집기와 병행)
+- 클라우드 라이브러리 저장·동기화 (편집기 호스팅은 완료, 자료 API는 다음 단계)
 
 위험한 write 기능은 Index/Compare/Thumbnail 결과를 집에서 먼저 확인한 뒤 붙인다.
 
