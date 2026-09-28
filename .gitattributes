@@ -1,0 +1,12 @@
+* text=auto
+*.command text eol=lf
+*.sh text eol=lf
+*.js text eol=lf
+*.cjs text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.m text eol=lf
+*.h text eol=lf
+*.jsonc text eol=lf

@@ -1,0 +1,13 @@
+/* CDN files only; document text is never placed in a font request.
+   Sources and licensing: FONT-SOURCES.md. */
+@font-face{font-family:"PP6 Arita Buri";font-style:normal;font-weight:100;font-display:swap;src:url("https://cdn.jsdelivr.net/npm/@bepyan/arita@1.0.1/dist/static/woff2/AritaBuriKR-HairLine.woff2") format("woff2")}
+@font-face{font-family:"PP6 Arita Buri";font-style:normal;font-weight:300;font-display:swap;src:url("https://cdn.jsdelivr.net/npm/@bepyan/arita@1.0.1/dist/static/woff2/AritaBuriKR-Light.woff2") format("woff2")}
+@font-face{font-family:"PP6 Arita Buri";font-style:normal;font-weight:500;font-display:swap;src:url("https://cdn.jsdelivr.net/npm/@bepyan/arita@1.0.1/dist/static/woff2/AritaBuriKR-Medium.woff2") format("woff2")}
+@font-face{font-family:"PP6 Arita Buri";font-style:normal;font-weight:600;font-display:swap;src:url("https://cdn.jsdelivr.net/npm/@bepyan/arita@1.0.1/dist/static/woff2/AritaBuriKR-SemiBold.woff2") format("woff2")}
+@font-face{font-family:"PP6 Arita Buri";font-style:normal;font-weight:700;font-display:swap;src:url("https://cdn.jsdelivr.net/npm/@bepyan/arita@1.0.1/dist/static/woff2/AritaBuriKR-Bold.woff2") format("woff2")}
+@font-face{font-family:"PP6 Nanum Gothic";font-style:normal;font-weight:400;font-display:swap;src:url("https://fonts.gstatic.com/s/nanumgothic/v26/PN_3Rfi-oW3hYwmKDpxS7F_D-djb.ttf") format("truetype")}
+@font-face{font-family:"PP6 Nanum Gothic";font-style:normal;font-weight:700;font-display:swap;src:url("https://fonts.gstatic.com/s/nanumgothic/v26/PN_oRfi-oW3hYwmKDpxS7F_LQv3LyVsj.ttf") format("truetype")}
+@font-face{font-family:"PP6 Nanum Gothic";font-style:normal;font-weight:800;font-display:swap;src:url("https://fonts.gstatic.com/s/nanumgothic/v26/PN_oRfi-oW3hYwmKDpxS7F_LXv7LyVsj.ttf") format("truetype")}
+@font-face{font-family:"PP6 Nanum Myeongjo";font-style:normal;font-weight:400;font-display:swap;src:url("https://fonts.gstatic.com/s/nanummyeongjo/v31/9Btx3DZF0dXLMZlywRbVRNhxy2LscnA.ttf") format("truetype")}
+@font-face{font-family:"PP6 Nanum Myeongjo";font-style:normal;font-weight:700;font-display:swap;src:url("https://fonts.gstatic.com/s/nanummyeongjo/v31/9Bty3DZF0dXLMZlywRbVRNhxy2pXV2Azr_Q.ttf") format("truetype")}
+@font-face{font-family:"PP6 Nanum Myeongjo";font-style:normal;font-weight:800;font-display:swap;src:url("https://fonts.gstatic.com/s/nanummyeongjo/v31/9Bty3DZF0dXLMZlywRbVRNhxy2pLVGAzr_Q.ttf") format("truetype")}

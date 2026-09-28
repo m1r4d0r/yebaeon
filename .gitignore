@@ -1,0 +1,38 @@
+# Local church documents, media, inventories and embedded real sample.
+/test-pair/
+/web-editor/sample-data.js
+/web-editor/test-output/
+/PP6-Original-Source-Assets/
+*.pro6
+*.pro6pl
+*.zip
+*.mov
+*.mp4
+*.mp3
+*.psd
+
+# Credentials and local tooling.
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.pem
+*.key
+node_modules/
+.wrangler/
+.codex/
+.agents/
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+
+# Native build products and local reports.
+/pp6-indexer
+/pp6-doc-compare
+/pp6-thumbnail
+/my-diff.json
+/pp6-index*.json
+/pp6-document-diff*.json
+/github-upload-audit.json

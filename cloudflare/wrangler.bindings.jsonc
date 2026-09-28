@@ -1,0 +1,20 @@
+// 2026-09-28: 사용자가 제공한 Cloudflare Production Bindings 화면에서 확인.
+// 전체 배포 설정에 합칠 연결 정보입니다. 이 파일만으로 배포하지 않습니다.
+// 편집기 배포 시 Worker 진입점과 선별한 정적 파일 경로를 함께 구성합니다.
+// 2026-09-28: Cloudflare에서 pp6-workshop → yebaeon 이름 변경 완료 및 기존 연결 유지 확인.
+{
+  "name": "yebaeon",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pp6-library-db",
+      "database_id": "9f78130a-64d2-4fcd-baa6-e5fefca2f5d4"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "pp6-library-files"
+    }
+  ]
+}

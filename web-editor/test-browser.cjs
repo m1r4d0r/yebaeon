@@ -1,0 +1,106 @@
+// Run with Node and Playwright installed; outputs stay in test-output/.
+const syncFs = require('node:fs');
+const fixturePath = require('node:path').join(__dirname,'../test-pair/update/documents/토요일.pro6');
+if (!syncFs.existsSync(fixturePath)) {
+  console.log('SKIP: local church fixture is not included in GitHub. See web-editor/README.md.');
+  process.exit(0);
+}
+const { chromium } = require('playwright');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const {pathToFileURL} = require('node:url');
+
+(async () => {
+  const out=path.join(__dirname,'test-output');await fs.mkdir(out,{recursive:true});
+  const browser=await chromium.launch({channel:process.env.PP6_BROWSER_CHANNEL || 'msedge',headless:true});
+  try {
+    const page=await browser.newPage({viewport:{width:1512,height:1040}});
+    const errors=[],remote=[];
+    const fontCSS=await fs.readFile(path.join(__dirname,'fonts.css'),'utf8');
+    const allowedFonts=new Set([...fontCSS.matchAll(/url\("(https:[^"]+)"\)/g)].map(m=>m[1]));
+    page.on('pageerror',error=>errors.push(error.message));
+    page.on('request',r=>{if(/^https?:/.test(r.url()))remote.push({url:r.url(),method:r.method(),body:r.postData()});});
+    await page.goto(pathToFileURL(path.join(__dirname,'index.html')).href);
+    await page.waitForFunction(()=>document.querySelectorAll('.slide-row').length===3);
+    await page.locator('#documentFile').setInputFiles(fixturePath);
+    await page.waitForFunction(()=>document.querySelectorAll('.slide-row').length===37);
+    assert.equal(await page.locator('#slideCount').textContent(),'37장');
+    await page.waitForFunction(()=>PP6Fonts.state().length>=3 && PP6Fonts.state().every(f=>f.status==='loaded'),{},{timeout:45000});
+    const fontStates=await page.evaluate(()=>PP6Fonts.state());
+    assert.deepEqual([...new Set(fontStates.map(f=>f.family))].sort(),['PP6 Arita Buri','PP6 Nanum Gothic','PP6 Nanum Myeongjo'].sort());
+    const fixtures=await page.evaluate(async(xml)=>{
+      const p=PP6,model=p.parse(xml,'토요일.pro6');
+      const newDoc=p.slides(model);
+      const text=p.parseRTF(p.textNode(p.textElements(newDoc[1])[0]).textContent).text;
+      const unicode='한글 😀 {괄호} \\ 텍스트\n다음 줄';
+      const rtf=p.textRTF(unicode,{font:'Arial',size:90,color:'rgb(255,255,255)',align:'center',bold:true});
+      const roundtrip=p.parseRTF(rtf).text;
+      const originalXML=p.serialize(model);
+      const canvas=document.createElement('canvas');canvas.width=960;canvas.height=540;
+      await PP6Render.draw(canvas,model,newDoc[1],new Map());
+      const fontNamesPreserved=originalXML===p.serialize(model);
+      const mapping=PP6Fonts.resolve({font:'NanumMyeongjoOTF-YetHangul',bold:false});
+      const ctx=canvas.getContext('2d');ctx.font=PP6Fonts.css({font:'Arita-buri-Medium_OTF',size:90,bold:true});const aritaWidth=ctx.measureText('예수께서 큰 소리를 지르시고').width;
+      ctx.font='bold 90px sans-serif';const fallbackWidth=ctx.measureText('예수께서 큰 소리를 지르시고').width;
+      return {text,unicode,roundtrip,groups:p.all(model.doc,'RVSlideGrouping').length,slides:newDoc.length,fontNamesPreserved,mapping,aritaWidth,fallbackWidth};
+    }, await fs.readFile(fixturePath,'utf8'));
+    assert.equal(fixtures.groups,5);assert.equal(fixtures.slides,37);assert.equal(fixtures.text,'예수께서 큰 소리를 지르시고 \n숨지시니라');assert.equal(fixtures.roundtrip,fixtures.unicode);
+    assert.equal(fixtures.fontNamesPreserved,true);assert.match(fixtures.mapping.note,/옛한글/);assert.notEqual(fixtures.aritaWidth,fixtures.fallbackWidth);
+    await page.locator('.slide-row[data-index="1"]').click();
+    await page.waitForFunction(()=>!document.getElementById('png').disabled);
+    await page.screenshot({path:path.join(out,'editor-before.png'),fullPage:true});
+    const originalText='예수께서 큰 소리를 지르시고 \n숨지시니라';
+    const edited='집에서 편집한 한글 😀\n교회에서 최종 확인';
+    await page.locator('textarea[data-text-index="0"]').fill(edited);
+    assert.equal(await page.locator('textarea[data-text-index="0"]').inputValue(),edited);
+    await page.locator('#undo').click();
+    assert.equal(await page.locator('textarea[data-text-index="0"]').inputValue(),originalText);
+    await page.locator('textarea[data-text-index="0"]').fill(edited);
+    await page.locator('#duplicate').click();assert.equal(await page.locator('#slideCount').textContent(),'38장');
+    assert.equal(await page.locator('textarea[data-text-index="0"]').inputValue(),edited);
+    await page.locator('#before').click();assert.equal(await page.locator('#slidePosition').textContent(),'2 / 38');
+    await page.locator('#after').click();assert.equal(await page.locator('#slidePosition').textContent(),'3 / 38');
+    await page.locator('#add').click();assert.equal(await page.locator('#slideCount').textContent(),'39장');
+    assert.equal(await page.locator('textarea[data-text-index="0"]').inputValue(),'');
+    await page.locator('textarea[data-text-index="0"]').fill('새 슬라이드');
+    await page.locator('#group').selectOption('4');
+    assert.equal(await page.locator('#slidePosition').textContent(),'39 / 39');
+    await page.locator('#delete').click();assert.equal(await page.locator('#slideCount').textContent(),'38장');
+    await page.locator('#undo').click();assert.equal(await page.locator('#slideCount').textContent(),'39장');
+    const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=64;c.height=36;const x=c.getContext('2d');x.fillStyle='#176859';x.fillRect(0,0,64,36);return c.toDataURL('image/png').split(',')[1];});
+    const mediaPath=path.join(out,'test-background.png');await fs.writeFile(mediaPath,Buffer.from(png,'base64'));
+    await page.locator('#mediaTarget').selectOption('new');
+    await page.locator('#replacementFile').setInputFiles(mediaPath);
+    await page.waitForFunction(()=>document.getElementById('status').textContent.includes('으로 교체했습니다'));
+    await page.waitForFunction(()=>!document.getElementById('png').disabled);
+    const pngDownload=page.waitForEvent('download');await page.locator('#png').click();await (await pngDownload).saveAs(path.join(out,'preview.png'));
+    const zipDownload=page.waitForEvent('download');await page.locator('#export').click();await (await zipDownload).saveAs(path.join(out,'edited-package.zip'));
+    await page.waitForFunction(()=>document.getElementById('status').textContent.includes('ZIP을 저장했습니다'));
+    await page.screenshot({path:path.join(out,'editor-after.png'),fullPage:true});
+    // Invalid input must leave the current work intact.
+    await page.locator('#documentFile').setInputFiles({name:'invalid.pro6',mimeType:'application/xml',buffer:Buffer.from('<wrong/>')});
+    await page.waitForFunction(()=>document.getElementById('status').textContent.includes('올바른 PP6'));
+    assert.equal(await page.locator('#slideCount').textContent(),'39장');
+    await page.setViewportSize({width:390,height:844});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    await page.screenshot({path:path.join(out,'editor-mobile.png'),fullPage:true});
+    assert.deepEqual(errors,[]);assert.ok(remote.length>=3);
+    assert.ok(remote.every(r=>allowedFonts.has(r.url) && r.method==='GET' && r.body===null),'Only fixed public font URLs may be requested.');
+    const offlineContext=await browser.newContext({offline:true,viewport:{width:1512,height:1040}});
+    const offline=await offlineContext.newPage();const offlineErrors=[];offline.on('pageerror',e=>offlineErrors.push(e.message));
+    await offline.goto(pathToFileURL(path.join(__dirname,'index.html')).href);
+    await offline.waitForFunction(()=>document.querySelectorAll('.slide-row').length===3);
+    await offline.locator('#documentFile').setInputFiles(fixturePath);
+    await offline.locator('.slide-row[data-index="1"]').click();
+    await offline.waitForFunction(()=>PP6Fonts.state().length>=3 && PP6Fonts.state().every(f=>f.status==='error'));
+    await offline.waitForFunction(()=>!document.getElementById('png').disabled);
+    assert.match(await offline.locator('#warnings').textContent(),/웹폰트를 불러오지 못해/);
+    assert.match(await offline.locator('#fonts').textContent(),/연결 실패/);
+    await offline.locator('textarea[data-text-index="0"]').fill('오프라인 편집도 가능');
+    assert.equal(await offline.locator('textarea[data-text-index="0"]').inputValue(),'오프라인 편집도 가능');
+    assert.deepEqual(offlineErrors,[]);await offlineContext.close();
+    await fs.writeFile(path.join(out,'browser-results.json'),JSON.stringify({passed:true,fixtures,fontStates,tests:['sample read','CP949 and Unicode RTF','edit/undo','duplicate/add/delete/undo','order/group move','image replacement','PNG export','ZIP export','invalid document retention','mobile layout','three CDN fonts loaded','real font metrics','original RTF preserved','only fixed font requests','offline fallback and editing'],errors,remote},null,2));
+    console.log('PASS: editor regression, three CDN fonts, font metrics, original RTF preservation and offline fallback. Results in web-editor/test-output.');
+  } finally {await browser.close();}
+})().catch(error=>{console.error(error);process.exitCode=1;});
