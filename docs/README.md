@@ -8,7 +8,9 @@
 - [집에서 확인할 것과 교회 검증 절차](HOME-CHECK.md)
 - [오프라인 업데이트 패키지 명세](UPDATE-PACKAGE-SPEC.md)
 - [웹 편집기 사용법](../web-editor/README.md)
-- [Mac 빌드와 실행](../mac-sync/README.md)
+- [통합 Mac 앱 사용과 빌드](../mac-app/README.md)
+- [통합 개발 묶음과 인수인계](INTEGRATION-HANDOFF.md)
+- [Mac 송수신 엔진과 개별 도구](../mac-sync/README.md)
 - [배포 구성과 검증 기록](../cloudflare/README.md)
 
 ## 과거 검토 기록

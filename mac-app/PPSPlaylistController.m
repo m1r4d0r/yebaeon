@@ -3,8 +3,6 @@
 #import "YBPlaylistIO.h"
 #import "../mac-sync/YBSync.h"
 
-static NSString * const kAppName = @"YebaeOn Sync";
-
 @interface PPSRowView : NSTableCellView
 @end
 @implementation PPSRowView

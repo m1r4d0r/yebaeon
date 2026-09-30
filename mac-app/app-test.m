@@ -27,7 +27,14 @@ static NSData *Document(NSArray *sources) {
     NSUInteger i=0;for(NSString *source in sources)[xml appendFormat:@"<RVDisplaySlide UUID=\"slide-%lu\"><RVMediaCue rvXMLIvarName=\"backgroundMediaCue\"><RVImageElement source=\"%@\"/></RVMediaCue></RVDisplaySlide>",(unsigned long)++i,source];
     [xml appendString:@"</RVSlideGrouping></RVPresentationDocument>"];return [xml dataUsingEncoding:NSUTF8StringEncoding];
 }
-static void Render(NSView *view,NSString *name) {
+@interface YBTestPanel : NSView
+@end
+@implementation YBTestPanel
+- (void)drawRect:(NSRect)rect {[NSColor.windowBackgroundColor setFill];NSRectFill(rect);}
+@end
+static void Render(NSView *content,NSString *name) {
+    // A standalone panel is transparent; include the same background supplied by the app window.
+    NSView *view=[[YBTestPanel alloc] initWithFrame:content.bounds];[view addSubview:content];
     NSWindow *window=[[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,1060,720) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];window.releasedWhenClosed=NO;window.appearance=[NSAppearance appearanceNamed:NSAppearanceNameAqua];window.contentView=view;[window makeKeyAndOrderFront:nil];[view layoutSubtreeIfNeeded];
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.15]];
     NSBitmapImageRep *bitmap=[view bitmapImageRepForCachingDisplayInRect:view.bounds];[view cacheDisplayInRect:view.bounds toBitmapImageRep:bitmap];NSData *png=[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
@@ -62,6 +69,18 @@ int main(void) {@autoreleasepool {
         Reject(^{YBValidatePlaylist([@"<RVPlaylistDocument><bad></RVPlaylistDocument>" dataUsingEncoding:NSUTF8StringEncoding]);},@"invalid XML blocked");
         NSString *link=[area stringByAppendingPathComponent:@"documents/link.pro6pl"];Check(symlink(url.fileSystemRepresentation,link.fileSystemRepresentation)==0,@"symlink fixture");Reject(^{YBReadPlaylist([NSURL fileURLWithPath:link]);},@"playlist symlink protected");
         [playlist setValue:@"예제 운영 파일 · dummy_old.pro6pl" forKeyPath:@"localPathLabel.stringValue"];[playlist setValue:@"예제 최신 파일 · dummy_new.pro6pl" forKeyPath:@"incomingPathLabel.stringValue"];Render(playlist.view,@"playlist");
+        NSString *wrapped=@"<RVPlaylistDocument><RVPlaylistNode UUID=\"ROOT\"><array rvXMLIvarName=\"children\"><RVPlaylistNode UUID=\"A\" displayName=\"예배 A\"><array rvXMLIvarName=\"children\"><RVDocumentCue UUID=\"C\" displayName=\"말씀\" filePath=\"/Library/PP6/sermon.pro6\" selectedArrangementID=\"first\"/></array></RVPlaylistNode><RVPlaylistNode UUID=\"B\" displayName=\"예배 B\"><array rvXMLIvarName=\"children\"/></RVPlaylistNode></array></RVPlaylistNode><array rvXMLIvarName=\"deletions\"/></RVPlaylistDocument>";
+        YBValidatePlaylist([wrapped dataUsingEncoding:NSUTF8StringEncoding]);
+        NSString *wrappedNew=[wrapped stringByReplacingOccurrencesOfString:@"selectedArrangementID=\"first\"" withString:@"selectedArrangementID=\"second\""];
+        [playlist setValue:wrapped forKey:@"localXML"];[playlist setValue:wrappedNew forKey:@"incomingXML"];[playlist compareIfReady];
+        NSArray *wrappedReviews=[playlist valueForKey:@"reviews"];
+        Check(wrappedReviews.count==1 && [wrappedReviews[0][@"modified"] isEqual:@1],@"real PP6 array structure and cue settings without contentHash");
+        NSString *wrappedApplied=[playlist replacingSelectedNodesIn:wrapped];YBValidatePlaylist([wrappedApplied dataUsingEncoding:NSUTF8StringEncoding]);
+        Check([wrappedApplied isEqual:wrappedNew],@"wrapped playlist replacement preserves outer arrays and unselected node");
+        NSString *duplicate=[wrapped stringByReplacingOccurrencesOfString:@"UUID=\"B\"" withString:@"UUID=\"A\""];
+        Reject(^{YBValidatePlaylist([duplicate dataUsingEncoding:NSUTF8StringEncoding]);},@"duplicate UUID in real PP6 array wrapper blocked");
+        NSString *duplicateName=@"<RVPlaylistDocument><RVPlaylistNode><array><RVPlaylistNode displayName=\"same\"/><RVPlaylistNode displayName=\"same\"/></array></RVPlaylistNode></RVPlaylistDocument>";
+        Reject(^{YBValidatePlaylist([duplicateName dataUsingEncoding:NSUTF8StringEncoding]);},@"ambiguous fallback name blocked");
         NSString *documents=[area stringByAppendingPathComponent:@"media-documents"],*media=[area stringByAppendingPathComponent:@"media"];
         NSData *image=[@"synthetic-media" dataUsingEncoding:NSUTF8StringEncoding];Put([media stringByAppendingPathComponent:@"exact.jpg"],image);Put([media stringByAppendingPathComponent:@"moved.jpg"],image);Put([media stringByAppendingPathComponent:@"a/duplicate.jpg"],image);Put([media stringByAppendingPathComponent:@"b/duplicate.jpg"],image);
         NSArray *sources=@[[NSURL fileURLWithPath:[media stringByAppendingPathComponent:@"exact.jpg"]].absoluteString,@"file:///missing/moved.jpg",@"file:///missing/duplicate.jpg",@"file:///missing/absent.jpg"];

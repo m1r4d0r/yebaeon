@@ -10,7 +10,7 @@ void YBValidatePlaylist(NSData *data) {
     NSXMLDocument *xml=[[NSXMLDocument alloc] initWithData:data options:NSXMLNodeLoadExternalEntitiesNever error:NULL];
     YBRequire([xml.rootElement.name isEqual:@"RVPlaylistDocument"],@"올바른 PP6 재생목록 XML이 아닙니다.");
     NSMutableSet *keys=[NSMutableSet set];
-    for(NSXMLElement *node in [xml nodesForXPath:@"/RVPlaylistDocument/RVPlaylistNode/RVPlaylistNode" error:NULL]) {
+    for(NSXMLElement *node in [xml nodesForXPath:@"/RVPlaylistDocument/RVPlaylistNode/RVPlaylistNode | /RVPlaylistDocument/RVPlaylistNode/array/RVPlaylistNode" error:NULL]) {
         NSString *key=[node attributeForName:@"UUID"].stringValue;
         if(!key.length)key=[node attributeForName:@"displayName"].stringValue;
         YBRequire(key.length && ![keys containsObject:key],@"구분할 수 없는 중복 재생목록이 있습니다."); [keys addObject:key];
