@@ -37,17 +37,21 @@ test('health check is read-only; unimplemented API paths never serve the editor'
   });
   const health = await worker.fetch(new Request('https://example.test/api/health'), env);
   assert.equal(health.status, 200);
-  assert.equal((await health.json()).mode, 'local-editor');
+  assert.equal((await health.json()).mode, 'document-library');
   assert.equal(health.headers.get('Cache-Control'), 'no-store');
+  const setup = await worker.fetch(new Request('https://example.test/api/session'), env);
+  assert.deepEqual(await setup.json(), { authenticated: false, ready: false });
+  const locked = await worker.fetch(new Request('https://example.test/api/documents'), env);
+  assert.equal(locked.status, 503);
   const head = await worker.fetch(new Request('https://example.test/api/health', { method: 'HEAD' }), env);
   assert.equal(await head.text(), '');
   const post = await worker.fetch(new Request('https://example.test/api/health', { method: 'POST' }), env);
   assert.equal(post.status, 405);
   assert.equal(post.headers.get('Allow'), 'GET, HEAD');
-  for (const path of ['/api', '/api/documents', '/api/files/private.pro6']) {
+  for (const path of ['/api', '/api/files/private.pro6']) {
     const response = await worker.fetch(new Request('https://example.test' + path), env);
     assert.equal(response.status, 404);
-    assert.deepEqual(await response.json(), { error: 'not_found' });
+    assert.equal((await response.json()).error, 'not_found');
   }
 });
 

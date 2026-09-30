@@ -1,0 +1,138 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import test from 'node:test';
+import { build } from 'esbuild';
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
+
+const origin = 'https://example.test';
+const password = 'test-only-password';
+const xml = text => `<?xml version="1.0" encoding="UTF-8"?><RVPresentationDocument versionNumber="600"><title>${text}</title></RVPresentationDocument>`;
+const hash = text => createHash('sha256').update(text).digest('hex');
+
+test('private document library with real Worker, D1 and R2 bindings', { timeout: 90000 }, async t => {
+  const bundled = await build({ entryPoints: ['cloudflare/worker.mjs'], bundle: true, write: false, format: 'esm', platform: 'browser' });
+  const options = { modules: true, script: bundled.outputFiles[0].text, compatibilityDate: '2026-09-28', bindings: { SITE_PASSWORD: password }, d1Databases: ['DB'], r2Buckets: ['FILES'], cf: false };
+  const mf = new Miniflare(convertV4MiniflareOptions(options));
+  t.after(() => mf.dispose());
+  const db = await mf.getD1Database('DB');
+  const bucket = await mf.getR2Bucket('FILES');
+  const call = (path, { cookie, method = 'GET', body, headers = {} } = {}) => mf.dispatchFetch(origin + '/api' + path, {
+    method, body, headers: { ...(method !== 'GET' && method !== 'HEAD' ? { Origin: origin } : {}), ...(cookie ? { Cookie: cookie } : {}), ...headers }
+  });
+  const signIn = (name = '은혜', extra = {}) => call('/session', { method: 'POST', body: JSON.stringify({ name, password, remember: true, ...extra }), headers: { 'Content-Type': 'application/json' } });
+  const code = async (response, status, expected) => { assert.equal(response.status, status, await response.clone().text()); if (expected) assert.equal((await response.json()).error, expected); };
+  let cookie, id;
+
+  await t.test('private reads and writes require a session; unknown API stays JSON', async () => {
+    for (const path of ['/documents', '/documents/11111111-1111-4111-a111-111111111111/content', '/documents/11111111-1111-4111-a111-111111111111/versions']) {
+      await code(await call(path), 401, 'login_required');
+    }
+    await code(await call('/documents?path=private.pro6', { method: 'POST', body: xml('private') }), 401);
+    await code(await call('/unknown'), 404, 'not_found');
+    assert.deepEqual(await (await call('/session')).json(), { authenticated: false, ready: true });
+  });
+  await t.test('origin, input validation and incorrect passwords', async () => {
+    await code(await call('/session', { method: 'POST', body: '{}', headers: { Origin: 'https://attacker.test', 'Content-Type': 'application/json' } }), 403, 'origin_required');
+    await code(await call('/session', { method: 'POST', body: '{}', headers: { Origin: '', 'Content-Type': 'application/json' } }), 403);
+    await code(await signIn('', {}), 400, 'invalid_name');
+    await code(await signIn('은혜', { password: '' }), 400);
+    await code(await signIn('은혜', { password: 'incorrect' }), 401, 'wrong_password');
+    const result = await signIn(); await code(result, 200);
+    const setCookie = result.headers.get('Set-Cookie');
+    assert.match(setCookie, /__Host-yebaeon=/); assert.match(setCookie, /Secure; HttpOnly; SameSite=Strict; Max-Age=2592000/);
+    cookie = setCookie.split(';')[0];
+    const state = await (await call('/session', { cookie })).json();
+    assert.equal(state.name, '은혜'); assert.equal(state.authenticated, true);
+    assert.equal((await call('/documents', { cookie })).headers.get('Cache-Control'), 'no-store');
+    await code(await call('/documents', { cookie: cookie.slice(0, -1) + (cookie.endsWith('a') ? 'b' : 'a') }), 401);
+    const sessionRow = await db.prepare('SELECT * FROM yebaeon_sessions').first();
+    assert.equal(sessionRow.id.length, 64); assert.ok(!cookie.includes(sessionRow.id));
+  });
+  await t.test('upload rejects unsafe paths, malformed XML and unsupported package media', async () => {
+    for (const path of ['../a.pro6', 'a/../b.pro6', '/absolute.pro6', 'a\\b.pro6', 'a//b.pro6', 'bad.txt', 'folder./b.pro6']) {
+      await code(await call('/documents?path=' + encodeURIComponent(path), { cookie, method: 'POST', body: xml('x') }), 400, 'invalid_path');
+    }
+    for (const body of ['<html></html>', '<RVPresentationDocument><a></RVPresentationDocument>', '<!DOCTYPE RVPresentationDocument [<!ENTITY x SYSTEM "file:///etc/passwd">]><RVPresentationDocument>&x;</RVPresentationDocument>']) {
+      await code(await call('/documents?path=bad.pro6', { cookie, method: 'POST', body }), 400, 'invalid_document');
+    }
+    await code(await call('/documents?path=bad.pro6', { cookie, method: 'POST', body: new Uint8Array([0xff]) }), 400, 'invalid_encoding');
+    await code(await call('/documents?path=bad.pro6', { cookie, method: 'POST', body: xml('file:///PP6-Package/media/a.jpg') }), 422, 'package_media');
+    await code(await call('/documents?path=large.pro6', { cookie, method: 'POST', body: 'x'.repeat(25 * 1024 * 1024 + 1) }), 413, 'too_large');
+    assert.equal((await bucket.list()).objects.length, 0);
+  });
+  await t.test('upload preserves bytes, folder path, author and version 1; repeats are idempotent', async () => {
+    const body = xml('한글 원본\r\n줄바꿈'), path = '주일예배/말씀.pro6';
+    const result = await call('/documents?path=' + encodeURIComponent(path), { cookie, method: 'POST', body });
+    await code(result, 201); const saved = (await result.json()).document; id = saved.id;
+    assert.equal(saved.path, path); assert.equal(saved.updatedBy, '은혜'); assert.equal(saved.version, 1); assert.equal(saved.sha256, hash(body));
+    const content = await call(`/documents/${id}/content`, { cookie });
+    assert.equal(await content.text(), body); assert.equal(content.headers.get('X-Yebaeon-SHA256'), saved.sha256);
+    assert.match(content.headers.get('Content-Disposition'), /attachment; filename\*=UTF-8''/);
+    const repeat = await call('/documents?path=' + encodeURIComponent(path), { cookie, method: 'POST', body });
+    assert.equal((await repeat.json()).unchanged, true);
+    await code(await call('/documents?path=' + encodeURIComponent(path), { cookie, method: 'POST', body: xml('other') }), 409, 'path_exists');
+    assert.equal((await bucket.list()).objects.length, 1);
+    const listing = await (await call('/documents?q=' + encodeURIComponent('말씀'), { cookie })).json();
+    assert.equal(listing.documents[0].id, id); assert.equal(listing.next, null);
+    const head = await call(`/documents/${id}/content`, { cookie, method: 'HEAD' }); assert.equal(await head.text(), '');
+  });
+  await t.test('name change affects only future saves; stale saves cannot overwrite', async () => {
+    await code(await call('/session', { cookie, method: 'PATCH', body: JSON.stringify({ name: '  지훈  ' }), headers: { 'Content-Type': 'application/json' } }), 200);
+    await code(await call(`/documents/${id}`, { cookie, method: 'PUT', body: xml('changed') }), 428, 'version_required');
+    await code(await call(`/documents/${id}`, { cookie, method: 'PUT', body: xml('changed'), headers: { 'If-Match': '"1"', Origin: 'https://attacker.test' } }), 403);
+    const saved = await call(`/documents/${id}`, { cookie, method: 'PUT', body: xml('changed'), headers: { 'If-Match': '"1"' } });
+    assert.equal((await saved.json()).document.updatedBy, '지훈');
+    await code(await call(`/documents/${id}`, { cookie, method: 'PUT', body: xml('stale'), headers: { 'If-Match': '"1"' } }), 409, 'version_conflict');
+    const unchanged = await call(`/documents/${id}`, { cookie, method: 'PUT', body: xml('changed'), headers: { 'If-Match': '"2"' } });
+    assert.equal((await unchanged.json()).unchanged, true);
+    const versions = (await (await call(`/documents/${id}/versions`, { cookie })).json()).versions;
+    assert.deepEqual(versions.map(v => [v.version, v.author]), [[2, '지훈'], [1, '은혜']]);
+    assert.equal(await (await call(`/documents/${id}/content?version=1`, { cookie })).text(), xml('한글 원본\r\n줄바꿈'));
+  });
+  await t.test('simultaneous writes have exactly one winner and retain every committed original', async () => {
+    const responses = await Promise.all(['A', 'B'].map(text => call(`/documents/${id}`, { cookie, method: 'PUT', body: xml(text), headers: { 'If-Match': '"2"' } })));
+    assert.deepEqual(responses.map(r => r.status).sort(), [200, 409]);
+    const saved = (await responses.find(r => r.status === 200).json()).document;
+    const current = await (await call(`/documents/${id}`, { cookie })).json(); assert.equal(current.document.version, 3); assert.equal(current.document.sha256, saved.sha256);
+    assert.equal(hash(await (await call(`/documents/${id}/content`, { cookie })).text()), saved.sha256);
+    assert.equal((await (await call(`/documents/${id}/versions`, { cookie })).json()).versions.length, 3);
+    assert.equal((await bucket.list()).objects.length, 3);
+  });
+  await t.test('failed version insert rolls back metadata instead of publishing an incomplete document', async () => {
+    await db.exec("CREATE TRIGGER test_fail_version BEFORE INSERT ON yebaeon_versions WHEN NEW.version = 4 BEGIN SELECT RAISE(ABORT, 'test simulated failure'); END;");
+    await code(await call(`/documents/${id}`, { cookie, method: 'PUT', body: xml('will fail'), headers: { 'If-Match': '"3"' } }), 503);
+    assert.equal((await (await call(`/documents/${id}`, { cookie })).json()).document.version, 3);
+    const versions = (await (await call(`/documents/${id}/versions`, { cookie })).json()).versions;
+    assert.equal(versions.length, 3);
+    for (const version of versions) assert.equal(hash(await (await call(`/documents/${id}/content?version=${version.version}`, { cookie })).text()), version.sha256);
+    await db.exec('DROP TRIGGER test_fail_version;');
+  });
+  await t.test('library and history pagination do not omit or repeat rows', async () => {
+    const rows = Array.from({ length: 101 }, (_, i) => db.prepare('INSERT INTO yebaeon_documents SELECT ?, ?, created_at, 1, updated_at, updated_by, sha256, size, ? FROM yebaeon_documents WHERE id = ?').bind('fixture-' + i, `pagination/${String(i).padStart(3, '0')}.pro6`, 'fixture-' + i, id));
+    await db.batch(rows);
+    const first = await (await call('/documents?q=pagination/', { cookie })).json(); assert.equal(first.documents.length, 100); assert.ok(first.next);
+    const last = await (await call('/documents?q=pagination/&after=' + encodeURIComponent(first.next), { cookie })).json(); assert.equal(last.documents.length, 1); assert.equal(last.next, null);
+    assert.equal(new Set([...first.documents, ...last.documents].map(d => d.id)).size, 101);
+    await db.batch(Array.from({ length: 51 }, (_, i) => db.prepare('INSERT INTO yebaeon_versions SELECT document_id, ?, ?, sha256, size, author, created_at FROM yebaeon_versions WHERE document_id = ? AND version = 1').bind(i + 4, 'history-fixture-' + i, id)));
+    const page = await (await call(`/documents/${id}/versions`, { cookie })).json(); assert.equal(page.versions.length, 50); assert.equal(page.next, 5);
+    const tail = await (await call(`/documents/${id}/versions?before=${page.next}`, { cookie })).json(); assert.deepEqual(tail.versions.map(v => v.version), [4, 3, 2, 1]);
+  });
+  await t.test('logout, expiration and password rotation invalidate server sessions', async () => {
+    await code(await call('/session', { cookie, method: 'DELETE' }), 200);
+    await code(await call('/documents', { cookie }), 401);
+    const sessionOnly = await signIn('은혜', { remember: false });
+    assert.ok(!sessionOnly.headers.get('Set-Cookie').includes('Max-Age'));
+    const temporaryCookie = sessionOnly.headers.get('Set-Cookie').split(';')[0];
+    await db.exec('UPDATE yebaeon_sessions SET expires_at = 0;');
+    await code(await call('/documents', { cookie: temporaryCookie }), 401);
+    const result = await signIn(); cookie = result.headers.get('Set-Cookie').split(';')[0];
+    await mf.setOptions(convertV4MiniflareOptions({ ...options, bindings: { SITE_PASSWORD: 'rotated-test-password' } }));
+    await code(await call('/documents', { cookie }), 401);
+    await mf.setOptions(convertV4MiniflareOptions(options));
+  });
+  await t.test('repeated incorrect passwords are limited', async () => {
+    await (await mf.getD1Database('DB')).exec('DELETE FROM yebaeon_login_limits;');
+    for (let i = 0; i < 8; i++) await code(await signIn('은혜', { password: 'wrong' }), 401);
+    const limited = await signIn(); await code(limited, 429, 'too_many_attempts'); assert.ok(Number(limited.headers.get('Retry-After')) > 0);
+  });
+});

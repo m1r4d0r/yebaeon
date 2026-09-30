@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   const P=window.PP6, R=window.PP6Render, $=id=>document.getElementById(id);
-  let model, selected=0, dirty=false, generation=0, busy=false;
+  let model, selected=0, dirty=false, generation=0, busy=false, editSerial=0;
   const history=[], library=new Map(), assets=new Map();
   function status(message) {$('status').textContent=message;}
   function guard(action) {return async function(...args){try{await action(...args);}catch(error){status('확인 필요: '+error.message);}};}
@@ -9,12 +9,13 @@
   function groupOf(slide){return slide.parentNode.parentNode;}
   function slideText(slide){return P.textElements(slide).map(t=>P.parseRTF(P.textNode(t)?.textContent || '').text).filter(Boolean).join(' / ');}
   function title(slide){return P.attr(slide,'label') || slideText(slide).split('\n')[0] || '빈 슬라이드';}
-  function snapshot(){history.push({xml:P.serialize(model),selected,dirty});if(history.length>40)history.shift();dirty=true;$('undo').disabled=false;}
+  function changed(){dirty=true;editSerial++;window.dispatchEvent(new Event('yebaeonchange'));}
+  function snapshot(){history.push({xml:P.serialize(model),selected,dirty});if(history.length>40)history.shift();changed();$('undo').disabled=false;}
   function open(xml,name,force=false) {
     const incoming=P.parse(xml,name);
-    if(!force && dirty && !confirm('저장하지 않은 변경이 있습니다. 다른 문서를 열까요?'))return;
+    if(!force && dirty && !confirm('저장하지 않은 변경이 있습니다. 다른 문서를 열까요?'))return false;
     model=incoming;selected=0;dirty=false;history.length=0;library.clear();assets.clear();R.clear();$('search').value='';
-    render();status(`${name} · ${P.slides(model).length}장을 열었습니다. 배경 파일을 연결하면 미디어도 확인할 수 있습니다.`);
+    editSerial++;render();status(`${name} · ${P.slides(model).length}장을 열었습니다. 배경 파일을 연결하면 미디어도 확인할 수 있습니다.`);window.dispatchEvent(new Event('yebaeonopen'));return true;
   }
   function renderList() {
     const list=$('slides');list.replaceChildren();
@@ -51,7 +52,7 @@
       const input=document.createElement('textarea');input.value=P.parseRTF(P.textNode(element)?.textContent || '').text;input.dataset.textIndex=i;
       let transaction=false;
       input.addEventListener('focus',()=>{transaction=false;});
-      input.addEventListener('input',guard(()=>{if(!transaction){snapshot();transaction=true;}P.setText(element,input.value);refreshPreviewAndList();status('텍스트를 수정했습니다. 업데이트 ZIP을 저장해 변경을 보관하세요.');}));
+      input.addEventListener('input',guard(()=>{if(!transaction){snapshot();transaction=true;}else changed();P.setText(element,input.value);refreshPreviewAndList();status('텍스트를 수정했습니다. 서버 또는 ZIP에 저장해 변경을 보관하세요.');}));
       field.append(input);$('texts').append(field);
     });
     if(!P.textElements(slide).length){const empty=document.createElement('p');empty.className='help';empty.textContent='이 슬라이드에는 텍스트 상자가 없습니다. 텍스트가 있는 슬라이드를 선택해 새 장을 추가할 수 있습니다.';$('texts').append(empty);}
@@ -163,7 +164,7 @@
   $('duplicate').onclick=guard(()=>{snapshot();const slide=P.duplicate(current());selected=P.slides(model).indexOf(slide);render();status('슬라이드를 복사했습니다. 자동 실행 단서는 복사하지 않습니다.');});
   $('before').onclick=guard(()=>move(-1));$('after').onclick=guard(()=>move(1));
   $('delete').onclick=guard(()=>{if(P.slides(model).length<=1)return;snapshot();current().remove();render();status('슬라이드를 삭제했습니다. 되돌리기로 복원할 수 있습니다.');});
-  $('undo').onclick=guard(()=>{const previous=history.pop();if(!previous)return;model=P.parse(previous.xml,model.name);selected=previous.selected;dirty=true;render();status('이전 편집으로 되돌렸습니다. 변경을 보관하려면 ZIP을 다시 저장하세요.');});
+  $('undo').onclick=guard(()=>{const previous=history.pop();if(!previous)return;model=P.parse(previous.xml,model.name);selected=previous.selected;dirty=true;editSerial++;window.dispatchEvent(new Event('yebaeonchange'));render();status('이전 편집으로 되돌렸습니다. 변경을 보관하려면 다시 저장하세요.');});
   $('linkMedia').onclick=()=>$('mediaFiles').click();$('linkFolder').onclick=()=>$('mediaFolder').click();
   for(const id of ['mediaFiles','mediaFolder'])$(id).onchange=guard(e=>{link(Array.from(e.target.files));e.target.value='';});
   $('replaceMedia').onclick=()=>$('replacementFile').click();
@@ -171,5 +172,13 @@
   $('export').onclick=guard(()=>exclusive(exportPackage));
   $('png').onclick=guard(async()=>{const canvas=document.createElement('canvas');canvas.width=1920;canvas.height=Math.round(1920*model.height/model.width);await R.draw(canvas,model,current(),library);const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('PNG 저장에 실패했습니다.');download(blob,`pp6-web-preview-${selected+1}.png`);status('근사 미리보기 PNG를 저장했습니다. PP6 실기 화면과 대조할 때 사용할 수 있습니다.');});
   window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
+  window.YebaeonEditor={
+    open,
+    state:()=>({name:model.name,serial:editSerial,dirty}),
+    document:()=>({xml:P.serialize(model),name:model.name,serial:editSerial,dirty}),
+    markSaved(serial){if(editSerial===serial)dirty=false;},
+    status,
+    hasPackageMedia:()=>P.all(model.doc,'[source]').some(el=>P.attr(el,'source').startsWith('file:///PP6-Package/'))
+  };
   open(window.PP6_SAMPLE.xml,window.PP6_SAMPLE.name,true);
 })();

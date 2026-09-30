@@ -6,7 +6,7 @@
   const examples = [
     {group:'시작', label:'예배온 Studio', text:'예배온 Studio\n예배 자료를 준비하는 공간', font:'Arita-buri-Medium_OTF', color:'0.08 0.12 0.22 1'},
     {group:'편집', label:'문서 편집 안내', text:'문서 열기로 .pro6 파일을 불러오세요\n텍스트와 슬라이드 순서를 편집할 수 있습니다', font:'NanumGothic', color:'0.08 0.20 0.20 1'},
-    {group:'저장', label:'저장 안내', text:'편집한 문서는 업데이트 ZIP으로 저장하세요\n교회에서는 PP6로 최종 확인해 주세요', font:'NanumMyeongjo', color:'0.20 0.13 0.19 1'}
+    {group:'저장', label:'저장 안내', text:'입장하면 문서를 서버에 저장할 수 있어요\n교회에서는 PP6로 최종 확인해 주세요', font:'NanumMyeongjo', color:'0.20 0.13 0.19 1'}
   ];
   const groups = examples.map((item, index) => {
     const base = index * 3 + 1;

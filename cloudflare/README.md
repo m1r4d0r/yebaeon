@@ -1,48 +1,74 @@
-# 예배온 Studio 배포
+# 예배온 Studio 서버·배포
 
 사이트: https://yebaeon.grace-jean-p.workers.dev/
 
-현재 공개 범위는 편집기와 안내용 예제 3장이다. 문서·미디어는 사용자의 브라우저에서 처리하고, 클라우드 로그인·자료 저장 API는 다음 단계로 개발한다.
+공용 비밀번호 + 작업자 이름으로 입장해 `.pro6`를 올리고, 열고, 수정·저장한다. 문서 목록과 저장 이력에 작업자 이름이 남는다. 이름은 본인 입력값이며 별도 본인 인증이나 관리자/편집자 구분은 없다. 입장한 사람은 모든 문서를 읽고 편집할 수 있다.
 
-## 구성
+## 최초 운영 설정
 
-- 배포 설정의 기준은 저장소 루트 `wrangler.jsonc`다.
-- `npm run build`는 명시한 앱 파일 9개와 응답 헤더만 `dist/`로 복사한다. 실제 자료·테스트 출력·문서는 복사하지 않는다. `dist/`에 예상하지 못한 파일이 있으면 빌드를 중단한다.
-- `cloudflare/worker.mjs`는 `/api/health` 확인만 제공한다. 다른 `/api` 요청은 404로 응답한다. 이 단계에서는 DB·R2 내용을 읽거나 변경하지 않는다.
-- 기존 `DB` → `pp6-library-db`, `FILES` → `pp6-library-files`를 유지한다.
-- [최초 연결 기록](../docs/archive/cloudflare-bindings-2026-09-28.jsonc)은 과거 설정을 보관한 참고 자료다. 실제 배포는 루트 설정을 사용한다.
+Cloudflare 대시보드에서 **Workers & Pages → yebaeon → Settings → Variables and Secrets → Add**를 연다.
+
+- Type: **Secret**
+- Name: **SITE_PASSWORD**
+- Value: 교회에서 공유할 비밀번호(8자 이상). 계정 로그인 비밀번호와 별도로 정한다.
+- 저장 후 배포한다. CLI를 쓰는 관리자는 인증한 로컬 저장소에서 `npx wrangler secret put SITE_PASSWORD`를 실행하고 대화형 입력을 사용한다.
+
+비밀번호 원문을 GitHub 코드·문서·명령행 인수에 넣지 않는다. `SITE_PASSWORD`가 없거나 8자 미만이면 자료 API는 닫혀 있고 로컬 편집만 가능하다. GitHub Actions의 배포용 토큰과 사이트 공용 비밀번호는 서로 다른 값이다.
+
+기존 `DB` → `pp6-library-db`, `FILES` → `pp6-library-files` 바인딩을 사용한다. 최초 설정 후 첫 API 요청에서 `schema.mjs`가 `yebaeon_` 접두사의 테이블/색인만 추가한다. 기존 테이블·자료를 삭제하지 않는다. 현재는 버전 1의 추가 초기화만 제공하며, 이후 구조 변경은 별도 마이그레이션이 필요하다. DB/R2 관리 권한을 배포 토큰에 추가할 필요가 없다. R2 원본을 공개 버킷/공개 URL로 열지 않는다.
+
+## 입장·기록 방식
+
+- 브라우저에는 이름과 로그인 세션을 기억한다. 비밀번호를 localStorage에 저장하지 않는다.
+- 세션은 Secure/HttpOnly/SameSite=Strict 쿠키이며 DB에는 임의 세션 값의 hash만 저장한다.
+- 로그인 유지를 선택하면 30일, 해제하면 최대 12시간의 세션 쿠키를 쓴다. 브라우저의 세션 복원 정책에 따라 창을 닫아도 세션 쿠키가 복원될 수 있다.
+- 로그아웃은 해당 세션을 폐기한다. `SITE_PASSWORD`를 새 값으로 변경하면 기존 쿠키의 서명이 맞지 않아 모두 다시 입장해야 한다.
+- 이름을 변경하면 이후 버전에만 새 이름이 기록된다. 이전 기록은 보존된다.
+- 같은 IP의 비밀번호 확인은 10분 구간당 8회로 제한한다. 성공하면 그 IP의 실패 기록을 비운다.
+- 교회 Mac Sync도 동일한 세션 API를 사용하도록 준비했다. 실제 High Sierra 클라이언트는 다음 개발 단계다.
+
+## 문서와 버전
+
+문서 한 개당 최대 25MiB, UTF-8 XML인 `.pro6`를 지원한다. 상대경로를 NFC로 정규화하고 상위 경로 이동·절대경로를 거절한다. 폴더 업로드는 선택한 최상위 폴더 안의 하위 구조를 보존한다. 같은 경로·같은 내용은 중복 저장하지 않으며, 다른 내용이면 기존 문서를 열어 편집하도록 안내한다.
+
+R2에는 받은 원본 bytes를 버전별로 보존하고, D1에는 상대경로·현재 버전·SHA-256·크기·저장자·시간을 둔다. 웹에서는 문서 이름/경로를 검색하며 본문 검색은 아직 없다. 이전 버전도 입장한 사람만 내려받을 수 있다.
+
+저장은 기준 버전이 일치해야 확정된다. R2 업로드 후 D1의 현재 포인터 변경과 버전 행 추가를 한 트랜잭션으로 처리한다. 동시 편집이 겹치면 409로 거절하고 브라우저의 편집 내용은 유지한다. 이때 ZIP으로 보관한 뒤 최신 문서를 다시 열 수 있다. DB 확정 여부를 알 수 없는 실패에서는 원본을 지우지 않으므로, 참조되지 않는 R2 객체 정리는 추후 유지관리 항목이다.
+
+미디어는 아직 서버에 업로드하지 않는다. 기존 Mac 미디어 경로를 유지하며, 새 미디어를 가리키는 `file:///PP6-Package/`가 들어 있으면 서버 저장을 거절한다. 성경·미디어·Playlist 업로드와 Mac 적용/백업/복원은 별도 단계다.
+
+## API 계약
+
+공개 편집기 파일과 `/api/health`, 입장 API를 제외한 자료 API는 유효한 쿠키가 필요하다. 변경 요청은 `Origin` 헤더가 사이트의 origin과 정확히 같아야 한다. 네이티브 Sync도 이 헤더를 설정해야 하며, CORS 우회나 R2 키 배포는 하지 않는다. JSON 오류에는 `error`와 `message`가 있다. 응답은 `Cache-Control: no-store`다.
+
+| 요청 | 동작 |
+|---|---|
+| `GET /api/health` | 서비스 상태. 저장소를 읽거나 초기화하지 않음 |
+| `GET /api/session` | `ready`, `authenticated`, 입장한 `name`, `expiresAt`(Unix seconds) |
+| `POST /api/session` | JSON `{name,password,remember}` → 세션 쿠키 |
+| `PATCH /api/session` | JSON `{name}` → 현재 세션의 이름 변경 |
+| `DELETE /api/session` | 현재 세션 로그아웃 |
+| `GET /api/documents?q=...&after=...` | 경로순 최대 100개, `next` 커서 |
+| `POST /api/documents?path=...` | raw XML bytes 업로드. 새 문서 201, 같은 내용 200 |
+| `GET /api/documents/:id` | `document` 메타데이터 |
+| `PUT /api/documents/:id` | raw XML + `If-Match: "기준버전번호"` → 새 버전 |
+| `GET/HEAD /api/documents/:id/content?version=N` | 원본 bytes, `X-Yebaeon-Version`, `X-Yebaeon-SHA256`; 버전 생략 시 현재본 |
+| `GET /api/documents/:id/versions?before=N` | 버전 내림차순 최대 50개, `next` 커서 |
+
+메타데이터: `id,path,name,version,updatedAt,updatedBy,sha256,size`. 시간은 UTC ISO 문자열이며 크기는 bytes다. 원본 내용 응답의 ETag는 `"N-hash"`이고, 수정 시 `If-Match`에는 메타데이터의 숫자 버전만 따옴표로 감싼 `"N"`을 보낸다. SHA-256은 원본 bytes 기준이다. 서버 버전을 semantic fingerprint로 대체하지 않는다.
+
+주요 오류: 입장 필요 401, 출처 확인 실패 403, 같은 경로/수정 충돌 409, 크기 초과 413, 새 미디어 포함 422, 기준 버전 누락 428, 입장 시도 제한 429, 설정/저장소 문제 503. 삭제 API·자동 병합·서버의 Mac 적용 상태 기록은 아직 없다.
 
 ## GitHub 자동 배포
 
-`.github/workflows/deploy.yml`이 `main`의 앱·배포 파일 변경을 감지한다. 의존성 설치 → 검사 → 허용한 정적 파일 구성 → 기존 `yebaeon` Worker에 배포한다. 문서만 수정하면 자동 배포하지 않는다. GitHub의 Actions에서 수동 실행도 가능하다.
+설정 기준은 루트 `wrangler.jsonc`다. `npm run build`는 앱 파일 10개와 응답 헤더만 `dist/`로 복사한다. 실제 자료·테스트 출력은 제외하며 예상하지 못한 파일이 있으면 빌드를 중단한다.
 
-GitHub 저장소 Actions secrets에 다음 두 값을 등록했다. 토큰 원문은 소스·문서·로그에 기록하지 않는다.
+`.github/workflows/deploy.yml`은 `main`의 앱·서버·검사 코드 변경 시 설치 → 검사 → 기존 `yebaeon` Worker 배포를 실행한다. 문서만 수정하면 배포하지 않는다. GitHub Actions secrets의 `CLOUDFLARE_ACCOUNT_ID`, 해당 계정 `Workers Scripts:Edit` 권한의 `CLOUDFLARE_API_TOKEN`을 사용한다. 기존 Cloudflare GitHub 앱 설치와 다른 사이트 연결은 바꾸지 않는다.
 
-- `CLOUDFLARE_ACCOUNT_ID`: 예배온 Worker가 있는 계정.
-- `CLOUDFLARE_API_TOKEN`: 해당 계정의 `Workers Scripts:Edit` 권한으로 만든 `YebaeOn GitHub Actions Deploy` 토큰.
+## 개발·검증
 
-Cloudflare의 기존 GitHub 앱 설치를 해제하거나 다른 사이트의 연결을 바꾸지 않기 위해 저장소의 GitHub Actions에서 배포한다.
+Node.js 24에서 `npm ci`, `npm test`, `npm run deploy:check`를 실행한다. 마지막 명령은 실제 배포 없이 구성과 번들만 검사한다. 로컬 개발은 Git에서 제외되는 `.dev.vars`에 테스트 전용 `SITE_PASSWORD`를 두고 `npm run dev`를 사용한다. 운영 비밀번호를 테스트에 재사용하지 않는다. 교회 High Sierra에는 Node 개발 환경을 요구하지 않는다.
 
-## 배포 확인 — 2026-09-29
+2026-09-30: Miniflare의 실제 Worker/D1/R2 모사 환경에서 비인증 접근, 출처 검사, 세션 만료/로그아웃/비밀번호 교체, 입장 시도 제한, XML/경로 검증, 원본 보존, 중복 업로드, 이름 변경, 동시 저장, DB 실패 시 포인터 복구, 목록/이력 페이지 이동을 검사했다. 브라우저에서도 입장 → 문서 저장/업로드 → 수정/이름 변경 → 다시 열기 → 이전 버전 다운로드를 확인했다. 운영 환경의 공용 비밀번호 등록과 교회 PP6 실기 왕복 검증은 별개다.
 
-- [최신 앱 배포 성공](https://github.com/m1r4d0r/yebaeon/actions/runs/36443290192): `8393664`, 검사와 배포 완료. 최초 배포와 후속 변경 배포를 모두 확인했다.
-- `/`와 `/api/health`는 200으로 응답한다. 편집기 응답에 보안 헤더가 적용된다.
-- `/sample-data.js`, `/test-output/edited-package.zip`, `/wrangler.jsonc`, `/_headers`는 404다.
-- 공개 사이트에서 예제 텍스트 수정, 슬라이드 복사(3장 → 4장), ZIP 저장을 확인했다. 내려받은 ZIP의 CRC 무결성, XML 파싱, 4장 구성과 고유 UUID, 수정·복사한 장의 본문 보존을 확인했다. 교회 Mac의 PP6 실기 호환성 검증은 남아 있다.
-- 원본 자료 업로드, 로그인, DB/R2 읽기·쓰기 API는 아직 구현하지 않았다.
-
-## 집 Windows 개발
-
-Node.js 24에서:
-
-```text
-npm ci
-npm test
-npm run deploy:check
-```
-
-`deploy:check`는 실제 업로드 없이 구성과 번들만 검사한다. 직접 배포가 필요하면 해당 Cloudflare 계정에 인증한 뒤 `npm run deploy`를 사용한다. 토큰을 명령행 인수나 파일에 넣지 않는다.
-
-교회 High Sierra에서는 이 Node 개발 환경을 요구하지 않는다. Mac Core 빌드·PP6 실기 검증은 기존 절차를 따른다.
-
-참고: [Workers 정적 파일](https://developers.cloudflare.com/workers/static-assets/binding/), [GitHub Actions 배포](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/).
+참고: [D1 트랜잭션](https://developers.cloudflare.com/d1/worker-api/d1-database/), [R2 Worker API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/), [Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
