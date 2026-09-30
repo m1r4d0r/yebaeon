@@ -210,16 +210,14 @@ python ../tools/pp6-doc-compare-ref.py OLD.pro6 NEW.pro6 -o diff.json
 - `.pro6` source path rewrite
 - 문서 삭제
 - Playlist + Document 트랜잭션 통합
-- 클라우드 라이브러리 저장·동기화 (편집기 호스팅은 완료, 자료 API는 다음 단계)
+- Mac의 클라우드 송수신·동기화 (웹의 공용 입장·자료 API·실제 서버 문서 왕복은 완료)
 
-위험한 write 기능은 Index/Compare/Thumbnail 결과를 집에서 먼저 확인한 뒤 붙인다.
+서버 송수신·충돌 처리와 백업/적용/복원은 집에서 먼저 개발한다. 파일 처리 흐름은 시험용 폴더로 확인하고, Mac 전용 빌드·실행과 PP6 호환성은 교회에서 확인한다. 썸네일 실기 검증을 송수신 개발의 선행 조건으로 두지 않는다.
 
 ## 다음 개발 단계
 
-교회 Mac에서 다음번에 확인할 것은 3가지다.
+1. 집: [서버 API](../cloudflare/README.md)에 맞춰 공용 입장, 문서 목록/버전 확인, 최초 업로드와 변경분 송수신을 구현한다.
+2. 집: 기준 버전·로컬 수정 충돌, 원본 SHA-256 검증, 백업·검증 후 교체·복원을 구현한다. 원래 미디어 경로를 유지한다.
+3. 교회: 변경한 Sync를 High Sierra에서 빌드·실행하고, 서버의 시험 문서 한 개를 받아 PP6에서 열고 다시 저장하는 흐름을 확인한다.
 
-1. `build.command`가 High Sierra에서 Core v0.2를 컴파일하는지
-2. `run-test-compare.command` 결과가 `14 / 32 / 2 / 0 / 11`인지
-3. `build-thumbnail.command` 후 실제 slide 1/2/23 preview가 어느 정도 PP6와 일치하는지
-
-그 검증이 끝나면 기존 `PP6 Playlist Sync.app`에 Documents 탭을 합치고 실제 백업/적용 엔진을 연결한다.
+기존 Core 빌드·비교 수치·썸네일 검사를 방문 때마다 반복하는 필수 과제로 두지 않는다. 이전 결과를 먼저 확인하고, 이번 코드 변경이나 구체적인 오류와 관련된 검사만 수행한다. 이후 기존 `PP6 Playlist Sync.app`에 Documents 작업 화면을 합친다.
