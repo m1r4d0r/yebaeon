@@ -1,0 +1,44 @@
+#import <Cocoa/Cocoa.h>
+
+FOUNDATION_EXPORT void YBRequire(BOOL condition, NSString *message);
+FOUNDATION_EXPORT NSString *YBHash(NSData *data);
+FOUNDATION_EXPORT NSString *YBPath(NSString *path);
+FOUNDATION_EXPORT void YBValidateDocument(NSData *data);
+FOUNDATION_EXPORT void YBValidateMetadata(NSDictionary *document);
+FOUNDATION_EXPORT NSString *YBDisposition(NSString *localHash, NSDictionary *remote, NSDictionary *baseline);
+FOUNDATION_EXPORT BOOL YBPresenterRunning(void);
+
+// Errors are YebaeOn exceptions; CLI catches them without printing credentials.
+@interface YBServer : NSObject
+@property(nonatomic, readonly) NSString *origin;
+@property(nonatomic, copy) NSString *cookie;
+- (instancetype)initWithOrigin:(NSString *)origin allowLocalTestServer:(BOOL)allow;
+- (NSDictionary *)request:(NSString *)route method:(NSString *)method body:(NSData *)body headers:(NSDictionary *)headers;
+- (NSDictionary *)login:(NSString *)name password:(NSString *)password;
+- (NSArray *)documents;
+- (NSDictionary *)head:(NSDictionary *)document;
+- (NSData *)download:(NSDictionary *)document;
+- (NSDictionary *)upload:(NSData *)data path:(NSString *)path previous:(NSDictionary *)previous;
+- (void)loadSession;
+- (void)saveSession;
+- (void)forgetSession;
+@end
+
+@interface YBSync : NSObject
+@property(nonatomic, readonly) NSString *root;
+@property(nonatomic, readonly) NSString *profile;
+@property(nonatomic, readonly) NSDictionary *entries;
+@property(nonatomic, copy) BOOL (^presenterRunning)(void);
+// Native tests inject interruption after durable stages. Never exposed as a CLI option.
+@property(nonatomic, copy) void (^checkpoint)(NSString *stage);
+- (instancetype)initWithRoot:(NSString *)root profile:(NSString *)profile origin:(NSString *)origin;
+- (NSArray *)plan:(NSArray *)remoteDocuments;
+- (NSData *)readDocument:(NSString *)path;
+- (void)acknowledge:(NSDictionary *)document expectedLocalHash:(NSString *)hash;
+- (NSString *)apply:(NSData *)data document:(NSDictionary *)document expectedLocalHash:(NSString *)hash;
+- (NSArray *)transactions;
+- (NSArray *)pendingTransactions;
+- (void)recover:(NSString *)transactionID;
+- (void)restore:(NSString *)transactionID;
+- (void)assertReady;
+@end

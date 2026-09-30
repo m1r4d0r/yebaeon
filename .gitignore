@@ -41,3 +41,7 @@ Thumbs.db
 /pp6-index*.json
 /pp6-document-diff*.json
 /github-upload-audit.json
+
+/mac-sync/pp6-sync
+/mac-sync/sync-test
+/mac-sync/sync-integration
