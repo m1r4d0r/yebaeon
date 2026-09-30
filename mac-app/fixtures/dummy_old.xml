@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RVPlaylistDocument>
+  <RVPlaylistNode UUID="ROOT" displayName="Playlists">
+    <RVPlaylistNode UUID="PL-2ND" displayName="2부 예배" modifiedDate="2026-09-27T09:00:00Z">
+      <RVDocumentCue UUID="CUE-001" displayName="첫화면" filePath="/Library/PP6/first.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="CUE-002" displayName="사도신경(구)" filePath="/Library/PP6/creed-old.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="CUE-003" displayName="소망없는 내 삶에" filePath="/Library/PP6/hymn-somang.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="CUE-004" displayName="전능하신 나의 주 하나님은" filePath="/Library/PP6/hymn-jeonneung.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="CUE-005" displayName="우리 보좌 앞에 모였네" filePath="/Library/PP6/hymn-bojwa.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="CUE-006" displayName="2부 기도" filePath="/Library/PP6/prayer-2bu.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="CUE-007" displayName="평화 하나님의 평강이" filePath="/Library/PP6/hymn-peace.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="CUE-008" displayName="광고" filePath="/Library/PP6/ad.pro6" contentHash="ad_v1" />
+      <RVDocumentCue UUID="CUE-009" displayName="주일예배말씀" filePath="/Library/PP6/sermon.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="CUE-010" displayName="특송 준비" filePath="/Library/PP6/special-song-ready.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="CUE-011" displayName="2026엔딩" filePath="/Library/PP6/ending-2026.pro6" contentHash="v1" />
+    </RVPlaylistNode>
+
+    <RVPlaylistNode UUID="PL-3RD" displayName="3부 예배" modifiedDate="2026-09-27T09:00:00Z">
+      <RVDocumentCue UUID="T3-001" displayName="첫화면" filePath="/Library/PP6/third-first.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="T3-002" displayName="찬양A" filePath="/Library/PP6/third-song-a.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="T3-003" displayName="찬양B" filePath="/Library/PP6/third-song-b.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="T3-004" displayName="광고" filePath="/Library/PP6/third-ad.pro6" contentHash="v1" />
+      <RVDocumentCue UUID="T3-005" displayName="말씀" filePath="/Library/PP6/third-sermon.pro6" contentHash="v1" />
+    </RVPlaylistNode>
+  </RVPlaylistNode>
+</RVPlaylistDocument>

@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'mac-sync/**'
+      - 'mac-app/**'
       - 'cloudflare/**'
       - 'package.json'
       - 'package-lock.json'
@@ -13,6 +14,7 @@ on:
   pull_request:
     paths:
       - 'mac-sync/**'
+      - 'mac-app/**'
       - 'cloudflare/**'
       - 'package.json'
       - 'package-lock.json'
@@ -37,3 +39,18 @@ jobs:
         run: bash mac-sync/build-sync.command
       - name: Native safety and real Worker integration tests
         run: bash mac-sync/test-sync.command
+      - name: Build integrated native app
+        run: bash mac-app/build.command
+      - name: Playlist, Core, GUI and app transport checks
+        run: bash mac-app/test.command
+      - name: Package app for church testing
+        run: ditto -c -k --keepParent "mac-app/build/예배온 Sync.app" "mac-app/build/YebaeOn-Sync-macOS.zip"
+      - name: Save tested app and synthetic UI previews
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: YebaeOn-Sync-macOS
+          path: |
+            mac-app/build/YebaeOn-Sync-macOS.zip
+            mac-app/test-output/*.png
+          retention-days: 14
+          if-no-files-found: error

@@ -45,3 +45,8 @@ Thumbs.db
 /mac-sync/pp6-sync
 /mac-sync/sync-test
 /mac-sync/sync-integration
+
+/mac-app/build/
+/mac-app/test-output/
+/mac-app/app-test
+/mac-app/app-integration

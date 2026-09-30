@@ -17,7 +17,7 @@ try {
     const response = await mf.dispatchFetch(`${origin}/api/documents?path=${encodeURIComponent(path)}`, { method: 'POST', headers: { Origin: origin, Cookie: cookie }, body: '<RVPresentationDocument versionNumber="600"><text>synthetic</text></RVPresentationDocument>' });
     assert.equal(response.status, 201);
   }
-  const child = spawn('./mac-sync/sync-integration', [origin], { stdio: 'inherit' });
+  const child = spawn(process.argv[2] || './mac-sync/sync-integration', [origin], { stdio: 'inherit' });
   const timer = setTimeout(() => child.kill('SIGTERM'), 180000);
   try {
     const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });

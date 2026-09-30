@@ -13,5 +13,10 @@ NSDictionary *PP6ParseDocument(NSString *path,
                                NSArray<NSString *> *packageAssetRoots,
                                NSDictionary *packageAssetIndex,
                                BOOL includeSlides);
+NSDictionary *PP6ParseDocumentData(NSData *data, NSString *path,
+                                  NSArray<NSString *> *managedMediaRoots,
+                                  NSDictionary *managedMediaIndex,
+                                  NSArray<NSString *> *packageAssetRoots,
+                                  NSDictionary *packageAssetIndex, BOOL includeSlides);
 NSDictionary *PP6CompareParsedDocuments(NSDictionary *oldDoc, NSDictionary *newDoc);
 NSString *PP6RelativePath(NSString *path, NSString *root);

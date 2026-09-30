@@ -291,9 +291,19 @@ NSDictionary *PP6ParseDocument(NSString *path,
     NSError *err = nil;
     NSData *data = [NSData dataWithContentsOfFile:path options:0 error:&err];
     if (!data) return @{ @"path": path ?: @"", @"parseError": err.localizedDescription ?: @"read-failed" };
-    NSXMLDocument *xml = [[NSXMLDocument alloc] initWithData:data options:NSXMLNodePreserveWhitespace error:&err];
+    return PP6ParseDocumentData(data,path,managedMediaRoots,managedMediaIndex,packageAssetRoots,packageAssetIndex,includeSlides);
+}
+
+NSDictionary *PP6ParseDocumentData(NSData *data, NSString *path,
+                                  NSArray *managedMediaRoots, NSDictionary *managedMediaIndex,
+                                  NSArray *packageAssetRoots, NSDictionary *packageAssetIndex, BOOL includeSlides) {
+    NSError *err=nil; NSString *text=[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if(!text || data.length>25*1024*1024 || [text rangeOfString:@"(?i)<!DOCTYPE|<!ENTITY" options:NSRegularExpressionSearch].location!=NSNotFound)
+        return @{ @"path":path ?: @"", @"parseError":@"문서 인코딩·크기 또는 외부 엔터티를 확인하세요." };
+    NSXMLDocument *xml = [[NSXMLDocument alloc] initWithData:data options:NSXMLNodePreserveWhitespace | NSXMLNodeLoadExternalEntitiesNever error:&err];
     if (!xml) return @{ @"path": path ?: @"", @"parseError": err.localizedDescription ?: @"xml-parse-failed" };
     NSXMLElement *root = xml.rootElement;
+    if(![root.name isEqualToString:@"RVPresentationDocument"]) return @{ @"path":path ?: @"", @"parseError":@"PP6 문서가 아닙니다." };
 
     NSMutableArray *groups = [NSMutableArray array], *allSlides = [NSMutableArray array], *allRefs = [NSMutableArray array];
     NSInteger gi = 0, global = 0;

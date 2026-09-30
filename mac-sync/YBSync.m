@@ -172,6 +172,8 @@ static void YBWrite(NSString *root, NSString *path, NSData *data, mode_t mode, v
         YBRequire(renameat(parent,temp.fileSystemRepresentation,parent,leaf.fileSystemRepresentation)==0,YBSystem(@"문서 교체")); YBDirFlush(parent);
     } @finally { if(fd>=0)close(fd); unlinkat(parent,temp.fileSystemRepresentation,0); close(parent); }
 }
+NSData *YBReadSafeFile(NSString *root, NSString *path, mode_t *mode) { return YBRead(root,path,mode); }
+void YBWriteSafeFile(NSString *root, NSString *path, NSData *data, mode_t mode, void (^guard)(void)) { YBWrite(root,path,data,mode,guard); }
 static void YBRemove(NSString *root, NSString *path, void (^guard)(void)) {
     NSString *leaf; int parent=YBParent(root,path,NO,&leaf); if(parent<0)return;
     @try { if(guard)guard(); YBRequire(unlinkat(parent,leaf.fileSystemRepresentation,0)==0 || errno==ENOENT,YBSystem(@"신규 문서 되돌리기")); YBDirFlush(parent); } @finally { close(parent); }

@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#import <sys/types.h>
 
 FOUNDATION_EXPORT void YBRequire(BOOL condition, NSString *message);
 FOUNDATION_EXPORT NSString *YBHash(NSData *data);
@@ -7,6 +8,10 @@ FOUNDATION_EXPORT void YBValidateDocument(NSData *data);
 FOUNDATION_EXPORT void YBValidateMetadata(NSDictionary *document);
 FOUNDATION_EXPORT NSString *YBDisposition(NSString *localHash, NSDictionary *remote, NSDictionary *baseline);
 FOUNDATION_EXPORT BOOL YBPresenterRunning(void);
+
+// Relative-path file access shared by the native playlist adapter and document engine.
+FOUNDATION_EXPORT NSData *YBReadSafeFile(NSString *root, NSString *path, mode_t *mode);
+FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *data, mode_t mode, void (^guard)(void));
 
 // Errors are YebaeOn exceptions; CLI catches them without printing credentials.
 @interface YBServer : NSObject
