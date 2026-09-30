@@ -472,14 +472,14 @@
     if (self.selectedReviewIndex >= 0) [self.playlistTable selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
     [self updateReviewHeader];
     self.applyButton.enabled = self.reviews.count > 0;
-    self.statusLabel.stringValue = [NSString stringWithFormat:@"비교 완료 · 변경 %ld개 · 동일 %ld개 · 신규 재생목록 %ld개 (신규 재생목록은 v0.2에서 자동 추가하지 않음)", (long)self.reviews.count, (long)sameCount, (long)newPlaylistCount];
+    self.statusLabel.stringValue = [NSString stringWithFormat:@"비교 완료 · 변경 %ld개 · 동일 %ld개 · 신규 재생목록 %ld개 (신규 재생목록 자동 추가는 아직 지원하지 않음)", (long)self.reviews.count, (long)sameCount, (long)newPlaylistCount];
 
     if (self.reviews.count == 0 && !self.suppressNoChangeAlert) {
         NSAlert *none = [[NSAlert alloc] init];
         none.alertStyle = NSAlertStyleInformational;
         if (newPlaylistCount > 0) {
             none.messageText = @"적용 가능한 변경 사항이 없습니다.";
-            none.informativeText = [NSString stringWithFormat:@"기존 재생목록의 변경 사항은 없습니다. 신규 재생목록 %ld개는 v0.2에서 자동 추가하지 않습니다.", (long)newPlaylistCount];
+            none.informativeText = [NSString stringWithFormat:@"기존 재생목록의 변경 사항은 없습니다. 신규 재생목록 %ld개는 아직 자동 추가하지 않습니다.", (long)newPlaylistCount];
         } else {
             none.messageText = @"변경 사항이 없습니다.";
             none.informativeText = @"운영 파일과 최신 파일의 재생목록이 동일합니다.";

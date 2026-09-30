@@ -4,7 +4,7 @@
 
 ## 실행
 
-로컬 개발 묶음의 `app/YebaeOn-Sync-macOS.zip`에는 Mac 자동 검사에서 빌드한 `예배온 Sync.app`이 들어 있다. Mac에서 압축을 풀어 실행한다. **기존 `PP6 Playlist Sync.app`과 백업은 보관**하고 시험 중에는 이전 앱을 종료한다. 새 앱의 이름과 식별자가 달라 기존 앱을 덮어쓰지 않는다.
+로컬 개발 묶음의 `app/YebaeOn-Sync-macOS.zip`에는 Mac 자동 검사에서 빌드한 `예배온 Sync.app`이 들어 있다. Mac에서 압축을 풀어 실행한다. **기존 `PP6 Playlist Sync.app`과 백업은 보관**하고 시험 중에는 이전 앱을 종료한다. 새 앱의 이름과 식별자가 달라 기존 앱을 덮어쓰지 않는다. 개발용 서명이므로 다운로드한 앱 실행이 차단되면 Finder에서 앱을 우클릭하고 `열기`를 선택한다.
 
 직접 빌드할 때는 저장소 또는 묶음의 `source/`에서 다음을 실행한다. Finder에서 `mac-app/build.command`를 열어도 된다.
 

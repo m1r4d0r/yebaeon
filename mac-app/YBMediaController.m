@@ -18,7 +18,7 @@ NSDictionary *YBMediaReport(NSString *documentsRoot,NSArray *mediaRoots) {
 static NSString *MediaStatus(NSString *status) {return @{@"exact-managed":@"연결됨",@"exact-external":@"외부 폴더에 있음",@"exact-package":@"묶음 안에 있음",@"relocated-unique":@"다른 위치에서 발견",@"package-asset":@"묶음에서 발견",@"ambiguous":@"같은 이름 여러 개",@"missing":@"찾지 못함"}[status] ?: status;}
 @interface YBMediaController () <NSTableViewDataSource,NSTableViewDelegate,NSSearchFieldDelegate>
 @property(nonatomic,readwrite) NSView *view;
-@property NSString *documentsRoot;
+@property(nonatomic) NSString *documentsRoot;
 @property NSMutableArray *roots;
 @property YBWork *work;
 @property NSTextField *rootLabel;
