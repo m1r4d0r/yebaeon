@@ -6,12 +6,13 @@
 
 ## 최초 운영 설정
 
-Cloudflare 대시보드에서 **Workers & Pages → yebaeon → Settings → Variables and Secrets → Add**를 연다.
+Cloudflare 대시보드에서 **Workers & Pages → yebaeon → Settings → Runtime variables and secrets → Add variable**를 연다.
 
-- Type: **Secret**
-- Name: **SITE_PASSWORD**
+- Environment: **Production**
+- Key: **SITE_PASSWORD**
+- **Secret** 체크
 - Value: 교회에서 공유할 비밀번호(8자 이상). 계정 로그인 비밀번호와 별도로 정한다.
-- 저장 후 배포한다. CLI를 쓰는 관리자는 인증한 로컬 저장소에서 `npx wrangler secret put SITE_PASSWORD`를 실행하고 대화형 입력을 사용한다.
+- **Add 1 variable and deploy**를 눌러 저장·배포한다. CLI를 쓰는 관리자는 인증한 로컬 저장소에서 `npx wrangler secret put SITE_PASSWORD`를 실행하고 대화형 입력을 사용한다.
 
 비밀번호 원문을 GitHub 코드·문서·명령행 인수에 넣지 않는다. `SITE_PASSWORD`가 없거나 8자 미만이면 자료 API는 닫혀 있고 로컬 편집만 가능하다. GitHub Actions의 배포용 토큰과 사이트 공용 비밀번호는 서로 다른 값이다.
 
@@ -72,3 +73,5 @@ Node.js 24에서 `npm ci`, `npm test`, `npm run deploy:check`를 실행한다. �
 2026-09-30: Miniflare의 실제 Worker/D1/R2 모사 환경에서 비인증 접근, 출처 검사, 세션 만료/로그아웃/비밀번호 교체, 입장 시도 제한, XML/경로 검증, 원본 보존, 중복 업로드, 이름 변경, 동시 저장, DB 실패 시 포인터 복구, 목록/이력 페이지 이동을 검사했다. 브라우저에서도 입장 → 문서 저장/업로드 → 수정/이름 변경 → 다시 열기 → 이전 버전 다운로드를 확인했다. 운영 환경의 공용 비밀번호 등록과 교회 PP6 실기 왕복 검증은 별개다.
 
 참고: [D1 트랜잭션](https://developers.cloudflare.com/d1/worker-api/d1-database/), [R2 Worker API](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/), [Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
+
+2026-09-30 배포: 앱 커밋 `9a2a678`의 [GitHub Actions 검사·배포](https://github.com/m1r4d0r/yebaeon/actions/runs/36724752415)가 성공했다. 운영 사이트에 입장 화면이 표시되며, 비밀번호 설정 전 자료 API가 잠겨 있는 상태를 확인했다.
