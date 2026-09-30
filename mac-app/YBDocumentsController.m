@@ -1,7 +1,7 @@
 #import "YBDocumentsController.h"
 #import "YBLibrary.h"
 #import "../mac-sync/PP6Core.h"
-@interface YBDocumentsController () <NSTableViewDataSource,NSTableViewDelegate,NSTextFieldDelegate>
+@interface YBDocumentsController () <NSTableViewDataSource,NSTableViewDelegate,NSSearchFieldDelegate>
 @property(nonatomic,readwrite) NSView *view;
 @property(nonatomic,readwrite) NSString *documentsRoot;
 @property YBWork *work;

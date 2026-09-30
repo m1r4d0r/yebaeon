@@ -156,17 +156,13 @@ static NSString * const kAppName = @"YebaeOn Sync";
 
 #pragma mark - Settings
 
-- (NSString *)appSupportDir {
-    NSArray *dirs = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
-    NSString *base = dirs.count ? dirs[0] : [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support"];
-    return [base stringByAppendingPathComponent:kAppName];
-}
+- (NSString *)appSupportDir {return YBPreferencesDirectory();}
 
 - (void)loadSettings {
     NSString *dir = [self appSupportDir];
     self.settingsPath = [dir stringByAppendingPathComponent:@"playlist-settings.json"];
     NSData *data = [NSData dataWithContentsOfFile:self.settingsPath];
-    if(!data) data=[NSData dataWithContentsOfFile:[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/PP6 Playlist Sync/settings.json"]];
+    if(!data) data=[NSData dataWithContentsOfFile:YBLegacySettingsPath()];
     if (!data) return;
     NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
     NSString *path = [json isKindOfClass:[NSDictionary class]] ? json[@"localPath"] : nil;
@@ -722,4 +718,3 @@ static NSString * const kAppName = @"YebaeOn Sync";
 }
 
 @end
-

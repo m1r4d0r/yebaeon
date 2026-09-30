@@ -7,6 +7,10 @@ FOUNDATION_EXPORT BOOL YBConfirm(NSString *title, NSString *message, NSString *a
 FOUNDATION_EXPORT NSString *YBChooseFolder(NSString *title, NSString *current);
 FOUNDATION_EXPORT void YBShowText(NSString *title, NSString *text);
 FOUNDATION_EXPORT NSString *YBPreferencesDirectory(void);
+FOUNDATION_EXPORT NSString *YBLegacySettingsPath(void);
+#ifdef YB_TESTING
+FOUNDATION_EXPORT void YBSetTestPreferencesDirectory(NSString *directory);
+#endif
 FOUNDATION_EXPORT NSDictionary *YBPreferences(NSString *name);
 FOUNDATION_EXPORT void YBSavePreferences(NSString *name, NSDictionary *value);
 FOUNDATION_EXPORT NSString *YBStatusName(NSString *status);

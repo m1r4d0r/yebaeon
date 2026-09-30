@@ -8,6 +8,10 @@
 
 [프로젝트 안내](../README.md) · [집에서 확인할 것](../docs/HOME-CHECK.md) · [남은 단계](../docs/NEXT-STAGE.md)
 
+## 통합 앱
+
+2026-10-01 기존 Native v0.2 앱 소스를 제공받아 재생목록·문서·미디어 화면을 [예배온 Sync.app](../mac-app/README.md)으로 통합했다. 일반 사용은 통합 앱을 권장하며, 아래 개별 실행 도구는 개발·진단용으로 계속 사용할 수 있다. 같은 문서 폴더의 기준 버전·백업 기록을 공유한다.
+
 ## 문서 동기화 시작하기
 
 새 송수신 도구는 `pp6-sync`다. 기존 Indexer/Comparator와 별도로 빌드한다. 교회 Mac에서 소스를 최신으로 받은 뒤 **`run-sync.command`를 열면** 필요한 경우 자동 빌드하고 한국어 메뉴를 표시한다. 빌드에는 기존 Core와 같은 Apple Command Line Tools의 `clang`이 필요하다. Node.js·Python·Cloudflare 도구 설치는 필요 없다.
@@ -272,6 +276,6 @@ python ../tools/pp6-doc-compare-ref.py OLD.pro6 NEW.pro6 -o diff.json
 - 교회 High Sierra에서 새 Sync를 실행하고 운영 서버의 시험 문서 하나를 받아 PP6로 열기·저장하기. 새로 추가한 이 경로만 검증한다.
 - 성공 후 실제 `.pro6` 라이브러리 최초 업로드와 선택 동기화.
 - 사용 미디어 송수신과 경로 연결, 성경 자료, Playlist + Documents 통합.
-- 기존 `PP6 Playlist Sync.app`에 문서 작업 화면 통합.
+- 통합한 `예배온 Sync.app`을 High Sierra에서 확인하고 미디어 송수신을 연결.
 
 문서 자동 삭제, 미디어 자동 복사와 source path rewrite, 자동 병합은 아직 하지 않는다. 썸네일 검증을 송수신의 선행 조건으로 두지 않으며, 기존 Core 빌드·비교 수치 검사를 방문 때마다 반복하는 과제로 제시하지 않는다.

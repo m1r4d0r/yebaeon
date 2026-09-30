@@ -36,10 +36,18 @@ static void Render(NSView *view,NSString *name) {
 int main(void) {@autoreleasepool {
     NSString *area=[NSTemporaryDirectory() stringByAppendingPathComponent:[@"yebaeon-app-tests-" stringByAppendingString:NSUUID.UUID.UUIDString]];
     @try {
-        [NSApplication sharedApplication];
+        [NSApplication sharedApplication];YBSetTestPreferencesDirectory([area stringByAppendingPathComponent:@"settings"]);
         NSString *old=[NSString stringWithContentsOfFile:@"mac-app/fixtures/dummy_old.xml" encoding:NSUTF8StringEncoding error:NULL],*new=[NSString stringWithContentsOfFile:@"mac-app/fixtures/dummy_new.xml" encoding:NSUTF8StringEncoding error:NULL];Check(old && new,@"original prototype fixtures");
-        PPSPlaylistController *playlist=[PPSPlaylistController new];[playlist setValue:old forKey:@"localXML"];[playlist setValue:new forKey:@"incomingXML"];[playlist setValue:@YES forKey:@"suppressNoChangeAlert"];[playlist compareIfReady];
-        NSArray *reviews=[playlist valueForKey:@"reviews"];Check(reviews.count==2,@"original playlist comparison preserved");
+        NSString *legacyDocument=[area stringByAppendingPathComponent:@"legacy-library.pro6pl"];
+        Put(legacyDocument,[old dataUsingEncoding:NSUTF8StringEncoding]);
+        NSData *legacySettings=[NSJSONSerialization dataWithJSONObject:@{@"localPath":legacyDocument} options:0 error:NULL];Put(YBLegacySettingsPath(),legacySettings);
+        PPSPlaylistController *playlist=[PPSPlaylistController new];
+        Check([YBPreferences(@"playlist-settings.json")[@"localPath"] isEqual:legacyDocument],@"legacy playlist setting imported");
+        Check([[NSData dataWithContentsOfFile:YBLegacySettingsPath()] isEqual:legacySettings],@"legacy settings unchanged");[playlist setValue:old forKey:@"localXML"];[playlist setValue:new forKey:@"incomingXML"];[playlist setValue:@YES forKey:@"suppressNoChangeAlert"];[playlist compareIfReady];
+        NSArray *reviews=[playlist valueForKey:@"reviews"];Check(reviews.count==1,@"original playlist comparison preserved; date-only second playlist ignored");
+        for(NSString *kind in @[@"added",@"modified",@"deletedCount",@"moved"])Check([reviews[0][kind] isEqual:@1],[@"prototype fixture change " stringByAppendingString:kind]);
+        new=[new stringByReplacingOccurrencesOfString:@"third-song-a.pro6\" contentHash=\"v1" withString:@"third-song-a.pro6\" contentHash=\"v2"];
+        [playlist setValue:new forKey:@"incomingXML"];[playlist compareIfReady];reviews=[playlist valueForKey:@"reviews"];Check(reviews.count==2,@"two changed playlists fixture");
         reviews[1][@"selected"]=@NO;NSString *partial=[playlist replacingSelectedNodesIn:old];Check([playlist verifyXML:partial],@"selected playlist verification");
         NSArray *before=[playlist topPlaylists:old],*after=[playlist topPlaylists:partial],*incoming=[playlist topPlaylists:new];
         Check([after[0][@"raw"] isEqual:incoming[0][@"raw"]],@"selected node updated");Check([after[1][@"raw"] isEqual:before[1][@"raw"]],@"unselected node preserved byte for byte");

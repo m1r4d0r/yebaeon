@@ -21,7 +21,22 @@ void YBShowText(NSString *title,NSString *text) {
     NSTextView *view=[[NSTextView alloc] initWithFrame:scroll.bounds];view.editable=NO;view.font=[NSFont systemFontOfSize:13];view.string=text ?: @"";
     view.textContainer.widthTracksTextView=YES;view.verticallyResizable=YES;view.autoresizingMask=NSViewWidthSizable;scroll.documentView=view;alert.accessoryView=scroll;[alert runModal];
 }
-NSString *YBPreferencesDirectory(void) {return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/YebaeOn Sync"];}
+#ifdef YB_TESTING
+static NSString *testPreferencesDirectory;
+void YBSetTestPreferencesDirectory(NSString *directory) {testPreferencesDirectory=directory;}
+#endif
+NSString *YBPreferencesDirectory(void) {
+#ifdef YB_TESTING
+    if(testPreferencesDirectory)return testPreferencesDirectory;
+#endif
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/YebaeOn Sync"];
+}
+NSString *YBLegacySettingsPath(void) {
+#ifdef YB_TESTING
+    if(testPreferencesDirectory)return [testPreferencesDirectory stringByAppendingPathComponent:@"legacy/settings.json"];
+#endif
+    return [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/PP6 Playlist Sync/settings.json"];
+}
 NSDictionary *YBPreferences(NSString *name) {NSData *data=[NSData dataWithContentsOfFile:[YBPreferencesDirectory() stringByAppendingPathComponent:name]];id value=data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;return [value isKindOfClass:NSDictionary.class] ? value : @{};}
 void YBSavePreferences(NSString *name,NSDictionary *value) {
     NSError *error=nil;NSString *dir=YBPreferencesDirectory();BOOL ok=[NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:&error];
