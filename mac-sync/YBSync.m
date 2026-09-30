@@ -106,7 +106,11 @@ static int YBParent(NSString *root, NSString *path, BOOL create, NSString **leaf
         NSArray *parts=[path componentsSeparatedByString:@"/"];
         for (NSUInteger i=0;i+1<parts.count;i++) {
             NSString *part=YBActual(fd,parts[i]);
-            if (create && mkdirat(fd,part.fileSystemRepresentation,0700)<0) YBRequire(errno==EEXIST,YBSystem(@"폴더 만들기"));
+            if (create) {
+                int made=mkdirat(fd,part.fileSystemRepresentation,0700);
+                YBRequire(made==0 || errno==EEXIST,YBSystem(@"폴더 만들기"));
+                if(made==0 && fsync(fd)<0)YBRequire(errno==EINVAL || errno==ENOTSUP,YBSystem(@"새 폴더 저장 확인"));
+            }
             int next=openat(fd,part.fileSystemRepresentation,O_RDONLY|O_DIRECTORY|O_NOFOLLOW);
             if (next<0 && errno==ENOENT && !create) { close(fd); return -1; }
             YBRequire(next>=0,YBSystem(@"하위 폴더 열기 (심볼릭 링크는 지원하지 않음)")); close(fd); fd=next;
@@ -192,12 +196,14 @@ static NSString *YBNow(void) { return [NSISO8601DateFormatter.new stringFromDate
     }
     return self;
 }
+- (void)close { if(_lock>=0) { close(_lock); _lock=-1; } }
 - (void)dealloc { if(_lock>=0)close(_lock); }
-- (NSDictionary *)entries { return [_state[@"entries"] copy]; }
+- (void)open { YBRequire(_lock>=0,@"이미 종료한 Sync입니다."); }
+- (NSDictionary *)entries { [self open]; return [_state[@"entries"] copy]; }
 - (void)saveState { YBWrite(self.profile,@"state.json",YBJSONData(_state),0600,nil); }
-- (void)closed { YBRequire(!self.presenterRunning(),@"ProPresenter를 종료한 뒤 다시 실행해 주세요."); }
+- (void)closed { [self open]; YBRequire(!self.presenterRunning(),@"ProPresenter를 종료한 뒤 다시 실행해 주세요."); }
 - (void)assertReady { YBRequire(self.pendingTransactions.count==0,@"중단된 적용이 있습니다. 먼저 ‘중단 작업 복구’를 실행해 주세요."); }
-- (NSData *)readDocument:(NSString *)path { YBPath(path); NSData *data=YBRead(self.root,path,NULL); if(data)YBValidateDocument(data); return data; }
+- (NSData *)readDocument:(NSString *)path { [self open]; YBPath(path); NSData *data=YBRead(self.root,path,NULL); if(data)YBValidateDocument(data); return data; }
 - (NSArray *)plan:(NSArray *)remoteDocuments {
     NSMutableDictionary *remote=[NSMutableDictionary dictionary], *local=[NSMutableDictionary dictionary], *aliases=[NSMutableDictionary dictionary];
     void (^registerPath)(NSString *)=^(NSString *path) {
@@ -233,17 +239,20 @@ static NSString *YBNow(void) { return [NSISO8601DateFormatter.new stringFromDate
 - (NSString *)journalPath:(NSString *)identifier { YBRequire(YBMatch(identifier,@"^[0-9A-Fa-f-]{36}$"),@"복원 번호가 올바르지 않습니다."); return [NSString stringWithFormat:@"transactions/%@/transaction.json",identifier]; }
 - (void)saveJournal:(NSDictionary *)j { YBWrite(self.profile,[self journalPath:j[@"id"]],YBJSONData(j),0600,nil); }
 - (NSArray *)transactions {
+    [self open];
     NSString *directory=[self.profile stringByAppendingPathComponent:@"transactions"];
     BOOL isDir; if(![NSFileManager.defaultManager fileExistsAtPath:directory isDirectory:&isDir]) return @[];
     YBRequire(isDir,@"백업 목록이 손상됐습니다."); NSError *error=nil;
     NSArray *names=[NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:&error]; YBRequire(names!=nil,@"백업 목록을 읽지 못했습니다.");
     NSMutableArray *result=[NSMutableArray array];
     for(NSString *name in names) {
+        if([name hasPrefix:@"."])continue;
         NSData *data=YBRead(self.profile,[self journalPath:name],NULL); if(!data)continue; // Interrupted before preparation; no document was touched.
         NSDictionary *j=YBJSON(data);
         YBRequire([j[@"schema"] isEqual:@1] && [j[@"id"] isEqual:name] && [j[@"root"] isEqual:self.root] && [j[@"origin"] isEqual:_state[@"origin"]],@"백업 기록의 서버/폴더가 다릅니다.");
         YBValidateMetadata(j[@"incoming"]); YBRequire([YBPath(j[@"path"]) isEqual:j[@"incoming"][@"path"]],@"백업 문서 경로가 다릅니다.");
-        if(YBUnnull(j[@"previous"]))YBValidateMetadata(j[@"previous"]);
+        if(YBUnnull(j[@"previous"])) { YBValidateMetadata(j[@"previous"]); YBRequire([j[@"previous"][@"path"] isEqual:j[@"path"]],@"이전 기준의 문서 경로가 다릅니다."); }
+        YBRequire([j[@"mode"] isKindOfClass:NSNumber.class] && [j[@"mode"] unsignedIntegerValue]<=0777 && [j[@"createdAt"] isKindOfClass:NSString.class],@"백업 권한 또는 날짜 기록이 올바르지 않습니다.");
         YBRequire([@[@"prepared",@"applied",@"committed",@"restoring",@"restored",@"rolled_back"] containsObject:j[@"status"]],@"백업 단계가 올바르지 않습니다.");
         YBRequire([j[@"beforeHash"] isEqual:NSNull.null] || YBMatch(j[@"beforeHash"],@"^[0-9a-f]{64}$"),@"백업 해시가 손상됐습니다.");
         [result addObject:j];

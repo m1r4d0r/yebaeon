@@ -41,4 +41,6 @@ FOUNDATION_EXPORT BOOL YBPresenterRunning(void);
 - (void)recover:(NSString *)transactionID;
 - (void)restore:(NSString *)transactionID;
 - (void)assertReady;
+// Release the folder lock before switching/reopening a profile. Do not reuse afterwards.
+- (void)close;
 @end

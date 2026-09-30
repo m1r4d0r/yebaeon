@@ -62,14 +62,14 @@ int main(void) { @autoreleasepool {
             Reject(^{[s apply:b document:v2 expectedLocalHash:YBHash(a)];},@"injected interruption");
             Check(s.pendingTransactions.count==1,@"durable unfinished journal");
             Reject(^{[s acknowledge:v2 expectedLocalHash:YBHash(b)];},@"pending blocks next operation");
-            NSString *transaction=s.pendingTransactions[0][@"id"]; s=nil;
+            NSString *transaction=s.pendingTransactions[0][@"id"]; [s close]; s=nil;
             YBSync *reopened=Engine(area); [reopened recover:transaction];
             Check([[reopened readDocument:path] isEqual:a] && [reopened.entries[path][@"version"] isEqual:@1] && reopened.pendingTransactions.count==0,@"reopened recovery restores both bytes and baseline");
         } }
         {
             NSString *area=NewArea(base); YBSync *s=Engine(area); NSString *transaction=[s apply:a document:v1 expectedLocalHash:nil];
             s.checkpoint=^(NSString *point){if([point isEqual:@"restored_file"])YBRequire(NO,@"restore interrupted");};
-            Reject(^{[s restore:transaction];},@"restore interruption"); s=nil;
+            Reject(^{[s restore:transaction];},@"restore interruption"); [s close]; s=nil;
             YBSync *reopened=Engine(area); [reopened recover:transaction]; Check([reopened readDocument:path]==nil && reopened.entries.count==0,@"recovery of interrupted removal");
         }
         {
@@ -92,11 +92,11 @@ int main(void) { @autoreleasepool {
             Put(s.root,@"Foo/a.pro6",a); Reject(^{[s plan:@[Doc(a,1,@"foo/b.pro6")]];},@"local remote case alias");
         }
         {
-            NSString *area=NewArea(base); YBSync *s=Engine(area); Put(s.root,path,a); [s acknowledge:v1 expectedLocalHash:YBHash(a)]; NSString *root=s.root, *profile=s.profile; s=nil;
+            NSString *area=NewArea(base); YBSync *s=Engine(area); Put(s.root,path,a); [s acknowledge:v1 expectedLocalHash:YBHash(a)]; NSString *root=s.root, *profile=s.profile; [s close]; s=nil;
             Reject(^{YBSync *bad=[[YBSync alloc] initWithRoot:root profile:profile origin:@"https://other.test"]; (void)bad;},@"state origin binding");
         }
         (void)v3; printf("Native safety checks passed: %d\n",checks);
         Check([base hasPrefix:[NSTemporaryDirectory() stringByAppendingPathComponent:@"yebaeon-tests-"]],@"cleanup boundary");
         [NSFileManager.defaultManager removeItemAtPath:base error:NULL]; return 0;
-    } @catch(NSException *e) { fprintf(stderr,"FAIL: %s (%s)\n",e.reason.UTF8String,base.UTF8String); return 1; }
+    } @catch(NSException *e) { fprintf(stderr,"FAIL after %d checks: %s (%s)\n",checks,e.reason.UTF8String,base.UTF8String); return 1; }
 } }
