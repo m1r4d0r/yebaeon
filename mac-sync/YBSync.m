@@ -134,6 +134,25 @@ static NSData *YBRead(NSString *root, NSString *path, mode_t *mode) {
         return data;
     } @finally { close(fd); }
 }
+static void YBScan(int fd, NSString *relative, void (^document)(NSString *)) {
+    int copy=openat(fd,".",O_RDONLY|O_DIRECTORY|O_NOFOLLOW); YBRequire(copy>=0,YBSystem(@"폴더 목록 열기"));
+    DIR *dir=fdopendir(copy); if(!dir) { close(copy); YBRequire(NO,YBSystem(@"폴더 목록 열기")); }
+    @try {
+        struct dirent *ent;
+        for(;;) {
+            errno=0; ent=readdir(dir); if(!ent) { YBRequire(errno==0,YBSystem(@"폴더 목록 읽기")); break; }
+            NSString *name=[[NSString alloc] initWithUTF8String:ent->d_name]; YBRequire(name!=nil,@"UTF-8이 아닌 파일 이름입니다.");
+            if([name isEqual:@"."] || [name isEqual:@".."])continue;
+            struct stat st; YBRequire(fstatat(fd,ent->d_name,&st,AT_SYMLINK_NOFOLLOW)==0,YBSystem(@"문서 검색"));
+            YBRequire(!S_ISLNK(st.st_mode),@"문서 폴더에 심볼릭 링크가 있습니다. 실제 파일 폴더를 사용해 주세요.");
+            NSString *path=relative.length ? [relative stringByAppendingFormat:@"/%@",name] : name;
+            if(S_ISDIR(st.st_mode)) {
+                int child=openat(fd,ent->d_name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW); YBRequire(child>=0,YBSystem(@"하위 폴더 검색"));
+                @try { YBScan(child,path,document); } @finally { close(child); }
+            } else if([name.pathExtension.lowercaseString isEqual:@"pro6"])document(path);
+        }
+    } @finally { closedir(dir); }
+}
 static void YBFlush(int fd) {
     YBRequire(fsync(fd)==0,YBSystem(@"파일 저장 확인"));
     // F_FULLFSYNC also asks the drive to flush its write cache; unsupported volumes use fsync.
@@ -214,14 +233,16 @@ static NSString *YBNow(void) { return [NSISO8601DateFormatter.new stringFromDate
         }
     };
     for(NSDictionary *doc in remoteDocuments) { YBValidateMetadata(doc); NSString *p=doc[@"path"]; YBRequire(!remote[p],@"서버에 겹치는 경로가 있습니다."); registerPath(p); remote[p]=doc; }
-    NSDirectoryEnumerator *enumerator=[NSFileManager.defaultManager enumeratorAtURL:[NSURL fileURLWithPath:self.root] includingPropertiesForKeys:nil options:0 errorHandler:^BOOL(NSURL *url,NSError *error){ YBRequire(NO,@"문서 폴더를 모두 읽지 못했습니다."); return NO; }];
-    for(NSURL *url in enumerator) {
-        struct stat st; YBRequire(lstat(url.fileSystemRepresentation,&st)==0,YBSystem(@"문서 검색"));
-        if(S_ISLNK(st.st_mode)) { [enumerator skipDescendants]; YBRequire(NO,@"문서 폴더에 심볼릭 링크가 있습니다. 실제 파일 폴더를 사용해 주세요."); }
-        if(![url.path.pathExtension.lowercaseString isEqual:@"pro6"])continue;
-        NSString *p=YBPath([url.path substringFromIndex:self.root.length+1]);
-        YBRequire(!local[p],@"같은 이름으로 정규화되는 로컬 문서가 있습니다."); registerPath(p); local[p]=YBHash([self readDocument:p]);
-    }
+    int directory=open(self.root.fileSystemRepresentation,O_RDONLY|O_DIRECTORY|O_NOFOLLOW);
+    YBRequire(directory>=0,YBSystem(@"문서 폴더 검색"));
+    @try {
+        YBScan(directory,@"",^(NSString *relative) {
+            NSString *p=YBPath(relative);
+            YBRequire(!local[p],@"같은 이름으로 정규화되는 로컬 문서가 있습니다.");
+            registerPath(p); NSData *bytes=[self readDocument:p];
+            YBRequire(bytes!=nil,@"목록을 읽는 동안 문서가 이동됐습니다. 다시 비교해 주세요."); local[p]=YBHash(bytes);
+        });
+    } @finally { close(directory); }
     NSMutableSet *paths=[NSMutableSet setWithArray:remote.allKeys]; [paths addObjectsFromArray:local.allKeys]; [paths addObjectsFromArray:self.entries.allKeys];
     NSMutableArray *rows=[NSMutableArray array];
     for(NSString *p in [paths.allObjects sortedArrayUsingSelector:@selector(compare:)]) {
