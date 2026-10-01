@@ -76,5 +76,6 @@ test('switching documents while a save is in flight does not delete later edits 
 test('changing worker session leaves the previous worker draft under a separate ID',async()=>{
   const app=await cloudSetup();app.edit('before logout');
   await app.document.getElementById('accountLogout').onclick();app.edit('after logout');
+  await new Promise(setImmediate);
   const records=await app.drafts.all();assert.equal(records.length,2);assert.ok(records.some(x=>x.xml==='before logout' && x.author==='tester'));assert.ok(records.some(x=>x.xml==='after logout'));
 });
