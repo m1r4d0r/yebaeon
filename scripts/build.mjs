@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const publicFiles = Object.freeze([
-  'index.html', 'style.css', 'fonts.css', 'pp6.js',
+  'index.html', 'favicon.svg', 'favicon.ico', 'style.css', 'fonts.css', 'pp6.js',
   'fonts.js', 'render.js', 'selection.js', 'editor-history.js', 'bible-format.js', 'shortcuts.js', 'app.js', 'drafts.js', 'cloud.js', 'usage.js', 'playlists.js', 'resources.js', 'status.html', 'status.js', 'status.css', '_headers'
 ]);
 
