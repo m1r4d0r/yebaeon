@@ -58,16 +58,18 @@
       $('libraryMessage').textContent = '';
     } catch (error) { if (sequence === listSequence) $('libraryMessage').textContent = error.message; }
   }
-  async function openCloud(id) {
+  async function openCloud(id, fromPlaylist = false) {
     try {
       const { document: doc } = await (await api('/documents/' + id)).json();
       const response = await api(`/documents/${id}/content?version=${doc.version}`), bytes = await response.arrayBuffer();
       const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), n => n.toString(16).padStart(2, '0')).join('');
       if (hash !== doc.sha256) throw new Error('받은 문서를 확인하지 못했습니다. 다시 열어 주세요.');
-      if (!editor.open(new TextDecoder('utf-8', { fatal: true }).decode(bytes), doc.name)) return;
+      if (!editor.open(new TextDecoder('utf-8', { fatal: true }).decode(bytes), doc.name)) return false;
       linked = { ...doc, serial: editor.state().serial }; update(); $('libraryDialog').close();
+      window.dispatchEvent(new CustomEvent('yebaeonclouddocument', { detail: { doc, fromPlaylist } }));
       editor.status(`${doc.updatedBy}님이 ${time(doc.updatedAt)}에 저장한 버전 ${doc.version}을 열었습니다.`);
-    } catch (error) { $('libraryMessage').textContent = error.message; }
+      return true;
+    } catch (error) { $('libraryMessage').textContent = error.message; editor.status(error.message); if (fromPlaylist) throw error; return false; }
   }
   async function upload(files, folder) {
     if (!needUser()) return;
@@ -108,6 +110,7 @@
         editor.status(`${result.document.updatedBy} · 버전 ${result.document.version} 서버 저장 완료.${newer ? ' 저장 중에 추가한 변경은 아직 저장되지 않았습니다.' : ''}`);
       }
       $('saveDialog').close();
+      window.dispatchEvent(new CustomEvent('yebaeoncloudsaved', { detail: result.document }));
     } finally { saving = false; update(); }
   }
   async function history(more = false) {
@@ -132,7 +135,7 @@
     event.preventDefault(); $('entrySubmit').disabled = true; $('entryMessage').textContent = '확인하고 있습니다…';
     try {
       user = await (await api('/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: $('entryName').value, password: $('entryPassword').value, remember: $('entryRemember').checked }) })).json();
-      rememberName(user.name); update(); $('entryDialog').close(); $('libraryDialog').showModal(); await list();
+      rememberName(user.name); update(); $('entryDialog').close(); await window.YebaeonPlaylists.show();
     } catch (error) { $('entryMessage').textContent = error.message; }
     finally { $('entryPassword').value = ''; $('entrySubmit').disabled = !ready; }
   };
@@ -168,11 +171,12 @@
   $('historyClose').onclick = () => $('historyDialog').close(); $('historyMore').onclick = () => history(true);
   window.addEventListener('yebaeonopen', () => { epoch++; linked = null; update(); });
   window.addEventListener('yebaeonchange', () => queueMicrotask(update));
+  window.YebaeonCloud = { api, needUser, openDocument: openCloud, online };
   update();
   if (online) (async () => {
     try {
       const state = await (await api('/session')).json(); ready = state.ready;
-      if (state.authenticated) { user = state; rememberName(user.name); update(); $('libraryDialog').showModal(); await list(); }
+      if (state.authenticated) { user = state; rememberName(user.name); update(); await window.YebaeonPlaylists.show(); }
       else showEntry();
     } catch (_) { ready = false; showEntry(); $('entryMessage').textContent = '서버에 연결하지 못했습니다. 로컬 파일 작업은 계속할 수 있습니다.'; }
   })();

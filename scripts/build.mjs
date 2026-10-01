@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const publicFiles = Object.freeze([
   'index.html', 'style.css', 'fonts.css', 'pp6.js', 'zip.js',
-  'fonts.js', 'render.js', 'sample-demo.js', 'app.js', 'cloud.js', '_headers'
+  'fonts.js', 'render.js', 'sample-demo.js', 'app.js', 'cloud.js', 'playlists.js', '_headers'
 ]);
 
 export async function build({ sourceRoot = root, outputDir = join(root, 'dist') } = {}) {
