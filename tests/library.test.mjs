@@ -117,6 +117,22 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     const page = await (await call(`/documents/${id}/versions`, { cookie })).json(); assert.equal(page.versions.length, 50); assert.equal(page.next, 5);
     const tail = await (await call(`/documents/${id}/versions?before=${page.next}`, { cookie })).json(); assert.deepEqual(tail.versions.map(v => v.version), [4, 3, 2, 1]);
   });
+  await t.test('special Mac names remain metadata while R2 keys use document IDs', async () => {
+    const path = '찬양/원제 : 예수 & "피" %3A.pro6', body = xml('special filename');
+    const result = await call('/documents?path=' + encodeURIComponent(path), { cookie, method: 'POST', body });
+    await code(result, 201); const doc = (await result.json()).document;
+    assert.equal(doc.path, path);
+    const objects = (await bucket.list({ prefix: 'documents/' + doc.id + '/' })).objects;
+    assert.equal(objects.length, 1); assert.ok(!objects[0].key.includes('원제'));
+    const received = await call('/documents/' + doc.id + '/content', { cookie });
+    assert.equal(await received.text(), body);
+    assert.ok(received.headers.get('Content-Disposition').includes(encodeURIComponent(path.split('/').pop())));
+    const repeat = await call('/documents?path=' + encodeURIComponent(path.normalize('NFD')), { cookie, method: 'POST', body });
+    assert.equal((await repeat.json()).document.id, doc.id);
+    const changed = await call('/documents/' + doc.id, { cookie, method: 'PUT', body: xml('updated special'), headers: { 'If-Match': '"1"' } });
+    await code(changed, 200); assert.equal((await changed.json()).document.path, path);
+    assert.equal(await (await call('/documents/' + doc.id + '/content', { cookie })).text(), xml('updated special'));
+  });
   await t.test('logout, expiration and password rotation invalidate server sessions', async () => {
     await code(await call('/session', { cookie, method: 'DELETE' }), 200);
     await code(await call('/documents', { cookie }), 401);

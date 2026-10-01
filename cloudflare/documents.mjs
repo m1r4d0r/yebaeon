@@ -2,9 +2,11 @@ import { XMLValidator } from 'fast-xml-parser';
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
 export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
 export function documentPath(value) {
+  // The original Mac path is metadata. R2 object keys use document/version IDs,
+  // so colons and other printable filename characters never become storage paths.
   if (typeof value !== 'string') throw new HttpError(400, 'invalid_path', '문서 경로가 필요합니다.');
   const path = value.normalize('NFC'), parts = path.split('/');
-  if (path.length > 600 || parts.length > 20 || !/\.pro6$/i.test(path) || parts.some(p => !p || p === '.' || p === '..' || p.length > 160 || /[\\:\x00-\x1f\x7f]/.test(p) || /[. ]$/.test(p))) {
+  if (path.length > 600 || parts.length > 20 || !/\.pro6$/i.test(path) || parts.some(p => !p || p === '.' || p === '..' || p.length > 160 || /[\\\x00-\x1f\x7f]/.test(p) || /[. ]$/.test(p))) {
     throw new HttpError(400, 'invalid_path', '폴더와 .pro6 파일 이름을 확인해 주세요.');
   }
   return path;

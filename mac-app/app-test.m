@@ -3,6 +3,7 @@
 #import "YBMediaController.h"
 #import "YBServerPlaylistsController.h"
 #import "YBPlaylistIO.h"
+#import "YBPlaylistFormat.h"
 #import "YBLibrary.h"
 #import "../mac-sync/PP6Core.h"
 #import <sys/stat.h>
@@ -15,6 +16,8 @@
 @end
 @interface YBDocumentsController (Tests)
 - (void)acceptRows:(NSArray *)rows;
+- (void)selectAllUploads:(id)sender;
+- (void)selectAllDownloads:(id)sender;
 @end
 @interface YBMediaController (Tests)
 - (void)filter;
@@ -72,6 +75,8 @@ int main(void) {@autoreleasepool {
         [playlist setValue:@"예제 운영 파일 · dummy_old.pro6pl" forKeyPath:@"localPathLabel.stringValue"];[playlist setValue:@"예제 최신 파일 · dummy_new.pro6pl" forKeyPath:@"incomingPathLabel.stringValue"];Render(playlist.view,@"playlist");
         NSString *wrapped=@"<RVPlaylistDocument><RVPlaylistNode UUID=\"ROOT\"><array rvXMLIvarName=\"children\"><RVPlaylistNode UUID=\"A\" displayName=\"예배 A\"><array rvXMLIvarName=\"children\"><RVDocumentCue UUID=\"C\" displayName=\"말씀\" filePath=\"/Library/PP6/sermon.pro6\" selectedArrangementID=\"first\"/></array></RVPlaylistNode><RVPlaylistNode UUID=\"B\" displayName=\"예배 B\"><array rvXMLIvarName=\"children\"/></RVPlaylistNode></array></RVPlaylistNode><array rvXMLIvarName=\"deletions\"/></RVPlaylistDocument>";
         YBValidatePlaylist([wrapped dataUsingEncoding:NSUTF8StringEncoding]);
+        Check([YBPlaylistReference(@"/Users/procg/Documents/ProPresenter6/원제 : 예수.pro6",@"~/Documents/ProPresenter6") isEqual:@"원제 : 예수.pro6"],@"playlist links original colon filename");
+        Check([YBPlaylistReference(@"file:///Users/procg/Documents/ProPresenter6/원제%20%3A%20예수.pro6",@"~/Documents/ProPresenter6") isEqual:@"원제 : 예수.pro6"],@"encoded playlist link decodes once");
         NSString *wrappedNew=[wrapped stringByReplacingOccurrencesOfString:@"selectedArrangementID=\"first\"" withString:@"selectedArrangementID=\"second\""];
         [playlist setValue:wrapped forKey:@"localXML"];[playlist setValue:wrappedNew forKey:@"incomingXML"];[playlist compareIfReady];
         NSArray *wrappedReviews=[playlist valueForKey:@"reviews"];
@@ -95,6 +100,15 @@ int main(void) {@autoreleasepool {
         NSArray *statuses=@[@"download",@"upload",@"same",@"conflict"],*paths=@[@"주일예배/말씀.pro6",@"찬양/찬송.pro6",@"예배순서/안내.pro6",@"수요예배/기도.pro6"];
         for(NSUInteger i=0;i<statuses.count;i++)[rows addObject:@{@"path":paths[i],@"status":statuses[i],@"localHash":NSNull.null,@"remote":i==1 ? (id)NSNull.null : @{@"version":@(i+1),@"updatedBy":@"예배 준비팀"}}];
         [controller acceptRows:rows];Check([[controller valueForKey:@"visibleRows"] count]==4,@"document UI row binding");[controller setValue:@"말씀" forKeyPath:@"search.stringValue"];[controller performSelector:@selector(filter)];Check([[controller valueForKey:@"visibleRows"] count]==1,@"document search");[controller setValue:@"" forKeyPath:@"search.stringValue"];[controller performSelector:@selector(filter)];Render(controller.view,@"documents");
+        NSMutableArray *large=[NSMutableArray arrayWithArray:rows];
+        for(NSUInteger i=0;i<3107;i++)[large addObject:@{@"path":[NSString stringWithFormat:@"song-%lu.pro6",(unsigned long)i],@"status":@"upload",@"localHash":NSNull.null,@"remote":NSNull.null}];
+        [large addObject:@{@"path":@"bad : name.pro6",@"status":@"conflict",@"error":@"업로드 제외",@"localHash":NSNull.null,@"remote":NSNull.null}];
+        [controller acceptRows:large];[controller setValue:@"말씀" forKeyPath:@"search.stringValue"];[controller performSelector:@selector(filter)];
+        [controller selectAllUploads:nil];NSSet *selected=[controller valueForKey:@"checked"];
+        Check(selected.count==3108 && ![selected containsObject:@"bad : name.pro6"] && ![selected containsObject:paths[0]],@"bulk upload selects all outside filter and excludes other directions/conflicts");
+        [controller selectAllDownloads:nil];selected=[controller valueForKey:@"checked"];
+        Check(selected.count==1 && [selected containsObject:paths[0]],@"bulk download replaces upload selection");
+        [controller acceptRows:rows];[controller setValue:@"" forKeyPath:@"search.stringValue"];[controller performSelector:@selector(filter)];
         YBMediaController *mediaUI=[[YBMediaController alloc] initWithWork:work documentsRoot:documents];[mediaUI setValue:report forKey:@"report"];[mediaUI filter];Check([[mediaUI valueForKey:@"visibleRows"] count]==4,@"media UI binding");[mediaUI setValue:@1 forKeyPath:@"problemsOnly.state"];[mediaUI filter];Check([[mediaUI valueForKey:@"visibleRows"] count]==3,@"media problem filter");[mediaUI setValue:@0 forKeyPath:@"problemsOnly.state"];[mediaUI filter];Render(mediaUI.view,@"media");
         YBServerPlaylistsController *serverUI=[[YBServerPlaylistsController alloc] initWithWork:work documents:controller];
         [serverUI setValue:@{@"ready":@YES,@"orderChanged":@YES,@"rows":@[@{@"path":@"찬양/공유 찬양.pro6",@"status":@"download"}],@"manifest":@{@"playlist":@{@"name":@"주일 1부 예배"},@"items":@[@{@"name":@"공유 찬양",@"kind":@"document",@"path":@"찬양/공유 찬양.pro6",@"sharedWith":@[@"주일 2부 예배"]}]}} forKey:@"comparison"];

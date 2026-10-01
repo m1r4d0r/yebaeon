@@ -31,7 +31,7 @@ NSString *YBPath(NSString *path) {
     NSString *p = path.precomposedStringWithCanonicalMapping;
     NSArray *parts = [p componentsSeparatedByString:@"/"];
     YBRequire(p.length <= 600 && parts.count <= 20 && [p.lowercaseString hasSuffix:@".pro6"], @"올바른 .pro6 경로가 아닙니다.");
-    for (NSString *part in parts) YBRequire(part.length && part.length<=160 && ![part isEqual:@"."] && ![part isEqual:@".."] && !YBMatch(part,@"[\\\\:\\x00-\\x1f\\x7f]|[. ]$"), @"안전하지 않은 문서 경로입니다.");
+    for (NSString *part in parts) YBRequire(part.length && part.length<=160 && ![part isEqual:@"."] && ![part isEqual:@".."] && !YBMatch(part,@"[\\\\\\x00-\\x1f\\x7f]|[. ]$"), @"안전하지 않은 문서 경로입니다.");
     return p;
 }
 @interface YBXML : NSObject <NSXMLParserDelegate>
@@ -234,6 +234,7 @@ static NSString *YBNow(void) { return [NSISO8601DateFormatter.new stringFromDate
 - (NSData *)readDocument:(NSString *)path { [self open]; YBPath(path); NSData *data=YBRead(self.root,path,NULL); if(data)YBValidateDocument(data); return data; }
 - (NSArray *)plan:(NSArray *)remoteDocuments {
     NSMutableDictionary *remote=[NSMutableDictionary dictionary], *local=[NSMutableDictionary dictionary], *aliases=[NSMutableDictionary dictionary];
+    NSMutableArray *excluded=[NSMutableArray array];
     void (^registerPath)(NSString *)=^(NSString *path) {
         NSString *prefix=@"";
         for(NSString *part in [path componentsSeparatedByString:@"/"]) {
@@ -246,7 +247,13 @@ static NSString *YBNow(void) { return [NSISO8601DateFormatter.new stringFromDate
     YBRequire(directory>=0,YBSystem(@"문서 폴더 검색"));
     @try {
         YBScan(directory,@"",^(NSString *relative) {
-            NSString *p=YBPath(relative);
+            NSString *p=nil;
+            @try { p=YBPath(relative); }
+            @catch(NSException *error) {
+                if(![error.name isEqual:@"YebaeOn"])@throw;
+                [excluded addObject:@{@"path":relative.precomposedStringWithCanonicalMapping,@"status":@"conflict",@"localHash":NSNull.null,@"remote":NSNull.null,@"error":[NSString stringWithFormat:@"업로드 제외: %@ (원본 이름은 유지합니다.)",error.reason]}];
+                return;
+            }
             YBRequire(!local[p],@"같은 이름으로 정규화되는 로컬 문서가 있습니다.");
             registerPath(p); NSData *bytes=[self readDocument:p];
             YBRequire(bytes!=nil,@"목록을 읽는 동안 문서가 이동됐습니다. 다시 비교해 주세요."); local[p]=YBHash(bytes);
@@ -258,7 +265,8 @@ static NSString *YBNow(void) { return [NSISO8601DateFormatter.new stringFromDate
         NSString *status=YBDisposition(local[p],remote[p],self.entries[p]);
         [rows addObject:@{@"path":p,@"status":status,@"localHash":YBNull(local[p]),@"remote":YBNull(remote[p])}];
     }
-    return rows;
+    [rows addObjectsFromArray:excluded];
+    return [rows sortedArrayUsingDescriptors:@[[NSSortDescriptor sortDescriptorWithKey:@"path" ascending:YES]]];
 }
 - (void)acknowledge:(NSDictionary *)doc expectedLocalHash:(NSString *)hash {
     [self assertReady]; YBValidateMetadata(doc);
