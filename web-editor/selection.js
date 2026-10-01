@@ -2,8 +2,8 @@
   let active=null,clipboard=null,drag=null;
   class Selection {
     constructor(element,options={}){this.element=element;this.options=options;this.keys=[];this.chosen=new Set();this.anchor=null;this.cursor=null;element.addEventListener('pointerdown',()=>this.activate());element.addEventListener('focusin',()=>this.activate());}
-    activate(){active=this;document.querySelectorAll('.pane.focused').forEach(e=>e.classList.remove('focused'));this.element.classList.add('focused');}
-    setKeys(keys){this.keys=keys;this.chosen=new Set([...this.chosen].filter(k=>keys.includes(k)));if(!keys.includes(this.cursor))this.cursor=keys[0]??null;this.paint();}
+    activate(){active=this;document.querySelectorAll('.pane.focused').forEach(e=>e.classList.remove('focused'));this.element.classList.add('focused');window.dispatchEvent(new Event('yebaeonfocus'));}
+    setKeys(keys){this.keys=keys;this.chosen=new Set([...this.chosen].filter(k=>keys.includes(k)));if(!keys.includes(this.anchor))this.anchor=null;if(!keys.includes(this.cursor))this.cursor=keys[0]??null;this.paint();}
     select(key,event={}){this.activate();if(event.shiftKey&&this.anchor!==null){const a=this.keys.indexOf(this.anchor),b=this.keys.indexOf(key);if(!event.ctrlKey&&!event.metaKey)this.chosen.clear();this.keys.slice(Math.min(a,b),Math.max(a,b)+1).forEach(k=>this.chosen.add(k));}else if(event.ctrlKey||event.metaKey){if(this.chosen.has(key))this.chosen.delete(key);else this.chosen.add(key);this.anchor=key;}else{this.chosen=new Set([key]);this.anchor=key;}this.cursor=key;this.paint();this.options.onSelect?.(key,event);}
     paint(){for(const el of this.element.querySelectorAll('[data-key]')){const key=el.dataset.key;el.classList.toggle('selected',this.chosen.has(key));el.classList.toggle('current',key===this.cursor);el.setAttribute('aria-selected',String(this.chosen.has(key)));}this.options.onPaint?.();}
     values(){return this.keys.filter(k=>this.chosen.has(k));}

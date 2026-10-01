@@ -11,7 +11,7 @@
   let listNext = null, listSequence = 0, historyDoc = null, historyNext = null;
   const rememberName = name => { try { localStorage.setItem('yebaeon.workerName', name); } catch (_) {} };
   const recalledName = () => { try { return localStorage.getItem('yebaeon.workerName') || ''; } catch (_) { return ''; } };
-  const time = value => new Date(value).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
+  const time = value => new Date(value).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short',timeZone:'Asia/Seoul' });
   function update() {
     window.dispatchEvent(new CustomEvent("yebaeonsession", { detail: { authenticated: !!user } }));
     $('cloudAccount').textContent = online ? (user ? user.name + ' ▾' : '입장하기') : '연결 안 됨';

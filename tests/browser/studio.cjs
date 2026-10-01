@@ -26,6 +26,7 @@ const assert=require('node:assert/strict');
  let template;
  const books=Array.from({length:66},(_,i)=>({name:i===42?'요한복음':'책'+i,chapters:[{number:3,verses:Array.from({length:36},(_,i)=>({number:i+1,text:'하나님이 세상을 이처럼 사랑하사 독생자를 주셨으니 믿는 자마다 영생을 얻게 하려 하심이라.'}))},{number:4,verses:[{number:1,text:'첫 번째 절입니다.'},{number:2,text:'두 번째 절입니다.'}]}]}));
  await page.route('**/resources/**',async route=>{const path=new URL(route.request().url()).pathname;await route.fulfill({json:path.endsWith('catalog.json')?{fonts:[],media:[]}:path.endsWith('templates.json')?(template?[template]:[]):{books}});});
+ await mkdir('artifacts',{recursive:true});
  try{
  await page.goto(`http://127.0.0.1:${server.address().port}/`);await page.waitForFunction(()=>window.YebaeonCloud&&window.YebaeonResources);
  await page.addScriptTag({path:'web-editor/sample-demo.js'});
