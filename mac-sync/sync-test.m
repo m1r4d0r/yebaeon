@@ -146,6 +146,16 @@ int main(void) { @autoreleasepool {
             Reject(^{[s pruneBackupBatchesKeeping:1];},@"cleanup refuses symlink contents");
             Check([[NSData dataWithContentsOfFile:outside] isEqual:a],@"cleanup cannot follow a link outside profile");
         }
+        {
+            YBSync *s=Engine(NewArea(base));Put(s.root,path,a);[s acknowledge:v1 expectedLocalHash:YBHash(a)];
+            NSString *batch=[s beginBackupBatch:@"documents" playlistJob:nil];[s apply:b document:v2 expectedLocalHash:YBHash(a)];[s apply:a document:Doc(a,1,@"new.pro6") expectedLocalHash:nil];[s endBackupBatch:YES];
+            Put(s.root,@"new.pro6",c);Reject(^{[s restoreBackupBatch:batch];},@"batch preflight blocks later local edits");Check([[s readDocument:path] isEqual:b] && [[s readDocument:@"new.pro6"] isEqual:c],@"batch preflight leaves all members untouched");
+            Put(s.root,@"new.pro6",a);[s restoreBackupBatch:batch];Check([[s readDocument:path] isEqual:a] && ![s readDocument:@"new.pro6"],@"batch restores modified and removes newly received documents together");Reject(^{[s restoreBackupBatch:batch];},@"completed restore cannot run twice");
+        }
+        {
+            NSString *area=NewArea(base);YBSync *s=Engine(area);NSString *batch=[s beginBackupBatch:@"documents" playlistJob:nil];[s apply:a document:v1 expectedLocalHash:nil];[s endBackupBatch:YES];
+            s.checkpoint=^(NSString *point){if([point isEqual:@"restored_file"])YBRequire(NO,@"batch restore interrupted");};Reject(^{[s restoreBackupBatch:batch];},@"batch interrupted restore fixture");[s close];s=nil;YBSync *again=Engine(area);[again restoreBackupBatch:batch];Check(![again readDocument:path] && again.pendingTransactions.count==0,@"batch restore resumes interrupted removal");
+        }
         (void)v3; printf("Native safety checks passed: %d\n",checks);
         Check([base hasPrefix:[NSTemporaryDirectory() stringByAppendingPathComponent:@"yebaeon-tests-"]],@"cleanup boundary");
         [NSFileManager.defaultManager removeItemAtPath:base error:NULL]; return 0;

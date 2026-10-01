@@ -15,7 +15,7 @@
 - (NSArray *)refresh {
     NSMutableArray *result=[NSMutableArray array];NSISO8601DateFormatter *dates=[NSISO8601DateFormatter new];
     for(NSDictionary *row in [self.sync plan:[self.server documents]]) {
-        NSMutableDictionary *copy=[row mutableCopy];
+        NSMutableDictionary *copy=[row mutableCopy];NSDate *modified=[NSFileManager.defaultManager attributesOfItemAtPath:[self.sync.root stringByAppendingPathComponent:row[@"path"]] error:NULL][NSFileModificationDate];if(modified)copy[@"modifiedTime"]=@(modified.timeIntervalSince1970);
         if(row[@"localHash"]!=NSNull.null && !row[@"error"]) {
             @try {NSData *data=[self.sync readDocument:row[@"path"]];NSXMLDocument *xml=[[NSXMLDocument alloc] initWithData:data options:0 error:NULL];NSString *value=[[xml.rootElement attributeForName:@"lastDateUsed"] stringValue];NSDate *date=[dates dateFromString:value ?: @""];
                 if(date){copy[@"lastDateUsed"]=value;copy[@"lastUsedTime"]=@(date.timeIntervalSince1970);}

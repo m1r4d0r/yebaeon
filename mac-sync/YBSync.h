@@ -49,6 +49,7 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 - (NSString *)beginBackupBatch:(NSString *)kind playlistJob:(NSString *)job;
 - (void)endBackupBatch:(BOOL)completed;
 - (NSArray *)backupBatches;
+- (void)restoreBackupBatch:(NSString *)identifier;
 - (void)pruneBackupBatchesKeeping:(NSUInteger)limit;
 - (NSArray *)transactions;
 - (NSArray *)pendingTransactions;

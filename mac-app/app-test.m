@@ -20,6 +20,12 @@
 - (void)selectAllUploads:(id)sender;
 - (void)selectAllDownloads:(id)sender;
 @end
+@interface YBServerPlaylistsController (Tests)
+- (void)acceptLibraries:(NSArray *)libraries;
+- (void)acceptComparison:(NSDictionary *)comparison;
+- (NSArray *)recoveryRecordsForSync:(YBSync *)sync jobs:(NSArray *)jobs;
+- (NSView *)recoveryView;
+@end
 @interface YBMediaController (Tests)
 - (void)filter;
 @end
@@ -40,7 +46,7 @@ static NSData *Document(NSArray *sources) {
 static void Render(NSView *content,NSString *name) {
     // A standalone panel is transparent; include the same background supplied by the app window.
     NSView *view=[[YBTestPanel alloc] initWithFrame:content.bounds];[view addSubview:content];
-    NSWindow *window=[[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,1060,720) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];window.releasedWhenClosed=NO;window.appearance=[NSAppearance appearanceNamed:NSAppearanceNameAqua];window.contentView=view;[window makeKeyAndOrderFront:nil];[view layoutSubtreeIfNeeded];
+    NSWindow *window=[[NSWindow alloc] initWithContentRect:content.bounds styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];window.releasedWhenClosed=NO;window.appearance=[NSAppearance appearanceNamed:NSAppearanceNameAqua];window.contentView=view;[window makeKeyAndOrderFront:nil];[view layoutSubtreeIfNeeded];
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.15]];
     NSBitmapImageRep *bitmap=[view bitmapImageRepForCachingDisplayInRect:view.bounds];[view cacheDisplayInRect:view.bounds toBitmapImageRep:bitmap];NSData *png=[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
     Check(png.length>1000,@"rendered panel pixels");Put([@"mac-app/test-output" stringByAppendingPathComponent:[name stringByAppendingString:@".png"]],png);[window orderOut:nil];
@@ -106,17 +112,24 @@ int main(void) {@autoreleasepool {
         [large addObject:@{@"path":@"bad : name.pro6",@"status":@"conflict",@"error":@"업로드 제외",@"localHash":NSNull.null,@"remote":NSNull.null}];
         [controller acceptRows:large];[controller setValue:@"말씀" forKeyPath:@"search.stringValue"];[controller performSelector:@selector(filter)];
         [controller selectAllUploads:nil];NSSet *selected=[controller valueForKey:@"checked"];
-        Check(selected.count==3108 && ![selected containsObject:@"bad : name.pro6"] && ![selected containsObject:paths[0]],@"bulk upload selects all outside filter and excludes other directions/conflicts");
+        Check(selected.count==0,@"bulk upload respects current search");
+        [controller setValue:@"" forKeyPath:@"search.stringValue"];[controller selectAllUploads:nil];selected=[controller valueForKey:@"checked"];Check(selected.count==3108 && ![selected containsObject:@"bad : name.pro6"],@"bulk upload selects visible direction without conflicts");
+        [controller setValue:@"말씀" forKeyPath:@"search.stringValue"];
         [controller selectAllDownloads:nil];selected=[controller valueForKey:@"checked"];
         Check(selected.count==1 && [selected containsObject:paths[0]],@"bulk download replaces upload selection");
         [controller acceptRows:rows];[controller setValue:@"" forKeyPath:@"search.stringValue"];[controller performSelector:@selector(filter)];
         [controller acceptRows:@[@{@"path":@"a.pro6",@"status":@"upload"},@{@"path":@"b.pro6",@"status":@"upload",@"lastUsedTime":@100},@{@"path":@"c.pro6",@"status":@"upload",@"lastUsedTime":@200}]];
         NSArray *ordered=[controller valueForKey:@"rows"];Check([ordered[0][@"path"] isEqual:@"c.pro6"] && [ordered[2][@"path"] isEqual:@"a.pro6"],@"recent order and missing date last");
         NSPopUpButton *order=[controller valueForKey:@"order"];[order selectItemAtIndex:1];[controller orderChanged:nil];ordered=[controller valueForKey:@"rows"];Check([ordered[0][@"path"] isEqual:@"a.pro6"],@"name order selectable");[order selectItemAtIndex:0];[controller acceptRows:rows];
+        NSTableView *docTable=[controller valueForKey:@"table"];docTable.sortDescriptors=@[[NSSortDescriptor sortDescriptorWithKey:@"remote.updatedAt" ascending:NO]];Check([[controller valueForKey:@"rows"] count]==4,@"server-date sorting handles documents not yet on server");
+        NSString *usedFile=[area stringByAppendingPathComponent:@"used.pro6pl"];Put(usedFile,[[wrapped stringByReplacingOccurrencesOfString:@"/Library/PP6/sermon.pro6" withString:@"/Users/procg/Documents/ProPresenter6/찬양/찬송.pro6"] dataUsingEncoding:NSUTF8StringEncoding]);[controller setPlaylistFile:[NSURL fileURLWithPath:usedFile]];[controller setValue:@1 forKeyPath:@"usedOnly.state"];[controller selectAllUploads:nil];Check([[controller valueForKey:@"visibleRows"] count]==1 && [[controller valueForKey:@"checked"] containsObject:paths[1]],@"playlist usage filter and selection use exact relative reference");
+        [controller setValue:@0 forKeyPath:@"usedOnly.state"];[controller selectAllUploads:nil];[docTable selectAll:nil];Check([[controller valueForKey:@"checked"] count]==1,@"Cmd A responder selects current transfer direction");
         YBMediaController *mediaUI=[[YBMediaController alloc] initWithWork:work documentsRoot:documents];[mediaUI setValue:report forKey:@"report"];[mediaUI filter];Check([[mediaUI valueForKey:@"visibleRows"] count]==4,@"media UI binding");[mediaUI setValue:@1 forKeyPath:@"problemsOnly.state"];[mediaUI filter];Check([[mediaUI valueForKey:@"visibleRows"] count]==3,@"media problem filter");[mediaUI setValue:@0 forKeyPath:@"problemsOnly.state"];[mediaUI filter];Render(mediaUI.view,@"media");
         YBServerPlaylistsController *serverUI=[[YBServerPlaylistsController alloc] initWithWork:work documents:controller];
         [serverUI setValue:@{@"ready":@YES,@"orderChanged":@YES,@"rows":@[@{@"path":@"찬양/공유 찬양.pro6",@"status":@"download"}],@"manifest":@{@"playlist":@{@"name":@"주일 1부 예배"},@"items":@[@{@"name":@"공유 찬양",@"kind":@"document",@"path":@"찬양/공유 찬양.pro6",@"sharedWith":@[@"주일 2부 예배"]}]}} forKey:@"comparison"];
+        NSDictionary *uiComparison=[serverUI valueForKey:@"comparison"];[serverUI setValue:[@{@"lib/order":uiComparison} mutableCopy] forKey:@"comparisons"];[serverUI acceptLibraries:@[@{@"id":@"lib",@"path":@"기본 .pro6pl",@"updatedAt":@"2026-10-01",@"playlists":@[@{@"id":@"order",@"name":@"주일 1부 예배"}]}]];[serverUI acceptComparison:uiComparison];
         [[serverUI valueForKey:@"table"] reloadData];Check([[serverUI valueForKey:@"table"] numberOfRows]==1,@"server playlist UI row binding");Render(serverUI.view,@"server-playlists");
+        YBSync *recoverySync=[[YBSync alloc] initWithRoot:[area stringByAppendingPathComponent:@"recovery-docs"] profile:[area stringByAppendingPathComponent:@"recovery-profile"] origin:@"https://example.test"];recoverySync.presenterRunning=^BOOL{return NO;};[recoverySync beginBackupBatch:@"documents" playlistJob:nil];for(NSString *path in @[@"찬양.pro6",@"말씀.pro6"])[recoverySync apply:doc document:@{@"id":NSUUID.UUID.UUIDString.lowercaseString,@"path":path,@"version":@1,@"sha256":YBHash(doc),@"size":@(doc.length),@"updatedBy":@"테스트",@"updatedAt":@"2026-10-01"} expectedLocalHash:nil];[recoverySync endBackupBatch:YES];NSArray *records=[serverUI recoveryRecordsForSync:recoverySync jobs:@[]];Check(records.count==1 && [records[0][@"members"] count]==2,@"recovery list groups documents by operation without duplicate rows");[serverUI setValue:records forKey:@"recoveryRecords"];NSView *recovery=[serverUI recoveryView];[[serverUI valueForKey:@"recoveryTable"] selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];NSTableView *recoveryTable=[serverUI valueForKey:@"recoveryTable"];NSTextField *targetCell=(NSTextField *)[recoveryTable viewAtColumn:1 row:0 makeIfNecessary:YES];Check([targetCell.stringValue isEqual:@"문서 받기"],@"recovery cells render the selected batch, not playlist preview data");Render(recovery,@"recovery");[recoverySync close];
         __block BOOL finished=NO;__block NSString *failure=nil;
         [work run:^id {YBRequire(!NSThread.isMainThread,@"background worker");return @42;} completion:^(id result,NSString *error){Check(NSThread.isMainThread && [result isEqual:@42] && !error,@"UI completion on main thread");finished=YES;}];
         NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:3];while(!finished && deadline.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];Check(finished && !work.busy,@"async UI work completes");

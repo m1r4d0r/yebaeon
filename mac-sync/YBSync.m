@@ -326,6 +326,17 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
     }
     return [result sortedArrayUsingDescriptors:@[[NSSortDescriptor sortDescriptorWithKey:@"createdAt" ascending:NO]]];
 }
+- (void)restoreBackupBatch:(NSString *)identifier {
+    [self open];YBRequire(!self.activeBackupBatch,@"받기 작업 중에는 복구할 수 없습니다.");NSDictionary *batch=nil;for(NSDictionary *b in self.backupBatches)if([b[@"id"] isEqual:identifier])batch=b;
+    YBRequire(batch && [batch[@"kind"] isEqual:@"documents"] && [@[@"prepared",@"complete"] containsObject:batch[@"status"]],@"복구할 문서 작업을 찾지 못했습니다.");
+    NSMutableArray *members=[NSMutableArray array];for(NSDictionary *t in self.transactions)if([t[@"batchID"] isEqual:identifier] && [@[@"prepared",@"applied",@"committed",@"restoring"] containsObject:t[@"status"]])[members addObject:t];
+    YBRequire(members.count>0,@"이 작업의 문서는 이미 복구됐거나 적용되지 않았습니다.");
+    for(NSDictionary *pending in self.pendingTransactions)YBRequire([pending[@"batchID"] isEqual:identifier],@"다른 작업의 중단 기록을 먼저 복구하세요.");
+    NSData *active=YBRead(self.profile,@"playlist-active.json",NULL);YBRequire(!active || [YBJSON(active)[@"status"] isEqual:@"complete"],@"중단된 재생목록 작업을 먼저 복구하세요.");[self closed];
+    for(NSDictionary *t in members){BOOL committed=[t[@"status"] isEqual:@"committed"];NSString *current=YBHash([self readDocument:t[@"path"]]);NSString *before=YBUnnull(t[@"beforeHash"]);YBRequire([current isEqual:t[@"incoming"][@"sha256"]] || (!committed && YBEqual(current,before)),@"작업 이후 바뀐 문서가 있습니다. 현재 파일을 유지합니다.");if(committed)YBRequire(YBEqual(self.entries[t[@"path"]],t[@"incoming"]),@"이후 동기화한 문서가 있어 작업 전체를 자동 복구하지 않습니다.");NSData *original=YBRead(self.profile,[[[self journalPath:t[@"id"]] stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"before.pro6"],NULL);YBRequire(YBEqual(YBHash(original),before),@"원본 백업이 손상됐습니다. 문서를 변경하지 않았습니다.");}
+    for(NSDictionary *t in members)if(![t[@"status"] isEqual:@"committed"])[self recover:t[@"id"]];
+    for(NSDictionary *t in members)if([t[@"status"] isEqual:@"committed"])[self restore:t[@"id"]];
+}
 - (void)saveBatch:(NSDictionary *)batch {
     YBRequire(YBMatch(batch[@"id"],@"^[0-9A-Fa-f-]{36}$"),@"백업 작업 번호 오류");
     YBWrite(self.profile,[NSString stringWithFormat:@"backup-batches/%@/batch.json",batch[@"id"]],YBJSONData(batch),0600,nil);
