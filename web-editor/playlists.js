@@ -145,4 +145,5 @@
   window.addEventListener('yebaeonclouddocument', event => { if (!event.detail.fromPlaylist) { context = null; updateContext(); $('playlistsDialog').close(); } });
   window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
   window.YebaeonPlaylists = { show };
+  window.dispatchEvent(new Event('yebaeonplaylistsready'));
 })();

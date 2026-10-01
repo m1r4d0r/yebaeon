@@ -34,6 +34,10 @@
     $('entryMessage').textContent = ready ? '' : '서버 연결 준비 중입니다. 지금은 로컬 파일로 작업할 수 있습니다.';
     if (!$('entryDialog').open) $('entryDialog').showModal();
   }
+  async function showPlaylists() {
+    if (!window.YebaeonPlaylists) await new Promise(resolve => window.addEventListener('yebaeonplaylistsready', resolve, { once: true }));
+    await window.YebaeonPlaylists.show();
+  }
   function needUser() { if (user) return true; showEntry(); return false; }
   function row(title, detail, buttonText, action) {
     const item = document.createElement('div'); item.className = 'library-row';
@@ -135,7 +139,7 @@
     event.preventDefault(); $('entrySubmit').disabled = true; $('entryMessage').textContent = '확인하고 있습니다…';
     try {
       user = await (await api('/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: $('entryName').value, password: $('entryPassword').value, remember: $('entryRemember').checked }) })).json();
-      rememberName(user.name); update(); $('entryDialog').close(); await window.YebaeonPlaylists.show();
+      rememberName(user.name); update(); $('entryDialog').close(); await showPlaylists();
     } catch (error) { $('entryMessage').textContent = error.message; }
     finally { $('entryPassword').value = ''; $('entrySubmit').disabled = !ready; }
   };
@@ -176,7 +180,7 @@
   if (online) (async () => {
     try {
       const state = await (await api('/session')).json(); ready = state.ready;
-      if (state.authenticated) { user = state; rememberName(user.name); update(); await window.YebaeonPlaylists.show(); }
+      if (state.authenticated) { user = state; rememberName(user.name); update(); await showPlaylists(); }
       else showEntry();
     } catch (_) { ready = false; showEntry(); $('entryMessage').textContent = '서버에 연결하지 못했습니다. 로컬 파일 작업은 계속할 수 있습니다.'; }
   })();

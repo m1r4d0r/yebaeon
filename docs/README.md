@@ -1,9 +1,10 @@
 # 프로젝트 문서
 
-현재 상태와 다음 작업은 [NEXT-STAGE.md](NEXT-STAGE.md)를 기준으로 확인합니다. 문서에 적힌 코드·자료 경로와 명령은 별도 설명이 없으면 저장소 루트를 기준으로 합니다.
+현재 상태와 다음 작업은 [SESSION-HANDOFF.md](SESSION-HANDOFF.md)를 기준으로 확인합니다. 문서에 적힌 코드·자료 경로와 명령은 별도 설명이 없으면 저장소 루트를 기준으로 합니다.
 
 - [새 세션 인수인계·완료/미완료·다운로드](SESSION-HANDOFF.md)
-- [플레이리스트 중심 흐름·현재 누락·완료 기준](PLAYLIST-WORKFLOW.md)
+- [교회 Mac 실행·실기 확인 순서](CHURCH-TEST.md)
+- [플레이리스트 중심 흐름·구현·완료 기준](PLAYLIST-WORKFLOW.md)
 - [남은 단계와 집·교회 작업 분담](NEXT-STAGE.md)
 - [클라우드 저장 범위와 서버 기획](SERVER-PLAN.md)
 - [브랜드와 서비스 주소](BRANDING.md)

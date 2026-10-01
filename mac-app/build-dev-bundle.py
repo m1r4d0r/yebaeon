@@ -62,13 +62,15 @@ def main():
                        (args.assets_original, 'PP6-Original-Source-Assets.zip')]:
         files['originals/' + name] = (archive_bytes(path), 0o644)
     files['app/YebaeOn-Sync-macOS.zip'] = (archive_bytes(args.app), 0o644)
-    files['HANDOFF.md'] = (git('show', 'HEAD:docs/INTEGRATION-HANDOFF.md'), 0o644)
+    files['HANDOFF.md'] = (git('show', 'HEAD:docs/SESSION-HANDOFF.md'), 0o644)
+    files['CHURCH-TEST.md'] = (git('show', 'HEAD:docs/CHURCH-TEST.md'), 0o644)
     start = """예배온 Sync 통합 개발 묶음
 
 1. Mac에서 app/YebaeOn-Sync-macOS.zip을 풀고 예배온 Sync.app을 엽니다.
 2. 기존 PP6 Playlist Sync.app·설정·백업은 보관하고, 기존 앱은 종료합니다.
-3. 문서 탭의 별도 시험 폴더로 서버 문서 하나를 받아 PP6에서 확인합니다.
-4. 직접 빌드하려면 source/mac-app/build.command를 실행합니다.
+3. HANDOFF.md에서 최신 작업 현황을, CHURCH-TEST.md에서 교회 확인 순서를 읽습니다.
+4. 서버 재생목록 탭에서 원본 등록과 플레이리스트 단위 동기화를 시험합니다.
+5. 직접 빌드하려면 source/mac-app/build.command를 실행합니다.
 
 source/: 현재 커밋된 예배온 소스 전체
 originals/: 제공받은 Native / Core / 원본 자료 ZIP을 그대로 보관

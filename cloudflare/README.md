@@ -36,7 +36,7 @@ R2에는 받은 원본 bytes를 버전별로 보존하고, D1에는 상대경로
 
 저장은 기준 버전이 일치해야 확정된다. R2 업로드 후 D1의 현재 포인터 변경과 버전 행 추가를 한 트랜잭션으로 처리한다. 동시 편집이 겹치면 409로 거절하고 브라우저의 편집 내용은 유지한다. 이때 ZIP으로 보관한 뒤 최신 문서를 다시 열 수 있다. DB 확정 여부를 알 수 없는 실패에서는 원본을 지우지 않으므로, 참조되지 않는 R2 객체 정리는 추후 유지관리 항목이다.
 
-미디어는 아직 서버에 업로드하지 않는다. 기존 Mac 미디어 경로를 유지하며, 새 미디어를 가리키는 `file:///PP6-Package/`가 들어 있으면 서버 저장을 거절한다. 성경·미디어·Playlist 업로드는 다음 단계다. Mac의 `.pro6` 적용/백업/복원은 Sync 클라이언트가 담당한다.
+미디어는 아직 서버에 업로드하지 않는다. 기존 Mac 미디어 경로를 유지하며, 새 미디어를 가리키는 `file:///PP6-Package/`가 들어 있으면 서버 저장을 거절한다. Playlist 원본/버전 업로드는 구현했고 성경·미디어 업로드는 다음 단계다. Mac의 `.pro6` 적용/백업/복원은 Sync 클라이언트가 담당한다.
 
 ## API 계약
 
@@ -62,7 +62,7 @@ R2에는 받은 원본 bytes를 버전별로 보존하고, D1에는 상대경로
 
 ## GitHub 자동 배포
 
-설정 기준은 루트 `wrangler.jsonc`다. `npm run build`는 앱 파일 10개와 응답 헤더만 `dist/`로 복사한다. 실제 자료·테스트 출력은 제외하며 예상하지 못한 파일이 있으면 빌드를 중단한다.
+설정 기준은 루트 `wrangler.jsonc`다. `npm run build`는 앱 파일 11개와 응답 헤더만 `dist/`로 복사한다. 실제 자료·테스트 출력은 제외하며 예상하지 못한 파일이 있으면 빌드를 중단한다.
 
 `.github/workflows/deploy.yml`은 `main`의 앱·서버·검사 코드 변경 시 설치 → 검사 → 기존 `yebaeon` Worker 배포를 실행한다. 문서만 수정하면 배포하지 않는다. GitHub Actions secrets의 `CLOUDFLARE_ACCOUNT_ID`, 해당 계정 `Workers Scripts:Edit` 권한의 `CLOUDFLARE_API_TOKEN`을 사용한다. 기존 Cloudflare GitHub 앱 설치와 다른 사이트 연결은 바꾸지 않는다.
 
@@ -93,4 +93,23 @@ Node.js 24에서 `npm ci`, `npm test`, `npm run deploy:check`를 실행한다. �
 
 운영 서버의 기존 시험 문서를 버전 2에서 3으로 저장하고, 새로고침 뒤 라이브러리에서 다시 열어 수정 문구·작업자·버전이 유지됨을 확인했다. 내려받은 두 버전의 XML을 비교해 37장과 모든 속성·미디어 경로가 같고, 의도한 텍스트 상자 하나의 내용만 바뀐 것을 확인했다. 이전 버전 1·2의 이력도 유지됐다.
 
-이는 문서 저장 엔진의 하위 검사다. 서버 플레이리스트 목록·문서 참조 연결·Mac의 플레이리스트별 동기화는 아직 구현하지 않았으므로 최종 예배 준비 흐름의 완료를 뜻하지 않는다. [플레이리스트 기준](../docs/PLAYLIST-WORKFLOW.md).
+이는 문서 저장 엔진의 하위 검사다. 이후 서버 플레이리스트 목록·문서 참조 연결·Mac의 플레이리스트별 동기화를 구현하고 별도 합성 자료 검사를 추가했다. High Sierra/PP6에서 실제로 연 결과는 아직 아니다. [플레이리스트 기준](../docs/PLAYLIST-WORKFLOW.md).
+
+## 플레이리스트 API · 0.4.0
+
+공용 세션과 동일 출처 검사를 그대로 사용한다. `.pro6pl` 한 파일에는 여러 플레이리스트가 있으며 원본 파일과 버전을 R2에 보관한다. 최대 5MiB UTF-8 XML. 기본 원래 문서 루트는 `~/Documents/ProPresenter6`이며 상대경로/NFC로 기존 서버 문서와 연결한다.
+
+| 요청 | 동작 |
+|---|---|
+| `GET /api/playlists?after=...` | 파일별 `libraries`, 50개 페이지, `next` |
+| `POST /api/playlists?path=...&root=...` | raw `.pro6pl` 최초 등록. 같은 원본/루트는 재등록 허용 |
+| `GET /api/playlists/:id` | 파일 메타데이터와 안의 플레이리스트 목록 |
+| `PUT /api/playlists/:id` | 원본 파일 새 버전, `If-Match: "N"` 필수 |
+| `PATCH /api/playlists/:id?node=...` | `{items:[{id}, {id,documentId}, {documentId}]}`로 선택 노드의 보존/교체/추가·순서 저장. `If-Match` 필수 |
+| `GET/HEAD /api/playlists/:id/content?version=N` | 원본 파일 버전과 해시 |
+| `GET /api/playlists/:id/versions?before=N` | 이전 버전·저장자·시간 |
+| `GET /api/playlists/:id/plan?node=...` | 선택 노드 XML, 항목·문서 메타데이터·누락·공유 영향·동기화 fingerprint |
+
+계획의 `fingerprint`는 순서와 참조 문서 버전/해시를 함께 포함한다. 가사만 변경해도 달라진다. `ready:false`이면 Mac은 완료로 적용하지 않는다. `issue`는 `missing`, `unmapped`, `unsupported`다. 공유 영향은 같은 재생목록 파일 범위이며 문서는 삭제하지 않는다. 클라이언트는 적용 직전 계획을 다시 읽어 비교해야 한다.
+
+Miniflare에서 서버 API와 보존/충돌을 검사했고, 실제 네이티브 클라이언트가 이 Worker에 등록·수신·복구하는 검사도 53개 통과했다. [전체 검증 기록](../docs/SESSION-HANDOFF.md).

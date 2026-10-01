@@ -60,7 +60,7 @@ export function catalog(parsed) { return parsed.playlists.map(p => ({ id: p.id, 
 function attr(raw, key, value) {
   const end = raw.match(/^<(?:[^>"']|"[^"]*"|'[^']*')*>/)?.[0]; if (!end) fail('순서 항목을 읽지 못했습니다.');
   const re = new RegExp(`\\s${key}\\s*=\\s*(?:"[^"]*"|'[^']*')`);
-  const next = re.test(end) ? end.replace(re, ` ${key}="${escape(value)}"`) : end.replace(/\/?\s*>$/, ending => ` ${key}="${escape(value)}"${ending}`);
+  const next = re.test(end) ? end.replace(re, () => ` ${key}="${escape(value)}"`) : end.replace(/\/?\s*>$/, ending => ` ${key}="${escape(value)}"${ending}`);
   return next + raw.slice(end.length);
 }
 export function editPlaylist(parsed, nodeId, entries, documents, root) {
