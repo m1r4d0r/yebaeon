@@ -4,6 +4,15 @@
 
 집 PC는 Windows, 교회 Mac은 High Sierra 10.13.6이다. 최신 Safari 웹 편집기 실행을 교회 Mac의 필수 조건으로 삼지 않는다. 소스 작업과 푸시는 로컬 GitHub 클론에서 하며 GitHub 웹은 로그아웃 상태를 유지한다.
 
+## 최신 업데이트 · Studio / Sync 디자인 적용
+
+- Studio는 PR #2 (`67d7d0a`)로 병합·배포했다. 운영 주소는 https://yebaeon.grace-jean-p.workers.dev/ 이며 현황판은 `/status`다. 배포 검사 [36932037619](https://github.com/m1r4d0r/yebaeon/actions/runs/36932037619) 성공. 아래 초창기 화면/버전 설명보다 이 기록과 UX-HANDOFF-REVIEW를 우선한다.
+- Sync는 PR #3에서 **0.5.0 build 8**을 구현하고 `e511cb8`로 병합했다. 공유 경로 막대, 재생목록·문서·미디어 탭, 자동 비교, 참조/방향 필터·검색 내 전체 선택, 최근 사용일 정렬, 작업별 복구 목록을 제공한다. 기존 로컬 재생목록 도구는 메뉴로 옮겼다. `mac-app/README.md`에 최신 실행 흐름이 있다.
+- 문서 묶음 복구는 현재 내용·기준·백업을 모든 대상에 대해 먼저 검증한 후 수행한다. 나중 수정된 문서가 있으면 시작하지 않는다. 중간 종료는 기존 파일별 저널로 복구한다. 원자적 전체 복구나 자동 이어받기를 의미하지 않는다.
+- `.pro6pl` 버전은 파일 전체 버전으로 표기한다. Mac 변경/충돌은 차단하며 강제 덮어쓰기를 도입하지 않았다. 이전 설정·키체인·백업 경로를 유지한다. 10회 보관은 완료한 받기 작업 기준이며 중단·구버전 기록은 추가 보존한다.
+- 비교 공유 캐시는 해당 비교 회차 내 문서 해시에만 적용하고, 받기 직전 새로 비교한다. 기존 4개 병렬 업로드/잠자기 방지 유지. 아이콘 교체·일시정지/취소는 포함하지 않는다.
+- 교회 High Sierra 실제 실행, 해당 OS의 키체인/HTTPS 및 PP6 순서·렌더링 확인은 여전히 별도다. 최신 Intel Mac CI의 10.13 대상 빌드와 혼동하지 않는다.
+
 ## 현재까지 완료
 
 | 영역 | 구현과 검증 |
@@ -116,3 +125,9 @@ ZIP은 소스 이력 대신 비공개 Releases에 첨부한다. `git pull`로는
 Sync 디자인과 현재 백업 정책의 충돌 및 아이콘 제안은 docs/UX-HANDOFF-REVIEW.md에 기록했다. 이번 웹 PR은 Mac 코드를 바꾸지 않는다. Mac은 0.4.2 build 7이며 새 Sync 화면은 아직 구현되지 않았다. 교회 실기와 Windows Alt+E 예약키 확인은 남는다.
 
 검증은 npm test와 .github/workflows/studio.yml의 Chromium 합성 UI 검사 및 deploy:check로 수행한다. 최초 브라우저 실패와 수정 후 성공은 CROSS-PLATFORM-LESSONS에 연결했다. 배포 상태는 해당 PR과 main의 Deploy YebaeOn 실행 결과를 확인한다.
+
+## Sync 0.5.0 최종 검사·설치 파일
+
+- [최종 검사 36937791940](https://github.com/m1r4d0r/yebaeon/actions/runs/36937791940): **368개 통과**(문서 안전성 151, 엔진/Worker 18, 앱·Core·화면 87, 앱/Worker 59, 재생목록/Worker 53). 검사 소스 `eb14ee66`, PR #3 병합 `e511cb86`. 문서·재생목록·복구 렌더링을 직접 확인했다. 복구 목록의 최초 셀 연결 오류도 수정·재검증했다.
+- 전달 설치 파일: `YebaeOn-Sync-macOS-v0.5.0-build8.zip`, 398674 bytes. SHA-256: `5e0b70acd873770b79cf46dc2b1694d031364b3205ce2e1e2e28afa455991806`. Info.plist 0.5.0 / build 8 / 최소 10.13, 실행 파일 x86_64 및 실행 권한 확인. CI가 만든 내부 ZIP을 재압축하지 않고 전달했다.
+- 이전 실패 원인·수정은 CROSS-PLATFORM-LESSONS에 기록했다. 운영 앱 업로드 중단과 구분한다. 교회 Mac 실기 검증과 아이콘 교체는 완료로 표시하지 않는다.
