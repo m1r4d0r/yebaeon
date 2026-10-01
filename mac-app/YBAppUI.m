@@ -7,8 +7,13 @@ NSTextField *YBLabel(NSString *text,NSRect frame,CGFloat size,BOOL bold) {
 NSButton *YBButton(NSString *title,NSRect frame,id target,SEL action) {
     NSButton *button=[[NSButton alloc] initWithFrame:frame];button.title=title;button.bezelStyle=NSBezelStyleRounded;button.target=target;button.action=action;return button;
 }
+@interface YBActionTable : NSTableView
+@end
+@implementation YBActionTable
+- (void)selectAll:(id)sender {if([(id)self.delegate respondsToSelector:@selector(selectVisible:)])[(id)self.delegate performSelector:@selector(selectVisible:) withObject:sender];else [super selectAll:sender];}
+@end
 NSTableView *YBTable(NSView *parent,NSRect frame,NSArray *columns,id delegate) {
-    NSTableView *table=[[NSTableView alloc] initWithFrame:NSMakeRect(0,0,frame.size.width,frame.size.height)];table.delegate=delegate;table.dataSource=delegate;table.rowHeight=30;table.allowsMultipleSelection=YES;
+    NSTableView *table=[[YBActionTable alloc] initWithFrame:NSMakeRect(0,0,frame.size.width,frame.size.height)];table.delegate=delegate;table.dataSource=delegate;table.rowHeight=30;table.allowsMultipleSelection=YES;
     for(NSArray *spec in columns) {NSTableColumn *c=[[NSTableColumn alloc] initWithIdentifier:spec[0]];c.title=spec[1];c.width=[spec[2] doubleValue];c.minWidth=35;[table addTableColumn:c];}
     NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:frame];scroll.borderType=NSBezelBorder;scroll.hasVerticalScroller=YES;scroll.hasHorizontalScroller=YES;scroll.autohidesScrollers=YES;scroll.documentView=table;[parent addSubview:scroll];return table;
 }
@@ -60,3 +65,4 @@ NSString *YBProfilePath(NSString *root,NSString *origin) {NSString *identity=[NS
     }});
 }
 @end
+

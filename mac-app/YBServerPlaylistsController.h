@@ -2,5 +2,12 @@
 @interface YBServerPlaylistsController : NSObject
 @property(nonatomic,readonly) NSView *view;
 - (instancetype)initWithWork:(YBWork *)work documents:(YBDocumentsController *)documents;
+@property(nonatomic,copy) void (^targetChanged)(NSString *path);
+- (NSString *)targetPath;
+- (void)chooseFile:(id)sender;
+- (void)refresh:(id)sender;
+- (void)publish:(id)sender;
+- (void)restore:(id)sender;
 - (void)rootChanged;
 @end
+

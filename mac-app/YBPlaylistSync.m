@@ -47,18 +47,19 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     for(NSDictionary *node in nodes){NSString *key=[NSString stringWithFormat:@"%@/%@",library[@"id"],node[@"id"]];entries[key]=@{@"localHash":YBHash(Data(node[@"raw"])),@"remoteHash":YBHash(Data(node[@"raw"]))};}
     state[@"entries"]=entries;[self writeJSON:state path:self.statePath];return @{@"library":library,@"count":@(done),@"issues":failures};
 }
-- (NSDictionary *)compare:(NSString *)libraryID node:(NSString *)nodeID {
+- (NSDictionary *)compare:(NSString *)libraryID node:(NSString *)nodeID {return [self compare:libraryID node:nodeID hashCache:[NSMutableDictionary dictionary]];}
+- (NSDictionary *)compare:(NSString *)libraryID node:(NSString *)nodeID hashCache:(NSMutableDictionary *)hashCache {
     YBSync *sync=self.library.sync;(void)sync.entries;NSDictionary *p=[self manifest:libraryID node:nodeID];NSData *before=YBReadPlaylist(self.target);
     NSMutableArray *rows=[NSMutableArray array],*issues=[NSMutableArray array];NSMutableSet *paths=[NSMutableSet set];
     for(NSDictionary *item in p[@"items"])if(Value(item[@"issue"]))[issues addObject:[NSString stringWithFormat:@"%@ · %@",item[@"name"],item[@"issue"]]];
-    for(NSDictionary *doc in p[@"documents"]){NSString *path=doc[@"path"];YBRequire(![paths containsObject:path],@"중복 문서 계획");[paths addObject:path];NSData *data=[sync readDocument:path];NSString *hash=YBHash(data),*status=YBDisposition(hash,doc,sync.entries[path]);[rows addObject:@{@"path":path,@"status":status,@"localHash":Null(hash),@"remote":doc}];if(![@[@"download",@"same"] containsObject:status])[issues addObject:[NSString stringWithFormat:@"%@ · Mac 수정/충돌: 문서 탭에서 비교해 주세요.",path]];}
+    for(NSDictionary *doc in p[@"documents"]){NSString *path=doc[@"path"];YBRequire(![paths containsObject:path],@"중복 문서 계획");[paths addObject:path];id cached=hashCache[path];if(!cached){cached=Null(YBHash([sync readDocument:path]));hashCache[path]=cached;}NSString *hash=Value(cached),*status=YBDisposition(hash,doc,sync.entries[path]);[rows addObject:@{@"path":path,@"status":status,@"localHash":Null(hash),@"remote":doc}];if(![@[@"download",@"same"] containsObject:status])[issues addObject:[NSString stringWithFormat:@"%@ · Mac 수정/충돌: 문서 탭에서 비교해 주세요.",path]];}
     NSDictionary *node=YBPlaylistNode(before,nodeID),*base=self.state[@"entries"][[self key:p]];NSString *localHash=YBHash(Data(node[@"raw"])),*xml=nil;BOOL orderChanged=NO;
     if([p[@"ready"] boolValue]){xml=YBPlaylistLocalXML(p,sync.root);NSString *desiredHash=YBHash(Data(xml));orderChanged=!Equal(localHash,desiredHash);
         BOOL safe=Equal(localHash,desiredHash) || (base && Equal(localHash,base[@"localHash"])) || (!base && (!node || Equal(localHash,p[@"playlist"][@"sha256"])));
         if(!safe)[issues addObject:@"Mac 재생목록도 수정됐거나 최초 기준이 없습니다. 원본 파일을 등록한 Mac에서 비교해 주세요."];
     }
     NSDictionary *active=[self readJSON:@"playlist-active.json"];if(active && ![active[@"status"] isEqual:@"complete"])[issues addObject:@"중단된 플레이리스트 작업을 먼저 복구해 주세요."];
-    return @{@"manifest":p,@"rows":rows,@"issues":issues,@"ready":@(issues.count==0 && [p[@"ready"] boolValue]),@"beforeHash":YBHash(before),@"nodeXML":xml ?: @"",@"orderChanged":@(orderChanged),@"target":self.target.path};
+    return @{@"localNode":node ?: @{},@"manifest":p,@"rows":rows,@"issues":issues,@"ready":@(issues.count==0 && [p[@"ready"] boolValue]),@"beforeHash":YBHash(before),@"nodeXML":xml ?: @"",@"orderChanged":@(orderChanged),@"target":self.target.path};
 }
 - (NSString *)jobPath:(NSString *)identifier {YBRequire([identifier isKindOfClass:NSString.class] && [identifier rangeOfString:@"^[0-9A-Fa-f-]{36}$" options:NSRegularExpressionSearch].location!=NSNotFound,@"작업 번호 오류");return [NSString stringWithFormat:@"playlist-batches/%@/job.json",identifier];}
 - (NSArray *)jobs {

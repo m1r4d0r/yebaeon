@@ -18,32 +18,50 @@
 @property YBDocumentsController *documents;
 @property YBMediaController *media;
 @property YBServerPlaylistsController *serverPlaylists;
+@property NSView *connectionBar;
+@property NSTextField *documentPath;
+@property NSTextField *playlistPath;
+@property NSWindow *toolWindow;
 @end
 @implementation YBAppDelegate
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
     NSMenu *menu=[NSMenu new],*application=[NSMenu new],*edit=[NSMenu new];NSMenuItem *appItem=[NSMenuItem new],*editItem=[NSMenuItem new];[menu addItem:appItem];[menu addItem:editItem];appItem.submenu=application;editItem.submenu=edit;edit.title=@"편집";
     [application addItemWithTitle:@"예배온 Sync 종료" action:@selector(terminate:) keyEquivalent:@"q"];
     [edit addItemWithTitle:@"잘라내기" action:@selector(cut:) keyEquivalent:@"x"];[edit addItemWithTitle:@"복사" action:@selector(copy:) keyEquivalent:@"c"];[edit addItemWithTitle:@"붙여넣기" action:@selector(paste:) keyEquivalent:@"v"];[edit addItemWithTitle:@"전체 선택" action:@selector(selectAll:) keyEquivalent:@"a"];NSApp.mainMenu=menu;
-    NSRect screen=NSScreen.mainScreen.visibleFrame;NSRect frame=NSMakeRect(0,0,MIN(1120,screen.size.width-40),MIN(825,screen.size.height-60));
+    NSRect screen=NSScreen.mainScreen.visibleFrame;NSRect frame=NSMakeRect(0,0,MIN(1060,screen.size.width-40),MIN(800,screen.size.height-60));
     self.window=[[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];self.window.title=@"예배온 Sync";self.window.minSize=NSMakeSize(880,620);self.window.delegate=self;[self.window center];
     self.controlStates=[NSMapTable weakToStrongObjectsMapTable];self.work=[YBWork new];self.playlist=[PPSPlaylistController new];self.documents=[[YBDocumentsController alloc] initWithWork:self.work];self.media=[[YBMediaController alloc] initWithWork:self.work documentsRoot:self.documents.documentsRoot];
     self.serverPlaylists=[[YBServerPlaylistsController alloc] initWithWork:self.work documents:self.documents];
-    __weak YBAppDelegate *weakSelf=self;self.documents.rootChanged=^(NSString *root){[weakSelf.media setDocumentsRoot:root];[weakSelf.serverPlaylists rootChanged];};
-    self.tabs=[[NSTabView alloc] initWithFrame:NSMakeRect(10,34,frame.size.width-20,frame.size.height-44)];self.tabs.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
-    NSArray *labels=@[@"서버 재생목록",@"문서",@"미디어",@"로컬 재생목록 비교"],*views=@[self.serverPlaylists.view,self.documents.view,self.media.view,self.playlist.view];
+    __weak YBAppDelegate *weakSelf=self;self.documents.rootChanged=^(NSString *root){[weakSelf.media setDocumentsRoot:root];[weakSelf.serverPlaylists rootChanged];weakSelf.documentPath.stringValue=root;weakSelf.documentPath.toolTip=root;[weakSelf.documents refresh:nil];};
+    self.documents.sessionChanged=^(NSString *status){weakSelf.status.stringValue=status;};
+    self.documents.comparisonFinished=^{NSDateFormatter *clock=[NSDateFormatter new];clock.dateFormat=@"HH:mm";weakSelf.status.stringValue=[NSString stringWithFormat:@"연결됨 · 문서 비교 %@",[clock stringFromDate:NSDate.date]];[weakSelf.serverPlaylists refresh:nil];};
+    self.documents.showRecovery=^{[weakSelf.serverPlaylists restore:nil];};
+    self.serverPlaylists.targetChanged=^(NSString *path){weakSelf.playlistPath.stringValue=path;weakSelf.playlistPath.toolTip=path;};
+    NSMenu *file=[NSMenu new],*tools=[NSMenu new];NSMenuItem *fileItem=[NSMenuItem new],*toolsItem=[NSMenuItem new];[menu addItem:fileItem];[menu addItem:toolsItem];fileItem.submenu=file;toolsItem.submenu=tools;file.title=@"파일";tools.title=@"도구";
+    NSMenuItem *login=[application insertItemWithTitle:@"입장 / 이름 변경…" action:@selector(login:) keyEquivalent:@"" atIndex:0];login.target=self.documents;NSMenuItem *logout=[application insertItemWithTitle:@"로그아웃" action:@selector(logout:) keyEquivalent:@"" atIndex:1];logout.target=self.documents;
+    NSMenuItem *publish=[file addItemWithTitle:@"원본 재생목록과 문서 등록…" action:@selector(publish:) keyEquivalent:@""];publish.target=self.serverPlaylists;NSMenuItem *recover=[file addItemWithTitle:@"복구 기록…" action:@selector(restore:) keyEquivalent:@""];recover.target=self.serverPlaylists;
+    NSMenuItem *legacy=[tools addItemWithTitle:@"로컬 재생목록 비교…" action:@selector(showLocal:) keyEquivalent:@""];legacy.target=self;
+    self.connectionBar=[[NSView alloc] initWithFrame:NSMakeRect(12,frame.size.height-70,frame.size.width-24,62)];self.connectionBar.autoresizingMask=NSViewWidthSizable|NSViewMinYMargin;
+    self.status=YBLabel(@"서버 연결 확인 중…",NSMakeRect(8,34,310,23),12,YES);[self.connectionBar addSubview:self.status];
+    self.documentPath=YBLabel(self.documents.documentsRoot,NSMakeRect(90,4,300,23),11,NO);self.documentPath.toolTip=self.documents.documentsRoot;[self.connectionBar addSubview:YBLabel(@"문서 폴더",NSMakeRect(8,4,80,23),11,YES)];[self.connectionBar addSubview:self.documentPath];[self.connectionBar addSubview:YBButton(@"변경…",NSMakeRect(397,0,78,30),self.documents,@selector(chooseRoot:))];
+    self.playlistPath=YBLabel(self.serverPlaylists.targetPath,NSMakeRect(572,4,300,23),11,NO);self.playlistPath.autoresizingMask=NSViewWidthSizable;self.playlistPath.toolTip=self.serverPlaylists.targetPath;[self.connectionBar addSubview:YBLabel(@"재생목록",NSMakeRect(492,4,78,23),11,YES)];[self.connectionBar addSubview:self.playlistPath];NSButton *choose=YBButton(@"변경…",NSMakeRect(frame.size.width-118,0,78,30),self.serverPlaylists,@selector(chooseFile:));choose.autoresizingMask=NSViewMinXMargin;[self.connectionBar addSubview:choose];[self.window.contentView addSubview:self.connectionBar];
+    self.tabs=[[NSTabView alloc] initWithFrame:NSMakeRect(10,8,frame.size.width-20,frame.size.height-86)];self.tabs.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
+    NSArray *labels=@[@"재생목록",@"문서",@"미디어"],*views=@[self.serverPlaylists.view,self.documents.view,self.media.view];
     for(NSUInteger i=0;i<labels.count;i++) {
         NSTabViewItem *item=[[NSTabViewItem alloc] initWithIdentifier:labels[i]];item.label=labels[i];
         NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,1060,720)];scroll.hasVerticalScroller=YES;scroll.hasHorizontalScroller=YES;scroll.autohidesScrollers=YES;scroll.drawsBackground=YES;
         YBCanvas *canvas=[[YBCanvas alloc] initWithFrame:NSMakeRect(0,0,1060,720)];[canvas addSubview:views[i]];scroll.documentView=canvas;item.view=scroll;[self.tabs addTabViewItem:item];
     }
-    [self.window.contentView addSubview:self.tabs];self.status=YBLabel(@"예배온 Studio와 교회 Mac을 연결합니다.",NSMakeRect(22,7,frame.size.width-44,22),12,NO);self.status.autoresizingMask=NSViewWidthSizable;self.status.textColor=NSColor.secondaryLabelColor;[self.window.contentView addSubview:self.status];
+    [self.window.contentView addSubview:self.tabs];
     self.work.busyChanged=^(BOOL busy) {
         YBAppDelegate *app=weakSelf;[app enableView:app.serverPlaylists.view enabled:!busy];[app enableView:app.playlist.view enabled:!busy];[app enableView:app.documents.view enabled:!busy];[app enableView:app.media.view enabled:!busy];
-        app.status.stringValue=busy ? @"작업 중입니다. 완료될 때까지 앱을 열어 두세요." : @"예배온 Studio와 교회 Mac을 연결합니다.";
+        [app enableView:app.connectionBar enabled:!busy];if(busy)app.status.stringValue=@"작업 진행 중";else app.status.stringValue=@"작업 결과는 탭에서 확인";
     };
     [self.window makeKeyAndOrderFront:nil];
     [self.documents startupCompare];[NSApp activateIgnoringOtherApps:YES];
 }
+- (void)showLocal:(id)sender {if(self.work.busy)return;if(!self.toolWindow){self.toolWindow=[[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,1060,720) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];self.toolWindow.releasedWhenClosed=NO;self.toolWindow.title=@"로컬 재생목록 비교";NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:self.toolWindow.contentView.bounds];scroll.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;scroll.hasVerticalScroller=YES;scroll.hasHorizontalScroller=YES;scroll.documentView=self.playlist.view;[self.toolWindow.contentView addSubview:scroll];[self.toolWindow center];}[self.toolWindow makeKeyAndOrderFront:nil];}
+- (BOOL)validateMenuItem:(NSMenuItem *)item {return !self.work.busy;}
 - (void)enableView:(NSView *)view enabled:(BOOL)enabled {
     if([view isKindOfClass:NSControl.class]) {NSControl *control=(NSControl *)view;if(!enabled)[self.controlStates setObject:@(control.enabled) forKey:control];NSNumber *previous=[self.controlStates objectForKey:control];control.enabled=enabled ? (previous ? previous.boolValue : YES) : NO;}
     for(NSView *child in view.subviews)[self enableView:child enabled:enabled];

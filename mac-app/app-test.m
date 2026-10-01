@@ -106,7 +106,9 @@ int main(void) {@autoreleasepool {
         [large addObject:@{@"path":@"bad : name.pro6",@"status":@"conflict",@"error":@"업로드 제외",@"localHash":NSNull.null,@"remote":NSNull.null}];
         [controller acceptRows:large];[controller setValue:@"말씀" forKeyPath:@"search.stringValue"];[controller performSelector:@selector(filter)];
         [controller selectAllUploads:nil];NSSet *selected=[controller valueForKey:@"checked"];
-        Check(selected.count==3108 && ![selected containsObject:@"bad : name.pro6"] && ![selected containsObject:paths[0]],@"bulk upload selects all outside filter and excludes other directions/conflicts");
+        Check(selected.count==0,@"bulk upload respects current search");
+        [controller setValue:@"" forKeyPath:@"search.stringValue"];[controller selectAllUploads:nil];selected=[controller valueForKey:@"checked"];Check(selected.count==3108 && ![selected containsObject:@"bad : name.pro6"],@"bulk upload selects visible direction without conflicts");
+        [controller setValue:@"말씀" forKeyPath:@"search.stringValue"];
         [controller selectAllDownloads:nil];selected=[controller valueForKey:@"checked"];
         Check(selected.count==1 && [selected containsObject:paths[0]],@"bulk download replaces upload selection");
         [controller acceptRows:rows];[controller setValue:@"" forKeyPath:@"search.stringValue"];[controller performSelector:@selector(filter)];
