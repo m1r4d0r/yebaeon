@@ -22,6 +22,8 @@
 @property NSTextField *documentPath;
 @property NSTextField *playlistPath;
 @property NSWindow *toolWindow;
+@property NSString *connectionText;
+@property NSString *lastCompared;
 @end
 @implementation YBAppDelegate
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
@@ -33,8 +35,8 @@
     self.controlStates=[NSMapTable weakToStrongObjectsMapTable];self.work=[YBWork new];self.playlist=[PPSPlaylistController new];self.documents=[[YBDocumentsController alloc] initWithWork:self.work];self.media=[[YBMediaController alloc] initWithWork:self.work documentsRoot:self.documents.documentsRoot];
     self.serverPlaylists=[[YBServerPlaylistsController alloc] initWithWork:self.work documents:self.documents];
     __weak YBAppDelegate *weakSelf=self;self.documents.rootChanged=^(NSString *root){[weakSelf.media setDocumentsRoot:root];[weakSelf.serverPlaylists rootChanged];weakSelf.documentPath.stringValue=root;weakSelf.documentPath.toolTip=root;[weakSelf.documents refresh:nil];};
-    self.documents.sessionChanged=^(NSString *status){weakSelf.status.stringValue=status;};
-    self.documents.comparisonFinished=^{NSDateFormatter *clock=[NSDateFormatter new];clock.dateFormat=@"HH:mm";weakSelf.status.stringValue=[NSString stringWithFormat:@"연결됨 · 문서 비교 %@",[clock stringFromDate:NSDate.date]];[weakSelf.serverPlaylists refresh:nil];};
+    self.documents.sessionChanged=^(NSString *status){weakSelf.connectionText=status;[weakSelf updateConnection];};
+    self.documents.comparisonFinished=^{NSDateFormatter *clock=[NSDateFormatter new];clock.dateFormat=@"HH:mm";weakSelf.lastCompared=[clock stringFromDate:NSDate.date];[weakSelf updateConnection];[weakSelf.serverPlaylists refresh:nil];};
     self.documents.showRecovery=^{[weakSelf.serverPlaylists restore:nil];};
     self.serverPlaylists.targetChanged=^(NSString *path){weakSelf.playlistPath.stringValue=path;weakSelf.playlistPath.toolTip=path;};
     NSMenu *file=[NSMenu new],*tools=[NSMenu new];NSMenuItem *fileItem=[NSMenuItem new],*toolsItem=[NSMenuItem new];[menu addItem:fileItem];[menu addItem:toolsItem];fileItem.submenu=file;toolsItem.submenu=tools;file.title=@"파일";tools.title=@"도구";
@@ -55,11 +57,12 @@
     [self.window.contentView addSubview:self.tabs];
     self.work.busyChanged=^(BOOL busy) {
         YBAppDelegate *app=weakSelf;[app enableView:app.serverPlaylists.view enabled:!busy];[app enableView:app.playlist.view enabled:!busy];[app enableView:app.documents.view enabled:!busy];[app enableView:app.media.view enabled:!busy];
-        [app enableView:app.connectionBar enabled:!busy];if(busy)app.status.stringValue=@"작업 진행 중";else app.status.stringValue=@"작업 결과는 탭에서 확인";
+        [app enableView:app.connectionBar enabled:!busy];[app updateConnection];
     };
     [self.window makeKeyAndOrderFront:nil];
     [self.documents startupCompare];[NSApp activateIgnoringOtherApps:YES];
 }
+- (void)updateConnection {self.status.stringValue=[NSString stringWithFormat:@"%@%@%@",self.connectionText ?: @"서버 연결 확인",self.lastCompared ? [@" · 문서 비교 " stringByAppendingString:self.lastCompared] : @"",self.work.busy ? @" · 작업 중" : @""];self.status.toolTip=self.status.stringValue;}
 - (void)showLocal:(id)sender {if(self.work.busy)return;if(!self.toolWindow){self.toolWindow=[[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,1060,720) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];self.toolWindow.releasedWhenClosed=NO;self.toolWindow.title=@"로컬 재생목록 비교";NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:self.toolWindow.contentView.bounds];scroll.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;scroll.hasVerticalScroller=YES;scroll.hasHorizontalScroller=YES;scroll.documentView=self.playlist.view;[self.toolWindow.contentView addSubview:scroll];[self.toolWindow center];}[self.toolWindow makeKeyAndOrderFront:nil];}
 - (BOOL)validateMenuItem:(NSMenuItem *)item {return !self.work.busy;}
 - (void)enableView:(NSView *)view enabled:(BOOL)enabled {
