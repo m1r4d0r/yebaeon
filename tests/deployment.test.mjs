@@ -20,7 +20,7 @@ test('publication includes only app assets, even with private local fixtures', a
     const outputDir = join(folder, 'dist');
     await build({ sourceRoot: folder, outputDir });
     assert.deepEqual((await readdir(outputDir)).sort(), [...publicFiles].sort());
-    assert.equal(await readFile(join(outputDir, 'sample-demo.js'), 'utf8'), 'sample-demo.js');
+    assert.equal(await readFile(join(outputDir, 'shortcuts.js'), 'utf8'), 'shortcuts.js');
     await writeFile(join(outputDir, 'unexpected.pro6'), 'PRIVATE LEFTOVER');
     await assert.rejects(build({ sourceRoot: folder, outputDir }), /Unexpected files/);
   } finally {

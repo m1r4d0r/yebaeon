@@ -78,6 +78,12 @@ export function editPlaylist(parsed, nodeId, entries, documents, root) {
       if (!item) raw = `<RVDocumentCue UUID="${crypto.randomUUID().toUpperCase()}" displayName="" actionType="0" enabled="1" timeStamp="0" delayTime="0" filePath="" selectedArrangementID=""/>`;
       raw = attr(attr(attr(raw, 'filePath', sourceRoot(root) + '/' + doc.path), 'displayName', doc.name.replace(/\.pro6$/i, '')), 'selectedArrangementID', '');
     }
+    if (entry.headerXML) {
+      if(item || entry.documentId || typeof entry.headerXML!=='string' || entry.headerXML.length>65536)fail('구분 항목 복원 내용을 확인해 주세요.');
+      const wrapped=parsePlaylist(`<RVPlaylistDocument><RVPlaylistNode><RVPlaylistNode UUID="restore"><array rvXMLIvarName="children">${entry.headerXML}</array></RVPlaylistNode></RVPlaylistNode></RVPlaylistDocument>`);
+      const entries=wrapped.playlists[0]?.items;if(entries?.length!==1||entries[0].kind!=='header'||wrapped.xml.slice(entries[0].node.start,entries[0].node.end)!==entry.headerXML.trim())fail('구분 항목만 복원할 수 있습니다.');
+      raw=entry.headerXML;
+    }
     if (!raw) fail('문서를 선택해 주세요.'); return raw;
   });
   const { body } = playlist;

@@ -68,4 +68,14 @@ test('playlist server, linked edits, structural edits, history and conflicts', {
     assert.deepEqual((await ok(await call(`/playlists/${library.id}/versions`))).versions.map(x=>x.version),[3,2,1]);
     assert.equal((await call(endpoint,'PATCH','null',{'If-Match':'"3"'})).status,400);
   });
+  await t.test('activity scope, stable pagination, reference cache follows current playlist',async()=>{
+    const before=await ok(await call('/documents?includeUses=1'));assert.equal(before.documents.find(x=>x.id===other.id).useCount,1);assert.equal(before.documents.find(x=>x.id===song.id).useCount,1);
+    const timeline=await ok(await call('/activity?scope=all'));assert.ok(timeline.items.some(x=>x.kind==='playlist'));assert.ok(timeline.items.some(x=>x.kind==='document'));assert.equal((await ok(await call('/activity?scope=mine'))).items.length,timeline.items.length);
+    await ok(await call('/session','PATCH',JSON.stringify({name:'다른 작업자'}),{'Content-Type':'application/json'}));assert.equal((await ok(await call('/activity?scope=mine'))).items.length,0);
+    assert.equal((await call('/activity?cursor=bad')).status,400);assert.equal((await call('/activity?scope=unknown')).status,400);
+    const db=await mf.getD1Database('DB');const date='2099-01-01T00:00:00Z';
+    for(let v=100;v<155;v++)await db.prepare('INSERT INTO yebaeon_versions(document_id,version,object_key,sha256,size,author,created_at) VALUES (?,?,?,?,?,?,?)').bind(song.id,v,'fixture/'+v,'a',1,'페이지 시험',date).run();
+    const first=await ok(await call('/activity?scope=all'));assert.equal(first.items.length,50);assert.ok(first.next);const second=await ok(await call('/activity?scope=all&cursor='+encodeURIComponent(first.next)));const all=[...first.items,...second.items].filter(x=>x.createdAt===date);assert.equal(all.length,55);assert.equal(new Set(all.map(x=>x.kind+x.id+x.version)).size,55);
+  });
+
 });

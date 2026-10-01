@@ -1,3 +1,4 @@
+import { activityRoute } from './activity.mjs';
 import { recordSync, statusRoute } from './status.mjs';
 import { ensureSchema } from './schema.mjs';
 import { configured, requireSession, sessionRoute } from './auth.mjs';
@@ -17,7 +18,7 @@ export default {
       }
       const route = /^\/api\/documents(?:\/([^/]+)(?:\/(content|versions|usage))?)?$/.exec(pathname);
       const playlist = /^\/api\/playlists(?:\/([^/]+)(?:\/(content|versions|plan))?)?$/.exec(pathname);
-      if (pathname !== '/api/session' && pathname !== '/api/status' && !resource && !route && !playlist) throw new HttpError(404, 'not_found', '없는 요청입니다.');
+      if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && !resource && !route && !playlist) throw new HttpError(404, 'not_found', '없는 요청입니다.');
       if (!configured(env)) {
         if (pathname === '/api/session' && request.method === 'GET') return json({ authenticated: false, ready: false });
         throw new HttpError(503, 'setup_required', '서버의 공용 비밀번호 설정이 아직 완료되지 않았습니다.');
@@ -39,7 +40,8 @@ export default {
         secured.headers.set('Cache-Control', 'private, no-store');
         return secured;
       }
-      if (pathname === '/api/status') return statusRoute(request, env);
+      if (pathname === '/api/activity') return await activityRoute(request, env, user);
+      if (pathname === '/api/status') return await statusRoute(request, env);
       if (route && !route[1] && request.method === 'GET' && !new URL(request.url).searchParams.has('after')) await recordSync(request, env, user, 'compare').catch(() => {});
       if (playlist) return await playlistsRoute(request, env, user, playlist[1], playlist[2]);
       return await documentsRoute(request, env, user, route[1], route[2]);

@@ -22,7 +22,7 @@ function indexedDBFixture() {
   }};
   return {api:{open(){const req={result:connection};setImmediate(()=>req.onsuccess());return req;}},fail:value=>{fail=value;}};
 }
-function element(){return {textContent:'',value:'name',children:[],append(...els){this.children.push(...els);},replaceChildren(){this.children=[];},addEventListener(){},showModal(){this.open=true;},close(){this.open=false;}};}
+function element(){return {textContent:'',value:'name',children:[],append(...els){this.children.push(...els);},replaceChildren(){this.children=[];},addEventListener(){},setAttribute(){},showModal(){this.open=true;},close(){this.open=false;}};}
 async function setup(){
   const fixture=indexedDBFixture(),elements=new Map();
   const document={getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},createElement:element,addEventListener(){}};
@@ -49,11 +49,13 @@ async function cloudSetup(){
   const app=await setup();let current={xml:'base',name:'song.pro6',serial:0,dirty:false},pending=[],serverVersion=1;
   const metadata=()=>({id:'11111111-1111-4111-a111-111111111111',name:'song.pro6',path:'song.pro6',version:serverVersion,updatedBy:'tester',updatedAt:new Date().toISOString(),sha256:'cae662172fd450bb0cd710a769079c05bfc5d8e35efa6576edc7d0377afdd4a2'});
   app.window.YebaeonEditor={state:()=>({...current}),document:()=>({...current}),status(){},hasPackageMedia:()=>false,markSaved(serial){if(serial===current.serial)current.dirty=false;},markDirty(){current.dirty=true;current.serial++;app.window.dispatchEvent(new Event('yebaeonchange'));},open(xml,name){app.window.dispatchEvent(new Event('yebaeonbeforeopen'));current={xml,name,serial:current.serial+1,dirty:false};app.window.dispatchEvent(new Event('yebaeonopen'));return true;}};
-  app.window.YebaeonPlaylists={async show(){}};
+  app.window.YebaeonPlaylists={async show(){},currentName:()=>''};
+  app.context.YebaeonSelection={Selection:class{constructor(){this.chosen=new Set();}setKeys(){} bind(){}}};
   Object.assign(app.context,{location:{protocol:'https:'},localStorage:{getItem(){return null;},setItem(){}},queueMicrotask,Event,CustomEvent,TextDecoder,URLSearchParams,fetch:async(path,options={})=>{
     if(path==='/api/session')return Response.json({ready:true,authenticated:true,name:'tester'});
     if(options.method==='PUT')return new Promise(resolve=>pending.push({options,resolve}));
     if(path.includes('/content'))return new Response('base');
+    if(path.startsWith('/api/documents?'))return Response.json({documents:[],next:null});
     return Response.json({document:metadata()});
   }});
   vm.runInContext(await readFile('web-editor/cloud.js','utf8'),app.context);
