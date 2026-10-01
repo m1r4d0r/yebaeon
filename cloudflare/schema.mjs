@@ -1,5 +1,15 @@
 // Version 1: additive initialization; existing rows and other tables are untouched.
 export const schema = [
+  `CREATE TABLE IF NOT EXISTS yebaeon_playlists (
+    id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, source_root TEXT NOT NULL,
+    current_version INTEGER NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL,
+    sha256 TEXT NOT NULL, size INTEGER NOT NULL, write_id TEXT NOT NULL, catalog TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS yebaeon_playlist_versions (
+    library_id TEXT NOT NULL REFERENCES yebaeon_playlists(id), version INTEGER NOT NULL,
+    object_key TEXT NOT NULL UNIQUE, sha256 TEXT NOT NULL, size INTEGER NOT NULL,
+    author TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(library_id,version)
+  )`,
   `CREATE TABLE IF NOT EXISTS yebaeon_sessions (
     id TEXT PRIMARY KEY, author TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL
   )`,

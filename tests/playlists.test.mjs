@@ -1,0 +1,68 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { readFile } from 'node:fs/promises';
+import { build } from 'esbuild';
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
+import { parsePlaylist, catalog, referencePath, editPlaylist } from '../cloudflare/playlist-format.mjs';
+const cue = (id,name,path=name+'.pro6') => `<RVDocumentCue UUID="${id}" displayName="${name}" filePath="~/Documents/ProPresenter6/${path}" selectedArrangementID="" enabled="1"/>`;
+const xml = `<RVPlaylistDocument><RVPlaylistNode UUID="ROOT"><array rvXMLIvarName="children"><RVPlaylistNode UUID="A" displayName="주일"><array rvXMLIvarName="children">${cue('a','찬양')}${cue('b','말씀')}<RVHeaderCue UUID="header" displayName="기도"/></array><array rvXMLIvarName="metadata"><NSString>preserve</NSString></array></RVPlaylistNode><RVPlaylistNode UUID="B" displayName="수요"><array rvXMLIvarName="children">${cue('c','찬양')}</array></RVPlaylistNode></array></RVPlaylistNode><array rvXMLIvarName="deletions"/></RVPlaylistDocument>`;
+test('PP6 original structure, raw preservation, aliases and ambiguous input', async () => {
+  assert.equal(catalog(parsePlaylist(await readFile('mac-app/fixtures/dummy_old.xml','utf8'))).length,2);
+  const p=parsePlaylist(xml);assert.equal(p.playlists.length,2);assert.equal(p.playlists[0].items[2].kind,'header');
+  const next=editPlaylist(p,'A',[{id:'b'},{id:'header'},{id:'a'}],new Map(),'~/Documents/ProPresenter6');
+  assert.equal(next.slice(next.indexOf('<RVPlaylistNode UUID="B"')),xml.slice(xml.indexOf('<RVPlaylistNode UUID="B"')));
+  assert.ok(next.includes('<array rvXMLIvarName="metadata"><NSString>preserve</NSString></array>'));
+  assert.deepEqual(parsePlaylist(next).playlists[0].items.map(x=>x.id),['b','header','a']);
+  assert.equal(referencePath('~/Documents/ProPresenter6/'+ '찬양'.normalize('NFD')+'.pro6','~/Documents/ProPresenter6'),'찬양.pro6');
+  assert.equal(referencePath('file:///Users/person/Documents/ProPresenter6/%EC%B0%AC%EC%96%91.pro6','~/Documents/ProPresenter6'),'찬양.pro6');
+  for(const value of ['~/Other/찬양.pro6','~/Documents/ProPresenter6/../secret.pro6','file://other/Users/person/Documents/ProPresenter6/x.pro6'])assert.equal(referencePath(value,'~/Documents/ProPresenter6'),null);
+  for(const bad of ['<!DOCTYPE RVPlaylistDocument><RVPlaylistDocument/>','<html/>',xml.replace('UUID="B"','UUID="A"'),xml.replace('UUID="b"','UUID="a"')])assert.throws(()=>parsePlaylist(bad));
+  assert.throws(()=>editPlaylist(p,'A',[{id:'a'},{id:'a'}],new Map(),'~/Documents/ProPresenter6'));
+  assert.throws(()=>editPlaylist(p,'A',[{documentId:'missing'}],new Map(),'~/Documents/ProPresenter6'));
+  const empty=parsePlaylist('<RVPlaylistDocument><RVPlaylistNode><array rvXMLIvarName="children"><RVPlaylistNode UUID="A" displayName="empty"><array rvXMLIvarName="children"/></RVPlaylistNode></array></RVPlaylistNode></RVPlaylistDocument>');
+  assert.equal(parsePlaylist(editPlaylist(empty,'A',[{documentId:'x'}],new Map([['x',{path:'new.pro6',name:'new.pro6'}]]),'~/Documents/ProPresenter6')).playlists[0].items.length,1);
+  const odd=xml.replace('displayName="주일"','displayName="주일 &amp; &quot; &gt; 예배"').replace('<array rvXMLIvarName="deletions"/>','<!-- <RVPlaylistNode UUID="bad"> --><array rvXMLIvarName="deletions"/>');
+  assert.equal(parsePlaylist(odd).playlists[0].name,'주일 & " > 예배');
+});
+test('playlist server, linked edits, structural edits, history and conflicts', {timeout:90000}, async t => {
+  const bundled=await build({entryPoints:['cloudflare/worker.mjs'],bundle:true,write:false,format:'esm',platform:'browser'});
+  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:bundled.outputFiles[0].text,compatibilityDate:'2026-09-28',bindings:{SITE_PASSWORD:'playlist-tests-only'},d1Databases:['DB'],r2Buckets:['FILES'],cf:false}));t.after(()=>mf.dispose());
+  const origin='https://example.test';let cookie='';
+  const call=(path,method='GET',body,extra={})=>mf.dispatchFetch(origin+'/api'+path,{method,body,headers:{Cookie:cookie,...(method==='GET'?{}:{Origin:origin}),...extra}});
+  const ok=async(response,status=200)=>{assert.equal(response.status,status,await response.clone().text());return response.json();};
+  await t.test('private upload and read, same-origin, validation', async()=>{
+    assert.equal((await call('/playlists')).status,401);
+    const login=await call('/session','POST',JSON.stringify({name:'재생목록 시험',password:'playlist-tests-only'}),{'Content-Type':'application/json'});await ok(login);cookie=login.headers.get('Set-Cookie').split(';')[0];
+    assert.equal((await call('/playlists?path=x.pro6pl','POST',xml,{Origin:'https://elsewhere.test'})).status,403);
+    assert.equal((await call('/playlists?path=x.pro6','POST',xml)).status,400);
+    assert.equal((await call('/playlists?path=x.pro6pl','POST','<broken>')).status,400);
+  });
+  let library,song,word,other,plan;
+  await t.test('original registered once, missing references then precise normalized links',async()=>{
+    library=(await ok(await call('/playlists?path=fixture.pro6pl','POST',xml),201)).library;
+    assert.equal(library.playlists.length,2);assert.equal((await ok(await call('/playlists?path=fixture.pro6pl','POST',xml))).unchanged,true);
+    plan=await ok(await call(`/playlists/${library.id}/plan?node=A`));assert.equal(plan.ready,false);assert.equal(plan.items[0].issue,'missing');
+    const put=async name=>(await ok(await call('/documents?path='+encodeURIComponent(name+'.pro6'),'POST',`<RVPresentationDocument><text>${name}</text></RVPresentationDocument>`),201)).document;
+    song=await put('찬양');word=await put('말씀');other=await put('새곡');
+    plan=await ok(await call(`/playlists/${library.id}/plan?node=A`));assert.equal(plan.ready,true);assert.equal(plan.documents.length,2);assert.equal(plan.items[0].document.id,song.id);assert.deepEqual(plan.items[0].sharedWith,['수요']);
+    assert.equal((await ok(await call('/playlists'))).libraries[0].id,library.id);
+    assert.equal(await (await call(`/playlists/${library.id}/content?version=1`)).text(),xml);
+  });
+  await t.test('song-only change changes sync fingerprint with identical playlist bytes',async()=>{
+    const previous=plan.fingerprint;
+    song=(await ok(await call('/documents/'+song.id,'PUT','<RVPresentationDocument><text>edited lyrics</text></RVPresentationDocument>',{'If-Match':'"1"'}))).document;
+    plan=await ok(await call(`/playlists/${library.id}/plan?node=A`));assert.notEqual(plan.fingerprint,previous);assert.equal(plan.library.version,1);assert.equal(plan.items[0].document.version,2);assert.equal(plan.playlist.xml,parsePlaylist(xml).xml.slice(parsePlaylist(xml).playlists[0].node.start,parsePlaylist(xml).playlists[0].node.end));
+  });
+  await t.test('reorder, add, remove preserve unrelated nodes and documents; CAS/history',async()=>{
+    const endpoint=`/playlists/${library.id}?node=A`, body=JSON.stringify({items:[{id:'header'},{id:'b'},{id:'a'},{documentId:other.id}]});
+    assert.equal((await call(endpoint,'PATCH',body)).status,428);
+    const results=await Promise.all([call(endpoint,'PATCH',body,{'If-Match':'"1"'}),call(endpoint,'PATCH',body,{'If-Match':'"1"'})]);assert.deepEqual(results.map(x=>x.status).sort(),[200,409]);
+    plan=await ok(await call(`/playlists/${library.id}/plan?node=A`));assert.deepEqual(plan.items.map(x=>x.name),['기도','말씀','찬양','새곡']);assert.equal(plan.documents.length,3);
+    const current=await (await call(`/playlists/${library.id}/content`)).text();assert.equal(current.slice(current.indexOf('<RVPlaylistNode UUID="B"')),xml.slice(xml.indexOf('<RVPlaylistNode UUID="B"')));
+    const removed=JSON.stringify({items:[{id:plan.items[3].id}]});await ok(await call(endpoint,'PATCH',removed,{'If-Match':'"2"'}));
+    assert.equal((await ok(await call('/documents/'+song.id))).document.version,2);
+    assert.equal(await (await call(`/playlists/${library.id}/content?version=1`)).text(),xml);
+    assert.deepEqual((await ok(await call(`/playlists/${library.id}/versions`))).versions.map(x=>x.version),[3,2,1]);
+    assert.equal((await call(endpoint,'PATCH','null',{'If-Match':'"3"'})).status,400);
+  });
+});
