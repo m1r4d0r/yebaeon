@@ -20,6 +20,7 @@
   if(text||dialog||!pane||e.target.closest('#contextMenu')||e.target.closest('#libraryDivider'))return;
   if(mod&&!e.altKey){const actions={KeyA:()=>pane.all(),KeyC:()=>pane.options.copy?.(false),KeyX:()=>pane.options.copy?.(true),KeyV:()=>pane.options.paste?.(),KeyZ:()=>pane.options.undo?.(!!e.shiftKey),KeyY:()=>pane.options.undo?.(true)};if(actions[e.code]){consume(e,actions[e.code]);return;}}
   if(e.code==='ContextMenu'||e.code==='F10'&&e.shiftKey){consume(e,()=>pane.options.menu?.(e));return;}
+  if(e.target.closest('button,a,summary')&&['Enter','Space'].includes(e.code))return;
   if(e.code==='Enter'){consume(e,()=>pane.options.open?.());return;}if(e.code==='Delete'){consume(e,()=>pane.options.remove?.());return;}if(e.code==='F2'){consume(e,()=>pane.options.rename?.());return;}
   const cols=pane.options.columns?.()||1,moves={ArrowLeft:-1,ArrowRight:1,ArrowUp:-cols,ArrowDown:cols,Home:-pane.keys.length,End:pane.keys.length,PageUp:-cols*3,PageDown:cols*3};
   if(e.code in moves&&!e.altKey){consume(e,()=>pane.move(moves[e.code],e));}
