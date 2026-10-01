@@ -229,7 +229,7 @@
         if(error){YBAlert(@"백업 목록",error);return;}
         NSMutableArray *available=[NSMutableArray array];for(NSDictionary *j in items)if([@[@"prepared",@"applied",@"committed",@"restoring"] containsObject:j[@"status"]])[available addObject:j];
         if(!available.count){YBAlert(@"백업 · 중단 복구",@"복원하거나 복구할 문서 기록이 없습니다.");return;}
-        NSAlert *alert=[NSAlert new];alert.messageText=@"복원할 문서 기록을 선택하세요.";alert.informativeText=@"서버 이력은 유지하고 이 Mac의 문서만 적용 전으로 되돌립니다. 적용 이후 수정한 파일은 자동으로 덮어쓰지 않습니다.";
+        NSAlert *alert=[NSAlert new];alert.messageText=@"복원할 문서 기록을 선택하세요.";alert.informativeText=@"서버 이력은 유지하고 이 Mac의 문서만 되돌립니다. 새 백업은 완료된 받기 작업 10회까지 보관하며, 중단 기록과 구버전 백업은 별도로 유지합니다. 이후 수정한 파일은 자동으로 덮어쓰지 않습니다.";
         NSPopUpButton *menu=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(0,0,760,32) pullsDown:NO];
         for(NSUInteger i=0;i<available.count;i++){NSDictionary *j=available[i];[menu addItemWithTitle:[NSString stringWithFormat:@"%lu · %@ · %@ · %@%@",(unsigned long)i+1,j[@"createdAt"],j[@"path"],[j[@"status"] isEqual:@"committed"] ? @"백업 복원" : @"중단 복구",j[@"beforeHash"]==NSNull.null ? @" (신규 파일 제거)" : @""]];}
         alert.accessoryView=menu;[alert addButtonWithTitle:@"복원 / 복구"];[alert addButtonWithTitle:@"백업 폴더 열기"];[alert addButtonWithTitle:@"취소"];

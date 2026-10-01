@@ -27,7 +27,7 @@
   }
   const store = {
     id: () => tab + '/' + crypto.randomUUID(),
-    put: record => { const copy=structuredClone({...record,schema:1,tab,updatedAt:new Date().toISOString()}); return transact('readwrite', store=>store.put(copy)); },
+    put: record => { const copy=structuredClone({...record,schema:1,tab,updatedAt:new Date().toISOString()}); return transact('readwrite', store=>store.put(copy)).catch(error=>{report(error);throw error;}); },
     remove: id => transact('readwrite', store => store.delete(id)),
     settle: (id, serial, base, baseXML) => transact('readwrite', store => {
       const request = store.get(id);

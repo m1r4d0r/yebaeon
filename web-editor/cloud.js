@@ -26,6 +26,11 @@
     const record = { id:draftID, kind:'document', name:current.name, author:user?.name || recalledName(), base:linked ? {...linked} : null, baseXML, xml:current.xml, serial:current.serial };
     return drafts.put(record).then(() => drafts.notify(editor.hasPackageMedia() ? '문서 초안 보존 · 새 미디어는 ZIP으로 별도 저장 필요' : '브라우저에 초안 보존됨 · 서버 저장은 별도'));
   }
+  async function preserveWorkerDrafts() {
+    await checkpointDraft();
+    if(window.YebaeonPlaylists?.preserveWorkerDrafts)await window.YebaeonPlaylists.preserveWorkerDrafts();
+    draftID=drafts.id();
+  }
   async function restoreDraft(record) {
     if (!record || record.kind !== 'document' || typeof record.xml !== 'string' || typeof record.baseXML !== 'string') throw new Error('복구할 문서 초안 형식이 올바르지 않습니다.');
     await checkpointDraft();
@@ -186,6 +191,7 @@
   $('entryForm').onsubmit = async event => {
     event.preventDefault(); $('entrySubmit').disabled = true; $('entryMessage').textContent = '확인하고 있습니다…';
     try {
+      await preserveWorkerDrafts();
       user = await (await api('/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: $('entryName').value, password: $('entryPassword').value, remember: $('entryRemember').checked }) })).json();
       rememberName(user.name); update(); $('entryDialog').close(); await showPlaylists();
     } catch (error) { $('entryMessage').textContent = error.message; }
@@ -215,11 +221,11 @@
   $('accountClose').onclick = () => $('accountDialog').close();
   $('accountForm').onsubmit = async event => {
     event.preventDefault();
-    try { user = await (await api('/session', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: $('accountName').value }) })).json(); rememberName(user.name); update(); $('accountDialog').close(); }
+    try { await preserveWorkerDrafts(); user = await (await api('/session', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: $('accountName').value }) })).json(); rememberName(user.name); update(); $('accountDialog').close(); }
     catch (error) { $('accountMessage').textContent = error.message; }
   };
   $('accountLogout').onclick = async () => {
-    try { await api('/session', { method: 'DELETE' }); user = null; update(); $('accountDialog').close(); showEntry(); }
+    try { await preserveWorkerDrafts(); await api('/session', { method: 'DELETE' }); user = null; update(); $('accountDialog').close(); showEntry(); }
     catch (error) { $('accountMessage').textContent = error.message; }
   };
   $('cloudHistory').onclick = () => { if (linked && needUser()) { historyDoc = { ...linked }; $('historyDialog').showModal(); history(); } };

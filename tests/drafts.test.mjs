@@ -73,3 +73,8 @@ test('switching documents while a save is in flight does not delete later edits 
   app.window.YebaeonEditor.open('other','other.pro6');app.finish();await promise;
   const records=await app.drafts.all();assert.equal(records.length,1);assert.equal(records[0].xml,'edit two');assert.equal(records[0].base.version,2);assert.equal(records[0].baseXML,'edit one');
 });
+test('changing worker session leaves the previous worker draft under a separate ID',async()=>{
+  const app=await cloudSetup();app.edit('before logout');
+  await app.document.getElementById('accountLogout').onclick();app.edit('after logout');
+  const records=await app.drafts.all();assert.equal(records.length,2);assert.ok(records.some(x=>x.xml==='before logout' && x.author==='tester'));assert.ok(records.some(x=>x.xml==='after logout'));
+});
