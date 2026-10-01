@@ -40,7 +40,10 @@
     [v addSubview:YBButton(@"보이는 항목 선택",NSMakeRect(548,575,152,34),self,@selector(selectVisible:))];
     [v addSubview:YBButton(@"선택 해제",NSMakeRect(708,575,105,34),self,@selector(clearSelection:))];
     [v addSubview:YBButton(@"선택 문서 내용 비교",NSMakeRect(827,575,209,34),self,@selector(preview:))];
-    self.table=YBTable(v,NSMakeRect(24,151,1012,406),@[@[@"check",@"선택",@46],@[@"status",@"상태",@138],@[@"path",@"문서 / 폴더",@451],@[@"version",@"서버 버전",@86],@[@"author",@"작업자",@175]],self);
+    [v addSubview:YBButton(@"보내기 전체 선택",NSMakeRect(24,535,166,34),self,@selector(selectAllUploads:))];
+    [v addSubview:YBButton(@"받기 전체 선택",NSMakeRect(199,535,166,34),self,@selector(selectAllDownloads:))];
+    [v addSubview:YBLabel(@"검색과 관계없이 해당 방향의 문서를 선택합니다. 충돌·제외 항목은 선택하지 않습니다.",NSMakeRect(380,541,656,23),12,NO)];
+    self.table=YBTable(v,NSMakeRect(24,151,1012,366),@[@[@"check",@"선택",@46],@[@"status",@"상태",@138],@[@"path",@"문서 / 폴더",@451],@[@"version",@"서버 버전",@86],@[@"author",@"작업자",@175]],self);
     self.table.allowsMultipleSelection=NO;
     self.statusLabel=YBLabel(@"‘서버와 비교’를 눌러 받기·보내기·충돌 상태를 확인하세요.",NSMakeRect(24,119,1012,24),13,NO);[v addSubview:self.statusLabel];
     NSTextField *note=YBLabel(@"송수신 전 PP6를 종료하세요. 받기는 원본을 백업하며, 양쪽에서 수정된 문서는 자동으로 덮어쓰지 않습니다.",NSMakeRect(24,91,1012,22),12,NO);note.textColor=NSColor.secondaryLabelColor;[v addSubview:note];
@@ -115,14 +118,23 @@
 - (void)testRoot:(id)sender {[self changeRoot:[NSHomeDirectory() stringByAppendingPathComponent:@"Documents/YebaeOn-Sync-Test"]];}
 - (void)openFolder:(id)sender {if(![NSWorkspace.sharedWorkspace openURL:[NSURL fileURLWithPath:self.documentsRoot]])YBAlert(@"문서 폴더",@"폴더가 아직 없습니다. 서버와 비교하면 시험 폴더를 만듭니다.");}
 - (void)selectVisible:(id)sender {for(NSDictionary *r in self.visibleRows)if(![r[@"status"] isEqual:@"conflict"])[self.checked addObject:r[@"path"]];[self.table reloadData];}
+- (void)selectAllForStatus:(NSString *)status {
+    if(self.work.busy)return;
+    [self.checked removeAllObjects];
+    for(NSDictionary *row in self.rows)if([row[@"status"] isEqual:status])[self.checked addObject:row[@"path"]];
+    [self.table reloadData];
+    self.statusLabel.stringValue=[NSString stringWithFormat:@"%@ %lu개 선택 · 충돌·제외 항목은 유지합니다.",YBStatusName(status),(unsigned long)self.checked.count];
+}
+- (void)selectAllUploads:(id)sender {[self selectAllForStatus:@"upload"];}
+- (void)selectAllDownloads:(id)sender {[self selectAllForStatus:@"download"];}
 - (void)clearSelection:(id)sender {[self.checked removeAllObjects];[self.table reloadData];}
 - (void)toggle:(NSButton *)sender {if(sender.tag<0 || (NSUInteger)sender.tag>=self.visibleRows.count)return;NSString *path=self.visibleRows[sender.tag][@"path"];if(sender.state==NSControlStateValueOn)[self.checked addObject:path];else [self.checked removeObject:path];}
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)table {return self.visibleRows.count;}
 - (NSView *)tableView:(NSTableView *)table viewForTableColumn:(NSTableColumn *)column row:(NSInteger)index {
     NSDictionary *row=self.visibleRows[index],*doc=row[@"remote"]==NSNull.null ? nil : row[@"remote"];
     if([column.identifier isEqual:@"check"]) {NSButton *b=[[NSButton alloc] initWithFrame:NSMakeRect(7,2,30,24)];b.buttonType=NSSwitchButton;b.title=@"";b.state=[self.checked containsObject:row[@"path"]] ? NSControlStateValueOn : NSControlStateValueOff;b.target=self;b.action=@selector(toggle:);b.tag=index;b.enabled=!self.work.busy && ![row[@"status"] isEqual:@"conflict"];return b;}
-    NSString *text=[column.identifier isEqual:@"status"] ? YBStatusName(row[@"status"]) : [column.identifier isEqual:@"path"] ? row[@"path"] : [column.identifier isEqual:@"version"] ? (doc ? [NSString stringWithFormat:@"v%@",doc[@"version"]] : @"—") : doc[@"updatedBy"] ?: @"—";
-    NSTextField *field=YBLabel(text,NSMakeRect(0,2,column.width,24),13,NO);field.toolTip=text;if([row[@"status"] isEqual:@"conflict"])field.textColor=[NSColor colorWithCalibratedRed:0.68 green:0.15 blue:0.12 alpha:1];return field;
+    NSString *text=[column.identifier isEqual:@"status"] ? ([row[@"error"] length] ? @"업로드 제외" : YBStatusName(row[@"status"])) : [column.identifier isEqual:@"path"] ? row[@"path"] : [column.identifier isEqual:@"version"] ? (doc ? [NSString stringWithFormat:@"v%@",doc[@"version"]] : @"—") : doc[@"updatedBy"] ?: @"—";
+    NSTextField *field=YBLabel(text,NSMakeRect(0,2,column.width,24),13,NO);field.toolTip=row[@"error"] ?: text;if([row[@"status"] isEqual:@"conflict"])field.textColor=[NSColor colorWithCalibratedRed:0.68 green:0.15 blue:0.12 alpha:1];return field;
 }
 - (void)send:(id)sender {[self transfer:NO];}
 - (void)receive:(id)sender {[self transfer:YES];}
@@ -155,6 +167,7 @@
 - (void)preview:(id)sender {
     NSInteger index=self.table.selectedRow;if(index<0 || (NSUInteger)index>=self.visibleRows.count){YBAlert(@"문서를 선택해 주세요.",@"내용을 비교할 문서 행을 클릭하세요.");return;}
     NSDictionary *row=self.visibleRows[index];NSString *path=row[@"path"];
+    if([row[@"error"] length]){YBShowText(@"동기화 제외 사유",[NSString stringWithFormat:@"%@\n%@",path,row[@"error"]]);return;}
     [self.work run:^id {
         YBLibrary *library=[self connectedLibrary];NSData *local=[library.sync readDocument:path];NSDictionary *remote=row[@"remote"]==NSNull.null ? nil : row[@"remote"];
         NSData *incoming=remote ? [self.server download:remote] : nil;

@@ -57,6 +57,26 @@ int main(void) { @autoreleasepool {
             YBSync *s=Engine(NewArea(base)); NSString *transaction=[s apply:a document:v1 expectedLocalHash:nil];
             [s restore:transaction]; Check([s readDocument:path]==nil && s.entries.count==0,@"restore newly created file");
         }
+        {
+            YBSync *s=Engine(NewArea(base));
+            Put(s.root,@"valid.pro6",a);Put(s.root,@"unsupported./예수.pro6",a);
+            NSArray *rows=[s plan:@[]];
+            Check(rows.count==2,@"unsafe filename does not abort other documents");
+            NSDictionary *blocked=nil;NSUInteger uploads=0;
+            for(NSDictionary *row in rows){if([row[@"error"] length])blocked=row;if([row[@"status"] isEqual:@"upload"])uploads++;}
+            Check(uploads==1 && [blocked[@"status"] isEqual:@"conflict"],@"unsafe path remains visibly excluded from transfers");
+            Check([[NSData dataWithContentsOfFile:[s.root stringByAppendingPathComponent:@"unsupported./예수.pro6"]] isEqual:a],@"excluded filename and bytes preserved");
+            Reject(^{[s readDocument:blocked[@"path"]];},@"excluded path still cannot bypass path guard");
+        }
+        {
+            YBSync *s=Engine(NewArea(base));NSString *special=@"찬양/원제 : 예수 & \"피\" %3A.pro6";
+            Put(s.root,special,a);NSDictionary *doc=Doc(a,1,special);
+            Check([YBPath(special) isEqual:special],@"special filename remains metadata, not a storage key");
+            Check([[s plan:@[doc]][0][@"status"] isEqual:@"same"],@"special filename matches server without rename");
+            [s acknowledge:doc expectedLocalHash:YBHash(a)];
+            [s apply:b document:Doc(b,2,special) expectedLocalHash:YBHash(a)];
+            Check([[s readDocument:special] isEqual:b],@"special filename receives new version at original path");
+        }
         for(NSString *stage in @[@"prepared",@"replaced",@"state_saved"]) { @autoreleasepool {
             NSString *area=NewArea(base); YBSync *s=Engine(area); Put(s.root,path,a); [s acknowledge:v1 expectedLocalHash:YBHash(a)];
             s.checkpoint=^(NSString *point){if([point isEqual:stage])YBRequire(NO,@"simulated interruption");};

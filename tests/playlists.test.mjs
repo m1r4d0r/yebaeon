@@ -21,7 +21,7 @@ test('PP6 original structure, raw preservation, aliases and ambiguous input', as
   assert.throws(()=>editPlaylist(p,'A',[{documentId:'missing'}],new Map(),'~/Documents/ProPresenter6'));
   const empty=parsePlaylist('<RVPlaylistDocument><RVPlaylistNode><array rvXMLIvarName="children"><RVPlaylistNode UUID="A" displayName="empty"><array rvXMLIvarName="children"/></RVPlaylistNode></array></RVPlaylistNode></RVPlaylistDocument>');
   assert.equal(parsePlaylist(editPlaylist(empty,'A',[{documentId:'x'}],new Map([['x',{path:'new.pro6',name:'new.pro6'}]]),'~/Documents/ProPresenter6')).playlists[0].items.length,1);
-  const special = "찬양 $& $` $' $$";
+  const special = "찬양 : & \"피\" %3A $& $` $' $$";
   const replaced = editPlaylist(parsePlaylist(xml.replace('filePath=', 'filePath = ')), 'A', [{id:'a', documentId:'x'}], new Map([['x',{path:special+'.pro6',name:special+'.pro6'}]]), '~/Documents/ProPresenter6');
   assert.equal(parsePlaylist(replaced).playlists[0].items[0].sourcePath, '~/Documents/ProPresenter6/'+special+'.pro6');
   const odd=xml.replace('displayName="주일"','displayName="주일 &amp; &quot; &gt; 예배"').replace('<array rvXMLIvarName="deletions"/>','<!-- <RVPlaylistNode UUID="bad"> --><array rvXMLIvarName="deletions"/>');
