@@ -24,7 +24,7 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
   let cookie, id;
 
   await t.test('private reads and writes require a session; unknown API stays JSON', async () => {
-    for (const path of ['/status', '/documents', '/documents/11111111-1111-4111-a111-111111111111/content', '/documents/11111111-1111-4111-a111-111111111111/versions']) {
+    for (const path of ['/documents/11111111-1111-4111-a111-111111111111/usage', '/status', '/documents', '/documents/11111111-1111-4111-a111-111111111111/content', '/documents/11111111-1111-4111-a111-111111111111/versions']) {
       await code(await call(path), 401, 'login_required');
     }
     await code(await call('/documents?path=private.pro6', { method: 'POST', body: xml('private') }), 401);
@@ -132,6 +132,22 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     const changed = await call('/documents/' + doc.id, { cookie, method: 'PUT', body: xml('updated special'), headers: { 'If-Match': '"1"' } });
     await code(changed, 200); assert.equal((await changed.json()).document.path, path);
     assert.equal(await (await call('/documents/' + doc.id + '/content', { cookie })).text(), xml('updated special'));
+  });
+  await t.test('usage reads existing versioned originals without changing content or upload time', async () => {
+    const original = `<?xml version="1.0"?><!-- lastDateUsed="wrong" --><RVPresentationDocument notes="x &gt; y" lastDateUsed="2026-04-05T09:21:09+09:00"><slide lastDateUsed="2099-01-01T00:00:00Z"/></RVPresentationDocument>`;
+    const created = await (await call('/documents?path=usage-test.pro6', { cookie, method: 'POST', body: original })).json();
+    const doc = created.document;
+    const usage = await call(`/documents/${doc.id}/usage?version=1`, { cookie });
+    await code(usage, 200);
+    assert.equal((await usage.json()).lastDateUsed, '2026-04-05T09:21:09+09:00');
+    const after = (await (await call(`/documents/${doc.id}`, { cookie })).json()).document;
+    assert.equal(after.updatedAt, doc.updatedAt); assert.equal(after.sha256, doc.sha256);
+    assert.equal(await (await call(`/documents/${doc.id}/content`, { cookie })).text(), original);
+    await code(await call(`/documents/${doc.id}/usage?version=0`, { cookie }), 400);
+    await code(await call(`/documents/${doc.id}/usage?version=99`, { cookie }), 404);
+    await code(await call(`/documents/${doc.id}`, { cookie, method: 'PUT', body: xml('no usage date'), headers: { 'If-Match': '"1"' } }), 200);
+    assert.equal((await (await call(`/documents/${doc.id}/usage`, { cookie })).json()).lastDateUsed, null);
+    assert.equal((await (await call(`/documents/${doc.id}/usage?version=1`, { cookie })).json()).lastDateUsed, '2026-04-05T09:21:09+09:00');
   });
   await t.test('status reflects committed documents and native connect/compare requests', async () => {
     const before = await (await call('/status', { cookie })).json();

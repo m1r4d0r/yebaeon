@@ -15,7 +15,7 @@ export default {
         method(request, ['GET', 'HEAD']);
         return request.method === 'HEAD' ? new Response(null, { headers }) : json({ ok: true, service: 'yebaeon', mode: 'document-library' });
       }
-      const route = /^\/api\/documents(?:\/([^/]+)(?:\/(content|versions))?)?$/.exec(pathname);
+      const route = /^\/api\/documents(?:\/([^/]+)(?:\/(content|versions|usage))?)?$/.exec(pathname);
       const playlist = /^\/api\/playlists(?:\/([^/]+)(?:\/(content|versions|plan))?)?$/.exec(pathname);
       if (pathname !== '/api/session' && pathname !== '/api/status' && !resource && !route && !playlist) throw new HttpError(404, 'not_found', '없는 요청입니다.');
       if (!configured(env)) {

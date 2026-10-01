@@ -13,7 +13,7 @@ export async function statusRoute(request, env) {
   const totals = await env.DB.prepare(`SELECT COUNT(*) AS documents, COALESCE(SUM(size),0) AS bytes,
     MAX(updated_at) AS latestUploadAt FROM yebaeon_documents`).first();
   const playlists = await env.DB.prepare('SELECT COUNT(*) AS count FROM yebaeon_playlists').first();
-  const recent = (await env.DB.prepare(`SELECT path, current_version AS version, updated_by AS author,
+  const recent = (await env.DB.prepare(`SELECT id, path, current_version AS version, updated_by AS author,
     updated_at AS updatedAt, size FROM yebaeon_documents ORDER BY updated_at DESC, path LIMIT 12`).all()).results;
   const workers = (await env.DB.prepare(`SELECT updated_by AS author, COUNT(*) AS documents,
     MAX(updated_at) AS latestUploadAt FROM yebaeon_documents GROUP BY updated_by ORDER BY latestUploadAt DESC`).all()).results;

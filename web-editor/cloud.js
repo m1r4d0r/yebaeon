@@ -57,7 +57,11 @@
     try {
       const data = await (await api('/documents?' + new URLSearchParams({ q: query, after: more ? listNext || '' : '' }))).json();
       if (sequence !== listSequence) return;
-      for (const doc of data.documents) $('libraryList').append(row(doc.path, `버전 ${doc.version} · ${doc.updatedBy} · ${time(doc.updatedAt)} · ${Math.ceil(doc.size / 1024)}KB`, '열기', () => openCloud(doc.id)));
+      for (const doc of data.documents) {
+        const item = row(doc.path, `버전 ${doc.version} · ${doc.updatedBy} · 서버 저장 ${time(doc.updatedAt)} · ${Math.ceil(doc.size / 1024)}KB`, '열기', () => openCloud(doc.id));
+        const used = document.createElement('small'); item.firstChild.append(used);
+        $('libraryList').append(item); window.YebaeonUsage.show(used, doc);
+      }
       listNext = data.next; $('libraryMore').hidden = !listNext;
       if (!$('libraryList').children.length) empty($('libraryList'), query ? '검색 결과가 없습니다.' : '아직 저장된 문서가 없습니다. .pro6 파일을 올려 시작해 보세요.');
       $('libraryMessage').textContent = '';

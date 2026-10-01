@@ -113,6 +113,7 @@
           if (pickerTarget < 0) draft.push(item); else draft[pickerTarget] = item;
           changed(); $('playlistPickerDialog').close();
         })); $('playlistPickerList').append(row);
+        const used = document.createElement('small'); copy.append(used); window.YebaeonUsage.show(used, doc);
       }
       pickerNext = result.next; $('playlistPickerMore').hidden = !pickerNext;
       $('playlistPickerMessage').textContent = $('playlistPickerList').children.length ? '' : '찾는 문서가 없으면 전체 문서에서 먼저 올려 주세요.';

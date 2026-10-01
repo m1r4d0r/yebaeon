@@ -1,4 +1,4 @@
-import { XMLValidator } from 'fast-xml-parser';
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
 export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
 export function documentPath(value) {
@@ -66,6 +66,25 @@ export async function documentsRoute(request, env, user, id, action) {
     return json({ document: created }, 201);
   }
   if (!/^[0-9a-f-]{36}$/.test(id)) throw new HttpError(404, 'not_found', '문서를 찾지 못했습니다.');
+  if (action === 'usage') {
+    method(request, ['GET']);
+    const row = await find(db, id);
+    const number = url.searchParams.has('version') ? Number(url.searchParams.get('version')) : row.current_version;
+    if (!Number.isSafeInteger(number) || number < 1) throw new HttpError(400, 'invalid_version', '버전 번호를 확인해 주세요.');
+    const version = await db.prepare('SELECT object_key FROM yebaeon_versions WHERE document_id = ? AND version = ?').bind(id, number).first();
+    if (!version) throw new HttpError(404, 'not_found', '저장 버전을 찾지 못했습니다.');
+    // Only the root attributes are needed; never download all slide/media data for a date.
+    const object = await env.FILES.get(version.object_key, { range: { offset: 0, length: 65536 } });
+    if (!object) throw new HttpError(503, 'file_unavailable', '문서 파일을 읽지 못했습니다.');
+    const prefix = (await object.text()).replace(/^\uFEFF/, '').replace(/^\s*(?:<\?xml[^?]*\?>)?\s*/, '').replace(/^(?:<!--[\s\S]*?-->\s*)*/, '');
+    const root = /^<RVPresentationDocument(?=\s|\/?>)(?:[^>"']|"[^"]*"|'[^']*')*>/.exec(prefix)?.[0];
+    if (!root) throw new HttpError(422, 'usage_unavailable', '최근 사용일을 읽지 못했습니다.');
+    const fragment = root.endsWith('/>') ? root : root + '</RVPresentationDocument>';
+    const attrs = new XMLParser({ ignoreAttributes: false, parseAttributeValue: false }).parse(fragment).RVPresentationDocument;
+    const value = attrs?.['@_lastDateUsed'];
+    const valid = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value));
+    return json({ id, version: number, lastDateUsed: valid ? value : null });
+  }
   if (action === 'versions') {
     method(request, ['GET']); await find(db, id);
     const before = Number(url.searchParams.get('before') || Number.MAX_SAFE_INTEGER);
