@@ -1,3 +1,4 @@
+import { referenceCounts } from './references.mjs';
 import { usageFromXML, usageStatement, readStoredUsage, indexUsage } from './document-usage.mjs';
 import { XMLValidator } from 'fast-xml-parser';
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
@@ -31,7 +32,7 @@ async function find(db, id) {
   if (!row) throw new HttpError(404, 'not_found', '문서를 찾지 못했습니다.');
   return row;
 }
-function conflict() { return new HttpError(409, 'version_conflict', '다른 작업자가 먼저 저장했습니다. 내 작업을 ZIP으로 보관한 뒤 서버의 최신 문서를 다시 열어 주세요.'); }
+function conflict() { return new HttpError(409, 'version_conflict', '다른 작업자가 먼저 저장했습니다. 내 변경은 브라우저 초안에서 확인할 수 있습니다. 서버 최신 내용과 비교한 뒤 다시 저장해 주세요.'); }
 export async function documentsRoute(request, env, user, id, action) {
   const url = new URL(request.url), db = env.DB;
   if (!id) {
@@ -55,7 +56,8 @@ export async function documentsRoute(request, env, user, id, action) {
       const order = sort==='name' ? 'd.path ASC' : sort==='name-desc' ? 'd.path DESC' : `${field} DESC, d.path ASC`;
       const rows = (await db.prepare(`SELECT d.*, u.document_id AS usage_indexed, u.last_used, u.error AS usage_error FROM yebaeon_documents d LEFT JOIN yebaeon_document_usage u ON u.document_id=d.id AND u.version=d.current_version WHERE instr(lower(d.path),lower(?))>0${clause} ORDER BY ${order} LIMIT 101`).bind(...args).all()).results;
       const last=rows[99], next=rows.length>100 ? ((sort==='name'||sort==='name-desc') ? last.path : JSON.stringify({path:last.path,value:sort==='used' ? last.last_used||'' : last.updated_at})) : null;
-      return json({ documents: rows.slice(0,100).map(document), next, indexing });
+      const refs=url.searchParams.get('includeUses')==='1'?await referenceCounts(env):null;
+      return json({ documents: rows.slice(0,100).map(row=>({...document(row),...(refs?{useCount:refs.pending?null:(refs.uses.get(row.path)||0)}:{})})), next, indexing, referencesPending:refs?.pending||false });
     }
     sameOrigin(request);
     const path = documentPath(url.searchParams.get('path')), content = await readDocument(request);

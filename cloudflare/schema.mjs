@@ -1,5 +1,6 @@
 // Version 1: additive initialization; existing rows and other tables are untouched.
 export const schema = [
+  `CREATE TABLE IF NOT EXISTS yebaeon_reference_cache (library_id TEXT PRIMARY KEY, version INTEGER NOT NULL, refs TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS yebaeon_document_usage (document_id TEXT NOT NULL, version INTEGER NOT NULL, last_used TEXT, error TEXT, PRIMARY KEY(document_id,version))`,
   `CREATE TABLE IF NOT EXISTS yebaeon_sync_status (session_id TEXT PRIMARY KEY, author TEXT NOT NULL, connected_at TEXT NOT NULL, compared_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS yebaeon_playlists (

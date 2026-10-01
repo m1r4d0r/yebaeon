@@ -1,167 +1,33 @@
-(function () {
-  'use strict';
-  const $ = id => document.getElementById(id), cloud = window.YebaeonCloud;
-  let plan = null, draft = [], dirty = false, busy = false, sequence = 0, context = null;
-  const drafts=window.YebaeonDrafts; let draftID=drafts.id(), revision=0;
-  let pickerTarget = -1, pickerNext = null, pickerSequence = 0;
-  const message = value => { $('playlistsMessage').textContent = value; };
-  function text(tag, value, className) { const el = document.createElement(tag); el.textContent = value; if (className) el.className = className; return el; }
-  function button(label, action, disabled = false) {
-    const b = text('button', label); b.disabled = disabled;
-    b.onclick = async () => { b.disabled = true; try { await action(); } catch (e) { message(e.message); } finally { if (b.isConnected) b.disabled = disabled; } };
-    return b;
-  }
-  function discard() { return !dirty || confirm('현재 순서 초안을 브라우저에 남기고 다른 내용을 열까요?'); }
-  async function close() { if (busy || !discard()) return; try { await checkpointDraft(); dirty = false; $('playlistsDialog').close(); } catch(error) { drafts.report(error); message(error.message); } }
-  function updateContext() {
-    $('playlistBack').hidden = !context;
-    $('playlistContext').hidden = !context;
-    $('playlistContext').textContent = context ? `${context.name}에서 편집 중` + (context.shared.length ? ` · 같은 재생목록 파일의 ${context.shared.join(', ')}에서도 사용하는 문서입니다.` : '') : '';
-  }
-  async function show() {
-    if (!cloud.needUser()) return;
-    if (!$('playlistsDialog').open) $('playlistsDialog').showModal();
-    if (plan && !dirty) await load(plan.library.id, plan.playlist.id);
-    else if (!plan) { let last; try { last=JSON.parse(localStorage.getItem('yebaeon.lastPlaylist')); } catch(_) {} if(last?.id && last?.node) { if(!await load(last.id,last.node))await home(); } else await home(); }
-  }
-  async function home() {
-    if (busy || !discard()) return;
-    await checkpointDraft(); dirty = false; plan = null; const token = ++sequence;
-    $('playlistsTitle').textContent = '플레이리스트'; $('playlistDetail').hidden = true; $('playlistsList').hidden = false; $('playlistsList').replaceChildren();
-    message('플레이리스트를 불러오고 있습니다…');
-    try {
-      let after = '', count = 0;
-      do {
-        const page = await (await cloud.api('/playlists?' + new URLSearchParams({ after }))).json();
-        if (token !== sequence) return;
-        for (const library of page.libraries) {
-          if (!library.playlists.length) $('playlistsList').append(text('p', `${library.path} · 아직 순서가 없는 재생목록 파일입니다.`, 'dialog-help'));
-          for (const playlist of library.playlists) {
-            const row = text('div', '', 'library-row'), copy = document.createElement('div');
-            copy.append(text('strong', playlist.name), text('small', `${playlist.itemCount}개 순서 · ${library.path} · ${library.updatedBy} 저장`));
-            row.append(copy, button('열기', () => load(library.id, playlist.id))); $('playlistsList').append(row); count++;
-          }
-        }
-        after = page.next;
-      } while (after);
-      message(count ? '예배 순서를 고른 뒤 곡이나 말씀을 열어 편집하세요.' : '처음에는 Mac의 .pro6pl 재생목록과 문서 폴더를 가져와 주세요.');
-    } catch (e) { if (token === sequence) message(e.message); }
-  }
-  async function load(id, node) {
-    if (busy || !discard()) return;
-    await checkpointDraft();
-    const token = ++sequence; message('순서와 연결 문서를 확인하고 있습니다…');
-    try {
-      const value = await (await cloud.api(`/playlists/${id}/plan?` + new URLSearchParams({ node }))).json();
-      if (token !== sequence) return;
-      plan = value; draft = value.items.map(x => ({ ...x })); dirty = false; draftID=drafts.id(); revision=0; render();
-      try { localStorage.setItem('yebaeon.lastPlaylist',JSON.stringify({id,node})); } catch(_) {}
-      message(value.ready ? '곡·말씀을 열어 수정하고 서버에 저장하세요.' : '연결되지 않은 항목이 있습니다. 문서를 올리거나 연결할 문서를 교체한 뒤 새로고침해 주세요.');
-      return true;
-    } catch (e) { if (token === sequence) message(e.message); return false; }
-  }
-  function changed() { dirty = true; revision++; checkpointDraft().catch(drafts.report); render(); message('순서 변경은 ‘순서 저장’을 눌러야 서버에 반영됩니다.'); }
-  function render() {
-    $('playlistsTitle').textContent = plan.playlist.name;
-    $('playlistsList').hidden = true; $('playlistDetail').hidden = false;
-    $('playlistSummary').textContent = `${plan.library.path} · 버전 ${plan.library.version} · ${plan.library.updatedBy} 저장 · ${draft.length}개 순서`;
-    $('playlistDirty').textContent = dirty ? '저장하지 않은 순서 변경' : '저장된 순서';
-    $('playlistSave').disabled = busy || !dirty || !plan.playlist.editable;
-    $('playlistAdd').disabled = busy || !plan.playlist.editable;
-    $('playlistItems').replaceChildren();
-    if (!draft.length) $('playlistItems').append(text('p', '아직 순서가 없습니다. 곡이나 말씀을 추가해 보세요.', 'dialog-help'));
-    draft.forEach((item, index) => {
-      const row = text('div', '', 'playlist-item' + (item.kind === 'header' ? ' is-header' : '') + (item.issue ? ' has-issue' : ''));
-      const copy = text('div', '', 'playlist-copy'); copy.append(text('strong', item.name || '이름 없음'));
-      let detail = item.kind === 'header' ? '구분 항목' : item.document ? `${item.document.path} · 버전 ${item.document.version} · ${item.document.updatedBy}` : item.issue === 'unmapped' ? '문서 폴더와 연결되지 않는 경로 · ' + item.sourcePath : item.issue === 'unsupported' ? '이 종류의 항목은 아직 편집·동기화를 지원하지 않습니다.' : '아직 서버에 없는 문서 · ' + (item.path || item.sourcePath || '');
-      if (item.sharedWith?.length) detail += ` · 함께 사용: ${item.sharedWith.join(', ')}`;
-      copy.append(text('small', detail)); const actions = text('div', '', 'playlist-controls');
-      if (item.document) actions.append(button('편집', async () => {
-        if (dirty) { message('순서 변경을 먼저 저장한 뒤 문서를 열어 주세요.'); return; }
-        if (await cloud.openDocument(item.document.id, true)) {
-          context = { name: plan.playlist.name, shared: item.sharedWith || [] }; updateContext(); $('playlistsDialog').close();
-        }
-      }, busy));
-      if (plan.playlist.editable) {
-        if (item.kind === 'document') actions.append(button('교체', () => pick(index), busy));
-        actions.append(button('↑', () => { [draft[index - 1], draft[index]] = [draft[index], draft[index - 1]]; changed(); }, busy || index === 0));
-        actions.append(button('↓', () => { [draft[index + 1], draft[index]] = [draft[index], draft[index + 1]]; changed(); }, busy || index === draft.length - 1));
-        actions.append(button('빼기', () => { draft.splice(index, 1); changed(); }, busy));
-      }
-      row.append(text('span', String(index + 1), 'playlist-number'), copy, actions); $('playlistItems').append(row);
-    });
-  }
-  async function save() {
-    if (!plan || busy || !dirty) return;
-    busy = true; render(); message('순서를 저장하고 있습니다…');
-    const id = plan.library.id, node = plan.playlist.id, savedID=draftID;
-    const savedRevision=revision;
-    try {
-      await checkpointDraft();
-      const items = draft.map(x => ({ ...(x.id ? { id: x.id } : {}), ...(x.documentId ? { documentId: x.documentId } : {}) }));
-      await cloud.api(`/playlists/${id}?` + new URLSearchParams({ node }), { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'If-Match': `"${plan.library.version}"` }, body: JSON.stringify({ items }) });
-      dirty = false; try { await drafts.settle(savedID,savedRevision,null,null); } catch(error) { drafts.report(error); } busy = false; await load(id, node); message('순서를 저장했습니다. 교회 Mac에서 같은 플레이리스트를 동기화하세요.');
-    } catch (e) { message(e.message + (e.status === 409 ? ' 현재 변경은 브라우저 초안에도 남습니다. 최신 서버 순서와 비교한 뒤 다시 작업하세요.' : '')); }
-    finally { busy = false; render(); }
-  }
-  function checkpointDraft() {
-    if(!dirty || !plan)return Promise.resolve();
-    return drafts.put({id:draftID,kind:'playlist',name:plan.playlist.name,author:cloud.worker(),base:{id:plan.library.id,version:plan.library.version},basePlan:plan,items:draft,serial:revision}).then(()=>drafts.notify('순서 초안을 브라우저에 보존했습니다.'));
-  }
-  async function restoreDraft(record) {
-    if(busy || !cloud.needUser() || !discard())return false;
-    if(!record.basePlan?.library || !Array.isArray(record.items))throw new Error('순서 초안 형식이 올바르지 않습니다.');
-    await checkpointDraft(); plan=record.basePlan; draft=record.items.map(x=>({...x})); draftID=drafts.id(); revision=0; dirty=true;
-    await checkpointDraft();render();if(!$('playlistsDialog').open)$('playlistsDialog').showModal();
-    message('초안의 순서를 복구했습니다. 기준 버전 이후 다른 저장이 있었다면 충돌로 보호됩니다.');return true;
-  }
-  async function pickerList(more = false) {
-    const token = ++pickerSequence;
-    if (!more) { pickerNext = null; $('playlistPickerList').replaceChildren(); }
-    $('playlistPickerMore').hidden = true; $('playlistPickerMessage').textContent = '문서를 찾고 있습니다…';
-    try {
-      const result = await (await cloud.api('/documents?' + new URLSearchParams({ q: $('playlistPickerQuery').value.trim(), after: more ? pickerNext || '' : '' }))).json();
-      if (token !== pickerSequence) return;
-      for (const doc of result.documents) {
-        const row = text('div', '', 'library-row'), copy = document.createElement('div'); copy.append(text('strong', doc.path), text('small', `버전 ${doc.version} · ${doc.updatedBy}`));
-        row.append(copy, button(pickerTarget < 0 ? '추가' : '교체', () => {
-          const previous = pickerTarget < 0 ? {} : draft[pickerTarget];
-          const item = { ...previous, documentId: doc.id, document: doc, kind: 'document', name: doc.name.replace(/\.pro6$/i, ''), path: doc.path, sharedWith: [], issue: null };
-          if (pickerTarget < 0) draft.push(item); else draft[pickerTarget] = item;
-          changed(); $('playlistPickerDialog').close();
-        })); $('playlistPickerList').append(row);
-        const used = document.createElement('small'); copy.append(used); window.YebaeonUsage.show(used, doc);
-      }
-      pickerNext = result.next; $('playlistPickerMore').hidden = !pickerNext;
-      $('playlistPickerMessage').textContent = $('playlistPickerList').children.length ? '' : '찾는 문서가 없으면 전체 문서에서 먼저 올려 주세요.';
-    } catch (e) { if (token === pickerSequence) $('playlistPickerMessage').textContent = e.message; }
-  }
-  async function pick(index) { pickerTarget = index; $('playlistPickerQuery').value = ''; $('playlistPickerDialog').showModal(); await pickerList(); }
-  $('cloudPlaylists').disabled = !cloud.online;
-  $('cloudPlaylists').onclick = show; $('playlistBack').onclick = show;
-  $('playlistsClose').onclick = close;
-  $('playlistsDialog').addEventListener('cancel', e => { e.preventDefault(); close(); });
-  $('playlistsHome').onclick = home; $('playlistsRefresh').onclick = () => plan ? load(plan.library.id, plan.playlist.id) : home();
-  $('playlistsDocuments').onclick = () => $('cloudLibrary').click();
-  $('playlistAdd').onclick = () => pick(-1); $('playlistSave').onclick = save;
-  $('playlistsImport').onclick = () => { if (busy) return; $('playlistImportMessage').textContent = ''; $('playlistImportDialog').showModal(); };
-  $('playlistImportCancel').onclick = () => $('playlistImportDialog').close();
-  $('playlistImportForm').onsubmit = async e => {
-    e.preventDefault(); const file = $('playlistFile').files[0]; if (!file) return;
-    $('playlistImportSubmit').disabled = true; $('playlistImportMessage').textContent = '원본 재생목록을 저장하고 있습니다…';
-    try {
-      if (file.size > 5 * 1024 * 1024) throw new Error('재생목록은 5MB까지 가져올 수 있습니다.');
-      await cloud.api('/playlists?' + new URLSearchParams({ path: file.name, root: $('playlistRoot').value.trim() }), { method: 'POST', headers: { 'Content-Type': 'application/xml; charset=utf-8' }, body: file });
-      $('playlistImportDialog').close(); await home();
-    } catch (error) { $('playlistImportMessage').textContent = error.message; }
-    finally { $('playlistImportSubmit').disabled = false; }
-  };
-  $('playlistPickerClose').onclick = () => $('playlistPickerDialog').close();
-  $('playlistPickerMore').onclick = () => pickerList(true);
-  let timer; $('playlistPickerQuery').oninput = () => { clearTimeout(timer); timer = setTimeout(() => pickerList(), 250); };
-  window.addEventListener('yebaeonopen', () => { context = null; updateContext(); });
-  window.addEventListener('yebaeonclouddocument', event => { if (!event.detail.fromPlaylist) { context = null; updateContext(); $('playlistsDialog').close(); } });
-  window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
-  window.YebaeonPlaylists = { show, restoreDraft, async preserveWorkerDrafts(){await checkpointDraft();draftID=drafts.id();} };
-  window.dispatchEvent(new Event('yebaeonplaylistsready'));
+(function(){'use strict';
+ const $=id=>document.getElementById(id),cloud=YebaeonCloud,D=YebaeonDrafts,S=YebaeonSelection;
+ let libraries=[],plan=null,draft=[],dirty=false,busy=false,blocked=false,sequence=0,revision=0,draftID=D.id(),timer,historyNext=null,historyLibrary=null;
+ const histories=new Map();let context=null;
+ const message=text=>{$('playlistsMessage').textContent=text;};
+ const selection=new S.Selection($('orderPane'),{kind:'order',open:()=>openItem(selection.cursor),remove:remove,copy:copy,paste:paste,undo:undo,menu:contextMenu});
+ const key=()=>plan?plan.library.id+'/'+plan.playlist.id:'';
+ const history=()=>{if(!histories.has(key()))histories.set(key(),{undo:[],redo:[]});return histories.get(key());};
+ function checkpoint(){if(!plan||!dirty)return Promise.resolve();return D.put({id:draftID,kind:'playlist',name:plan.playlist.name,author:cloud.worker(),base:{id:plan.library.id,version:plan.library.version},basePlan:plan,items:draft,serial:revision});}
+ async function show(){if(!cloud.needUser())return;const token=++sequence;message('서버 재생목록을 불러오고 있습니다…');try{const all=[];let after='';do{const page=await(await cloud.api('/playlists?'+new URLSearchParams({after}))).json();all.push(...page.libraries);after=page.next;}while(after);if(token!==sequence)return;libraries=all;renderLibraries();let last;try{last=JSON.parse(localStorage.getItem('yebaeon.lastPlaylist'));}catch(_){}const chosen=libraries.find(l=>l.id===last?.id&&l.playlists.some(n=>n.id===last.node));if(!plan){const l=chosen||libraries.find(l=>l.playlists.length);if(l)await load(l.id,chosen?last.node:l.playlists[0].id);else message('서버에 재생목록이 없습니다. 교회 Sync에서 기본 재생목록을 등록해 주세요.');}else message('서버 목록을 갱신했습니다.');}catch(error){message(error.message);}}
+ function renderLibraries(){const root=$('playlistsList');root.replaceChildren();for(const library of libraries)for(const node of library.playlists){const b=document.createElement('button');b.textContent=node.name;b.title=library.path;b.classList.toggle('active',plan?.library.id===library.id&&plan?.playlist.id===node.id);b.onclick=()=>load(library.id,node.id);root.append(b);}}
+ async function load(id,node){if(busy){message('순서 저장이 끝난 뒤 재생목록을 바꿔 주세요.');return false;}try{if(dirty){await checkpoint();if(!confirm('현재 순서 변경은 브라우저 초안에 남습니다. 서버 순서를 열까요?'))return false;}clearTimeout(timer);const token=++sequence;message('순서와 문서를 확인하고 있습니다…');const value=await(await cloud.api(`/playlists/${id}/plan?`+new URLSearchParams({node}))).json();if(token!==sequence)return false;plan=value;draft=structuredClone(value.items);dirty=false;blocked=false;draftID=D.id();revision=0;selection.chosen.clear();render();renderLibraries();try{localStorage.setItem('yebaeon.lastPlaylist',JSON.stringify({id,node}));}catch(_){}message(value.ready?'': '연결되지 않은 항목이 있습니다. 해당 문서를 Sync에서 올리거나 순서의 연결을 교체하세요.');return true;}catch(error){message(error.message);return false;}}
+ function render(){if(!plan)return;$('playlistsTitle').textContent=plan.playlist.name+' 순서';$('playlistSummary').textContent=`${plan.playlist.name} · 파일 v${plan.library.version} · ${plan.library.updatedBy} ${new Date(plan.library.updatedAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}`;$('playlistHistory').disabled=false;$('playlistRetry').hidden=!dirty||busy;$('playlistLatest').hidden=!blocked;$('playlistItems').replaceChildren();draft.forEach((item,index)=>{const row=document.createElement('div');row.className='order-item'+(item.kind==='header'?' is-header':'')+(item.issue?' has-issue':'');selection.bind(row,String(index));const name=document.createElement('strong');name.textContent=item.name||item.document?.name||'이름 없음';row.append(name);if(item.document?.id===cloud.linked()?.id&&YebaeonEditor.state().dirty){const unsaved=document.createElement('span');unsaved.className='unsaved';unsaved.textContent=' · 저장 안 됨';row.append(unsaved);}if(item.sharedWith?.length||item.issue){const detail=document.createElement('small');detail.textContent=item.issue?'연결 확인 필요':`함께 사용: ${item.sharedWith.join(', ')}`;row.append(detail);}row.title=item.document?.path||item.path||item.sourcePath||'';row.addEventListener('click',e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey)openItem(String(index));});row.oncontextmenu=e=>{if(!selection.chosen.has(String(index)))selection.select(String(index));contextMenu(e);};row.ondragover=e=>{if(canDrop()){e.preventDefault();row.classList.add('drop-before');}};row.ondragleave=()=>row.classList.remove('drop-before');row.ondrop=e=>{e.preventDefault();e.stopPropagation();row.classList.remove('drop-before');drop(index);};$('playlistItems').append(row);});selection.setKeys(draft.map((_,i)=>String(i)));}
+ function canDrop(){return plan?.playlist.editable&&!busy&&['documents','order'].includes(S.drag()?.pane.options.kind);}
+ $('playlistItems').ondragover=e=>{if(canDrop())e.preventDefault();};$('playlistItems').ondrop=e=>{e.preventDefault();drop(draft.length);};
+ function record(){if(!plan?.playlist.editable)throw new Error('이 순서는 아직 편집할 수 없습니다.');if(busy)throw new Error('순서를 저장하고 있습니다. 잠시 후 다시 시도하세요.');const h=history();h.undo.push(structuredClone(draft));if(h.undo.length>50)h.undo.shift();h.redo=[];}
+ function changed(){dirty=true;revision++;checkpoint().then(()=>{D.notify('순서 초안 보존됨');if(!blocked){clearTimeout(timer);timer=setTimeout(save,200);}}).catch(error=>{blocked=true;D.report(error);message('브라우저 초안 저장에 실패했습니다. 현재 순서는 화면에 유지됩니다.');});render();message(blocked?'저장 충돌 · 내 순서는 초안에 유지됩니다.':'순서 저장 대기 중…');}
+ async function save(){if(!dirty||busy||!plan)return false;clearTimeout(timer);busy=true;render();const id=plan.library.id,node=plan.playlist.id,savedID=draftID,savedRevision=revision;try{await checkpoint();const existing=new Set(plan.items.map(x=>x.id));const items=draft.map(x=>{if(x.id&&existing.has(x.id))return {id:x.id,...x.documentId?{documentId:x.documentId}:{}};if(x.kind==='header'&&x.raw)return {headerXML:x.raw};return {documentId:x.documentId||x.document?.id};});const result=await(await cloud.api(`/playlists/${id}?`+new URLSearchParams({node}),{method:'PATCH',headers:{'Content-Type':'application/json','If-Match':`"${plan.library.version}"`},body:JSON.stringify({items})})).json();plan.library=result.library;dirty=false;blocked=false;try{await D.settle(savedID,savedRevision,null,null);}catch(error){D.report(error);}const latest=await(await cloud.api(`/playlists/${id}/plan?`+new URLSearchParams({node}))).json();plan=latest;draft=structuredClone(latest.items);message('순서 저장됨');cloud.refresh().catch(()=>{});return true;}catch(error){if(dirty)blocked=true;message(error.message+(dirty?' 내 순서는 브라우저 초안에 유지됩니다.':' 서버 저장은 완료했지만 최신 순서를 다시 읽지 못했습니다.'));return false;}finally{busy=false;render();}}
+ function attempt(fn){try{fn();}catch(error){message(error.message);}}
+ function addDocuments(documents,index=draft.length,replace=false){record();const items=documents.map(doc=>({kind:'document',name:doc.name.replace(/\.pro6$/i,''),document:doc,documentId:doc.id,path:doc.path,issue:null,sharedWith:[]}));if(replace&&draft[index])items[0].id=draft[index].id;draft.splice(index,replace?1:0,...items);changed();}
+ function drop(index){attempt(()=>{const drag=S.drag();if(!canDrop())return;if(drag.pane.options.kind==='documents'){addDocuments(window.YebaeonCloud.selectedDocuments(),index);return;}record();const indices=drag.keys.map(Number),moved=indices.map(i=>draft[i]);draft=draft.filter((_,i)=>!indices.includes(i));const target=index-indices.filter(i=>i<index).length;draft.splice(target,0,...moved);selection.chosen=new Set(moved.map((_,i)=>String(target+i)));changed();});}
+ function remove(){attempt(()=>{const indices=selection.values().map(Number);if(!indices.length)return;record();draft=draft.filter((_,i)=>!indices.includes(i));selection.clear();changed();});}
+ function copy(cut=false){const items=selection.values().map(Number).map(i=>draft[i]);if(!items.length)return;if(cut&&busy){message('저장 완료 후 잘라내기해 주세요.');return;}S.copy({kind:'order',items:structuredClone(items)});if(cut)remove();}
+ function paste(){attempt(()=>{const clip=S.clipboard(),index=selection.cursor===null?draft.length:Number(selection.cursor)+1;if(clip?.kind==='documents'&&clip.documents.length)addDocuments(clip.documents,index);else if(clip?.kind==='order'&&clip.items.length){record();const items=structuredClone(clip.items).map(item=>{delete item.id;if(item.kind==='header'){const xml=new DOMParser().parseFromString(item.raw,'application/xml');xml.documentElement.setAttribute('UUID',crypto.randomUUID().toUpperCase());item.raw=new XMLSerializer().serializeToString(xml.documentElement);}else{item.documentId=item.document?.id||item.documentId;if(!item.documentId)throw new Error('연결되지 않은 항목은 복사할 수 없습니다.');}return item;});draft.splice(index,0,...items);changed();}});}
+ async function openItem(value){const item=draft[Number(value)];if(!item?.document)return;try{if(await cloud.openDocument(item.document.id,true)){context={name:plan.playlist.name};$('locationTitle').textContent=context.name+' › '+item.document.name.replace(/\.pro6$/i,'');}}catch(error){message(error.message);}}
+ function undo(redo=false){attempt(()=>{if(busy)throw new Error('저장 완료 후 실행취소해 주세요.');const h=history(),source=redo?h.redo:h.undo,target=redo?h.undo:h.redo;if(!source.length)return;target.push(structuredClone(draft));draft=source.pop();changed();});}
+ function contextMenu(e){S.menu(e,[{label:'문서 열기 Enter',action:()=>openItem(selection.cursor)},{label:'선택 문서로 교체',disabled:cloud.selectedDocuments().length!==1||draft[Number(selection.cursor)]?.kind!=='document',action:()=>attempt(()=>addDocuments(cloud.selectedDocuments(),Number(selection.cursor),true))},{label:'복사 Ctrl+C',action:()=>copy()},{label:'붙여넣기 Ctrl+V',action:paste},{label:'순서에서 빼기 Delete',action:remove},{label:'실행취소 Ctrl+Z',action:()=>undo()}]);}
+ async function restoreDraft(record){if(busy||!cloud.needUser())return false;if(!record.basePlan?.library||!Array.isArray(record.items))throw new Error('순서 초안 형식 오류');await checkpoint();clearTimeout(timer);plan=structuredClone(record.basePlan);draft=structuredClone(record.items);dirty=true;blocked=true;draftID=D.id();revision=0;await checkpoint();render();renderLibraries();message('초안을 복구했습니다. ‘다시 저장’으로 서버에 적용하세요. 다른 저장이 먼저 있으면 충돌로 보호됩니다.');return true;}
+ async function versions(more=false){if(!historyLibrary)return;if(!more){historyNext=null;$('playlistHistoryList').replaceChildren();}try{const data=await(await cloud.api(`/playlists/${historyLibrary.id}/versions`+(more?'?before='+historyNext:''))).json();for(const v of data.versions){const row=document.createElement('div');row.className='library-row';const label=document.createElement('div');label.textContent=`파일 v${v.version} · ${v.author} · ${new Date(v.createdAt).toLocaleString('ko-KR')}`;const link=document.createElement('a');link.textContent='원본 파일 받기';link.href=`/api/playlists/${historyLibrary.id}/content?version=${v.version}`;link.download=historyLibrary.path;row.append(label,link);$('playlistHistoryList').append(row);}historyNext=data.next;$('playlistHistoryMore').hidden=!historyNext;$('playlistHistoryMessage').textContent=historyLibrary.path;}catch(error){$('playlistHistoryMessage').textContent=error.message;}}
+ $('playlistsRefresh').onclick=()=>plan?load(plan.library.id,plan.playlist.id):show();$('playlistRetry').onclick=()=>{blocked=false;save();};$('playlistLatest').onclick=()=>load(plan.library.id,plan.playlist.id);$('playlistHistory').onclick=()=>{historyLibrary={...plan.library};$('playlistHistoryDialog').showModal();versions();};$('playlistHistoryClose').onclick=()=>$('playlistHistoryDialog').close();$('playlistHistoryMore').onclick=()=>versions(true);
+ window.addEventListener('yebaeonchange',()=>queueMicrotask(render));window.addEventListener('yebaeonclouddocument',e=>{if(!e.detail.fromPlaylist){context=null;$('locationTitle').textContent=e.detail.doc.name.replace(/\.pro6$/i,'');}render();});window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
+ window.YebaeonPlaylists={show,restoreDraft,currentName:()=>context?.name||'',async preserveWorkerDrafts(){await checkpoint();draftID=D.id();},async openLibrary(id){const library=libraries.find(l=>l.id===id);if(library?.playlists.length)return load(id,library.playlists[0].id);await show();const found=libraries.find(l=>l.id===id);if(found?.playlists.length)return load(id,found.playlists[0].id);throw new Error('재생목록 파일을 찾지 못했습니다.');},selection};window.dispatchEvent(new Event('yebaeonplaylistsready'));
 })();

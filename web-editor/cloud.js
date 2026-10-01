@@ -5,20 +5,24 @@
   let user = null, ready = false, linked = null, epoch = 0, saving = false;
   const drafts = window.YebaeonDrafts;
   let draftID = drafts.id(), baseXML = editor.document().xml;
+  const contexts=new Map(); let openSequence=0, documents=[], activityNext=null, activityScope='mine';
+  const select=new YebaeonSelection.Selection($('documentsPane'),{kind:'documents',undo:redo=>editor.undo(redo),open:()=>openCloud(select.cursor),copy:()=>YebaeonSelection.copy({kind:'documents',documents:documents.filter(d=>select.chosen.has(d.id))})});
+  let activitySequence=0;
   let listNext = null, listSequence = 0, historyDoc = null, historyNext = null;
   const rememberName = name => { try { localStorage.setItem('yebaeon.workerName', name); } catch (_) {} };
   const recalledName = () => { try { return localStorage.getItem('yebaeon.workerName') || ''; } catch (_) { return ''; } };
   const time = value => new Date(value).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
   function update() {
     window.dispatchEvent(new CustomEvent("yebaeonsession", { detail: { authenticated: !!user } }));
-    $('cloudAccount').textContent = online ? (user ? user.name + ' · 작업 중' : '입장하기') : '로컬 모드';
+    $('cloudAccount').textContent = online ? (user ? user.name + ' ▾' : '입장하기') : '연결 안 됨';
     $('cloudAccount').disabled = !online;
-    $('cloudLibrary').disabled = !online;
-    $('cloudSave').disabled = !user || saving;
-    $('cloudSave').textContent = saving ? '저장 중…' : '서버에 저장';
+    $('cloudSave').disabled = !user || saving || !linked;
+    $('cloudSave').textContent = saving ? '저장 중…' : '서버에 저장 Ctrl+S';
     $('cloudHistory').hidden = !linked || !user;
     const changed = linked && editor.state().serial !== linked.serial;
-    $('cloudContext').textContent = linked ? `${linked.path} · 버전 ${linked.version} · ${linked.updatedBy} 저장${changed ? ' · 저장하지 않은 변경 있음' : ''}` : '로컬 문서 · 서버에 저장하지 않았습니다.';
+    $('dirtyState').textContent=editor.state().dirty ? '저장 안 됨' : '';
+    $('locationTitle').textContent=linked ? (window.YebaeonPlaylists?.currentName?.() ? window.YebaeonPlaylists.currentName()+' › ' : '')+editor.state().name.replace(/\.pro6$/i,'') : '예배온 Studio';
+    $('cloudContext').textContent = linked ? `서버 v${linked.version} · ${linked.updatedBy} · ${time(linked.updatedAt)}` : '';
   }
   function checkpointDraft() {
     const current = editor.document();
@@ -53,12 +57,12 @@
     $('entryName').value = recalledName();
     $('entryPassword').value = '';
     $('entrySubmit').disabled = !ready;
-    $('entryMessage').textContent = ready ? '' : '서버 연결 준비 중입니다. 지금은 로컬 파일로 작업할 수 있습니다.';
+    $('entryMessage').textContent = ready ? '' : '서버 연결 준비 중입니다. 연결되면 서버 문서를 열 수 있습니다.';
     if (!$('entryDialog').open) $('entryDialog').showModal();
   }
   async function showPlaylists() {
     if (!window.YebaeonPlaylists) await new Promise(resolve => window.addEventListener('yebaeonplaylistsready', resolve, { once: true }));
-    await window.YebaeonPlaylists.show();
+    await Promise.all([list(),window.YebaeonPlaylists.show()]);
   }
   function needUser() { if (user) return true; showEntry(); return false; }
   function row(title, detail, buttonText, action) {
@@ -73,65 +77,51 @@
   async function list(more = false) {
     if (!needUser()) return;
     const sequence = ++listSequence, query = $('libraryQuery').value.trim(), sort = $('librarySort').value;
-    if (!more) { listNext = null; $('libraryList').replaceChildren(); }
+    if (!more) { listNext = null; documents=[]; $('libraryList').replaceChildren(); }
     $('libraryMore').hidden = true; $('libraryMessage').textContent = '문서 목록을 불러오고 있습니다…';
     try {
-      const params = new URLSearchParams({q:query,sort});
+      const params = new URLSearchParams({q:query,sort,includeUses:'1'});
       if(more && listNext) params.set(sort==='name'||sort==='name-desc' ? 'after' : 'cursor',listNext);
       let data;
       do {
         data = await (await api('/documents?' + params)).json();
-        if(sequence!==listSequence || !$('libraryDialog').open)return;
+        if(sequence!==listSequence)return;
         if(data.indexing?.remaining) $('libraryMessage').textContent = `최근 사용일 준비 중 · ${data.indexing.total-data.indexing.remaining}/${data.indexing.total}개 확인. 최초 한 번 수집하며 창을 닫아도 확인한 날짜는 유지됩니다.`;
       } while(data.indexing?.remaining);
       if (sequence !== listSequence) return;
       for (const doc of data.documents) {
-        const item = row(doc.path, `버전 ${doc.version} · ${doc.updatedBy} · 서버 저장 ${time(doc.updatedAt)} · ${Math.ceil(doc.size / 1024)}KB`, '열기', () => openCloud(doc.id));
-        const used = document.createElement('small'); item.firstChild.append(used);
-        $('libraryList').append(item); window.YebaeonUsage.show(used, doc);
+        documents.push(doc);const item=document.createElement('div');item.className='document-item';select.bind(item,doc.id);
+        const name=document.createElement('strong');name.textContent=doc.name.replace(/\.pro6$/i,'');const small=document.createElement('small');
+        const date=doc.lastDateUsed ? new Date(doc.lastDateUsed).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric',timeZone:'Asia/Seoul'})+' 사용' : '사용일 없음';
+        small.textContent=date+(doc.useCount===null?' · 참조 확인 중':doc.useCount?` · ${doc.useCount}곳`:'');item.append(name,small);item.title=doc.path;
+        item.addEventListener('click',e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey)openCloud(doc.id);});
+        item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()}]);};$('libraryList').append(item);
       }
+      select.setKeys(documents.map(d=>d.id));
       listNext = data.next; $('libraryMore').hidden = !listNext;
-      if (!$('libraryList').children.length) empty($('libraryList'), query ? '검색 결과가 없습니다.' : '아직 저장된 문서가 없습니다. .pro6 파일을 올려 시작해 보세요.');
+      if (!$('libraryList').children.length) empty($('libraryList'), query ? '검색 결과가 없습니다.' : '아직 서버 문서가 없습니다. 교회 Sync에서 올려 주세요.');
       $('libraryMessage').textContent = data.indexing?.failed ? `최근 사용일 확인 실패 ${data.indexing.failed}개는 날짜 없는 문서와 함께 뒤에 표시됩니다.` : '';
     } catch (error) { if (sequence === listSequence) $('libraryMessage').textContent = error.message; }
   }
   async function openCloud(id, fromPlaylist = false) {
+    const token=++openSequence;
     try {
-      const { document: doc } = await (await api('/documents/' + id)).json();
-      const response = await api(`/documents/${id}/content?version=${doc.version}`), bytes = await response.arrayBuffer();
-      const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), n => n.toString(16).padStart(2, '0')).join('');
-      if (hash !== doc.sha256) throw new Error('받은 문서를 확인하지 못했습니다. 다시 열어 주세요.');
-      const xml=new TextDecoder('utf-8', {fatal:true}).decode(bytes);
-      if (!editor.open(xml, doc.name)) return false;
-      linked = { ...doc, serial: editor.state().serial }; baseXML = xml; update(); $('libraryDialog').close();
-      window.dispatchEvent(new CustomEvent('yebaeonclouddocument', { detail: { doc, fromPlaylist } }));
-      editor.status(`${doc.updatedBy}님이 ${time(doc.updatedAt)}에 저장한 버전 ${doc.version}을 열었습니다.`);
+      await checkpointDraft();
+      const {document:doc}=await(await api('/documents/'+id)).json();
+      const bytes=await(await api(`/documents/${id}/content?version=${doc.version}`)).arrayBuffer();
+      const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
+      if(hash!==doc.sha256)throw new Error('받은 문서의 내용 확인에 실패했습니다.');
+      if(token!==openSequence)return false;
+      if(linked)contexts.set(linked.id,{linked:{...linked},baseXML,draftID});
+      const previous=contexts.get(id),cached=editor.cache?.(id),local=previous&&cached?.dirty;
+      const xml=local?cached.xml:new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+      if(!editor.open(xml,doc.name,true,id))return false;
+      if(local){linked={...previous.linked,serial:-1};baseXML=previous.baseXML;draftID=previous.draftID;editor.markDirty();}
+      else {linked={...doc,serial:editor.state().serial};baseXML=xml;}
+      update();window.dispatchEvent(new CustomEvent('yebaeonclouddocument',{detail:{doc,fromPlaylist}}));
+      editor.status(local ? `이 탭의 미저장 작업을 이어갑니다.${doc.version!==linked.version?' 서버에도 새 버전이 있습니다. 저장 시 충돌을 확인합니다.':''}` : `서버 v${doc.version}을 열었습니다.`);
       return true;
-    } catch (error) { $('libraryMessage').textContent = error.message; editor.status(error.message); if (fromPlaylist) throw error; return false; }
-  }
-  async function upload(files, folder) {
-    if (!needUser()) return;
-    const documents = Array.from(files).filter(file => /\.pro6$/i.test(file.name));
-    if (!documents.length) { $('libraryMessage').textContent = '.pro6 문서를 선택해 주세요.'; return; }
-    for (const id of ['libraryUpload', 'libraryFolder', 'libraryRefresh', 'libraryQuery']) $(id).disabled = true;
-    let uploaded = 0, unchanged = 0; const failures = [];
-    try {
-      for (let i = 0; i < documents.length; i++) {
-        const file = documents[i];
-        const path = folder && file.webkitRelativePath ? file.webkitRelativePath.split('/').slice(1).join('/') : file.name;
-        $('libraryMessage').textContent = `${i + 1} / ${documents.length} · ${path} 업로드 중…`;
-        try {
-          if (file.size > 25 * 1024 * 1024) throw new Error('25MB를 넘습니다.');
-          const result = await (await api('/documents?' + new URLSearchParams({ path }), { method: 'POST', headers: { 'Content-Type': 'application/xml; charset=utf-8' }, body: file })).json();
-          if (result.unchanged) unchanged++; else uploaded++;
-        } catch (error) {
-          failures.push(`${path}: ${error.message}`);
-          if (error.status === 401 || error.status === 503) { failures.push(`남은 ${documents.length - i - 1}개는 아직 올리지 않았습니다. 같은 폴더를 다시 선택해 이어갈 수 있습니다.`); break; }
-        }
-      }
-      if (user) await list();
-      $('libraryMessage').textContent = `새 문서 ${uploaded}개 · 이미 같은 내용 ${unchanged}개` + (failures.length ? '\n' + failures.slice(0, 20).join('\n') + (failures.length > 20 ? `\n외 ${failures.length - 20}개 오류` : '') : ' · 업로드 완료');
-    } finally { for (const id of ['libraryUpload', 'libraryFolder', 'libraryRefresh', 'libraryQuery']) $(id).disabled = false; }
+    } catch(error){$('libraryMessage').textContent=error.message;editor.status(error.message);if(fromPlaylist)throw error;return false;}
   }
   async function save(path) {
     if (!needUser() || saving) return;
@@ -143,6 +133,7 @@
       await checkpointDraft();
       const endpoint = target ? '/documents/' + target.id : '/documents?' + new URLSearchParams({ path });
       const result = await (await api(endpoint, { method: target ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/xml; charset=utf-8', ...(target ? { 'If-Match': `"${target.version}"` } : {}) }, body: current.xml })).json();
+      if(target && contexts.has(target.id)){const c=contexts.get(target.id);if(c.draftID===savedDraftID){c.linked={...result.document,serial:current.serial};c.baseXML=current.xml;}}
       if (epoch === startedEpoch) {
         linked = { ...result.document, serial: current.serial }; baseXML = current.xml; editor.markSaved(current.serial);
         const newer = editor.state().serial !== current.serial;
@@ -198,16 +189,10 @@
     finally { $('entryPassword').value = ''; $('entrySubmit').disabled = !ready; }
   };
   $('entryLocal').onclick = () => $('entryDialog').close();
-  $('cloudLibrary').onclick = () => { if (needUser()) { $('libraryDialog').showModal(); list(); } };
-  $('libraryClose').onclick = () => { ++listSequence; $('libraryDialog').close(); };
-  $('libraryDialog').addEventListener('cancel', () => ++listSequence);
   try { const saved=localStorage.getItem('yebaeon.librarySort'); if(['name','name-desc','used','updated'].includes(saved))$('librarySort').value=saved; } catch (_) {}
   $('librarySort').onchange = () => { try { localStorage.setItem('yebaeon.librarySort',$('librarySort').value); } catch (_) {} list(); };
   $('libraryRefresh').onclick = () => list(); $('libraryMore').onclick = () => list(true);
   let searchTimer; $('libraryQuery').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => list(), 250); };
-  $('libraryUpload').onclick = () => $('uploadDocuments').click(); $('libraryFolder').onclick = () => $('uploadFolder').click();
-  $('uploadDocuments').onchange = event => { const files = Array.from(event.target.files); event.target.value = ''; upload(files, false); };
-  $('uploadFolder').onchange = event => { const files = Array.from(event.target.files); event.target.value = ''; upload(files, true); };
   $('cloudSave').onclick = async () => {
     if (!needUser()) return;
     try {
@@ -217,7 +202,8 @@
   };
   $('saveForm').onsubmit = async event => { event.preventDefault(); $('saveConfirm').disabled = true; try { await save($('savePath').value); } catch (error) { $('saveMessage').textContent = error.message; } finally { $('saveConfirm').disabled = false; } };
   $('saveCancel').onclick = () => $('saveDialog').close();
-  $('cloudAccount').onclick = () => { if (needUser()) { $('accountName').value = user.name; $('accountMessage').textContent = ''; $('accountDialog').showModal(); } };
+  $('cloudAccount').onclick=()=>{if(needUser()){$('accountMenu').hidden=!$('accountMenu').hidden;$('cloudAccount').setAttribute('aria-expanded',String(!$('accountMenu').hidden));}};
+  $('accountEdit').onclick = () => { $('accountMenu').hidden=true; if (needUser()) { $('accountName').value = user.name; $('accountMessage').textContent = ''; $('accountDialog').showModal(); } };
   $('accountClose').onclick = () => $('accountDialog').close();
   $('accountForm').onsubmit = async event => {
     event.preventDefault();
@@ -225,22 +211,31 @@
     catch (error) { $('accountMessage').textContent = error.message; }
   };
   $('accountLogout').onclick = async () => {
-    try { await preserveWorkerDrafts(); await api('/session', { method: 'DELETE' }); user = null; update(); $('accountDialog').close(); showEntry(); }
+    try { await preserveWorkerDrafts(); await api('/session', { method: 'DELETE' }); $('accountMenu').hidden=true; user = null; update(); $('accountDialog').close(); showEntry(); }
     catch (error) { $('accountMessage').textContent = error.message; }
   };
   $('cloudHistory').onclick = () => { if (linked && needUser()) { historyDoc = { ...linked }; $('historyDialog').showModal(); history(); } };
+  async function activity(more=false){
+    const sequence=++activitySequence;if(!needUser())return;if(!$('activityDialog').open)$('activityDialog').showModal();$('accountMenu').hidden=true;
+    if(!more){activityNext=null;$('activityList').replaceChildren();}$('activityMessage').textContent='작업 이력을 불러오고 있습니다…';
+    try{const params=new URLSearchParams({scope:activityScope});if(more&&activityNext)params.set('cursor',activityNext);const data=await(await api('/activity?'+params)).json();
+      if(sequence!==activitySequence)return;for(const item of data.items){$('activityList').append(row(item.path,`${time(item.createdAt)} · ${item.author} · ${item.kind==='document'?'문서':'재생목록 파일'} v${item.version}`,'열기',async()=>{if(item.kind==='document')await openCloud(item.id);else await window.YebaeonPlaylists.openLibrary(item.id);$('activityDialog').close();}));}
+      activityNext=data.next;$('activityMore').hidden=!data.next;$('activityMessage').textContent=activityScope==='mine'?'현재 작업자 이름으로 저장한 이력입니다.':'모든 작업자의 이력입니다.';
+    }catch(error){$('activityMessage').textContent=error.message;}
+  }
+  $('activityOpen').onclick=()=>{activityScope='mine';activity();};$('activityMine').onclick=()=>{activityScope='mine';activity();};$('activityAll').onclick=()=>{activityScope='all';activity();};$('activityMore').onclick=()=>activity(true);$('activityClose').onclick=()=>$('activityDialog').close();
   $('historyClose').onclick = () => $('historyDialog').close(); $('historyMore').onclick = () => history(true);
   window.addEventListener('yebaeonbeforeopen', () => { checkpointDraft().catch(drafts.report); });
   window.addEventListener('yebaeonopen', () => { epoch++; linked = null; draftID=drafts.id(); baseXML=editor.document().xml; update(); });
   window.addEventListener('yebaeonchange', () => queueMicrotask(() => { update(); checkpointDraft().catch(drafts.report); }));
   document.addEventListener('visibilitychange', () => { if(document.hidden)checkpointDraft().catch(drafts.report); });
-  window.YebaeonCloud = { api, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName() };
+  window.YebaeonCloud = { api, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, refresh:list, checkpointDraft, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)) };
   update();
   if (online) (async () => {
     try {
       const state = await (await api('/session')).json(); ready = state.ready;
       if (state.authenticated) { user = state; rememberName(user.name); update(); await showPlaylists(); }
       else showEntry();
-    } catch (_) { ready = false; showEntry(); $('entryMessage').textContent = '서버에 연결하지 못했습니다. 로컬 파일 작업은 계속할 수 있습니다.'; }
+    } catch (_) { ready = false; showEntry(); $('entryMessage').textContent = '서버에 연결하지 못했습니다. 현재 편집 내용은 브라우저 초안에 보존됩니다.'; }
   })();
 })();

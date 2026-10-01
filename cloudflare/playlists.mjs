@@ -75,7 +75,7 @@ export async function playlistsRoute(request, env, user, id, action) {
       const path = item.kind === 'document' ? referencePath(item.sourcePath,r.source_root) : null;
       const document = path ? map.get(path) || null : null;
       const sharedWith = path ? parsed.playlists.filter(p=>p.id!==playlist.id && p.items.some(x=>x.kind==='document' && referencePath(x.sourcePath,r.source_root)===path)).map(p=>p.name) : [];
-      return {id:item.id,kind:item.kind,name:item.name,sourcePath:item.sourcePath,path,document,sharedWith,issue:item.kind==='unsupported' ? 'unsupported' : item.kind==='document' && !document ? (path ? 'missing' : 'unmapped') : null};
+      return {id:item.id,raw:parsed.xml.slice(item.node.start,item.node.end),kind:item.kind,name:item.name,sourcePath:item.sourcePath,path,document,sharedWith,issue:item.kind==='unsupported' ? 'unsupported' : item.kind==='document' && !document ? (path ? 'missing' : 'unmapped') : null};
     });
     const documents = [...new Map(items.filter(x=>x.document).map(x=>[x.document.id,x.document])).values()];
     const nodeXml = parsed.xml.slice(playlist.node.start,playlist.node.end), nodeHash = await sha256(new TextEncoder().encode(nodeXml));
