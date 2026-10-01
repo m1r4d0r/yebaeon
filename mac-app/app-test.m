@@ -76,7 +76,7 @@ int main(void) {@autoreleasepool {
         NSString *wrapped=@"<RVPlaylistDocument><RVPlaylistNode UUID=\"ROOT\"><array rvXMLIvarName=\"children\"><RVPlaylistNode UUID=\"A\" displayName=\"예배 A\"><array rvXMLIvarName=\"children\"><RVDocumentCue UUID=\"C\" displayName=\"말씀\" filePath=\"/Library/PP6/sermon.pro6\" selectedArrangementID=\"first\"/></array></RVPlaylistNode><RVPlaylistNode UUID=\"B\" displayName=\"예배 B\"><array rvXMLIvarName=\"children\"/></RVPlaylistNode></array></RVPlaylistNode><array rvXMLIvarName=\"deletions\"/></RVPlaylistDocument>";
         YBValidatePlaylist([wrapped dataUsingEncoding:NSUTF8StringEncoding]);
         Check([YBPlaylistReference(@"/Users/procg/Documents/ProPresenter6/원제 : 예수.pro6",@"~/Documents/ProPresenter6") isEqual:@"원제 : 예수.pro6"],@"playlist links original colon filename");
-        Check([YBPlaylistReference(@"file:///Users/procg/Documents/ProPresenter6/원제%20%3A%20예수.pro6",@"~/Documents/ProPresenter6") isEqual:@"원제 : 예수.pro6"],@"encoded playlist link decodes once");
+        Check([YBPlaylistReference([NSURL fileURLWithPath:@"/Users/procg/Documents/ProPresenter6/원제 : 예수 %3A.pro6"].absoluteString,@"~/Documents/ProPresenter6") isEqual:@"원제 : 예수 %3A.pro6"],@"encoded playlist link decodes once");
         NSString *wrappedNew=[wrapped stringByReplacingOccurrencesOfString:@"selectedArrangementID=\"first\"" withString:@"selectedArrangementID=\"second\""];
         [playlist setValue:wrapped forKey:@"localXML"];[playlist setValue:wrappedNew forKey:@"incomingXML"];[playlist compareIfReady];
         NSArray *wrappedReviews=[playlist valueForKey:@"reviews"];
