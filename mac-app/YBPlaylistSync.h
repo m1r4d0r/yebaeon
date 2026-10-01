@@ -1,0 +1,14 @@
+#import "YBLibrary.h"
+@interface YBPlaylistSync : NSObject
+@property(nonatomic,readonly) YBLibrary *library;
+@property(nonatomic,readonly) NSURL *target;
+@property(nonatomic,copy) void (^checkpoint)(NSString *stage);
+- (instancetype)initWithLibrary:(YBLibrary *)library target:(NSURL *)target;
+- (NSArray *)libraries;
+- (NSDictionary *)manifest:(NSString *)libraryID node:(NSString *)nodeID;
+- (NSDictionary *)registerFileWithSourceRoot:(NSString *)sourceRoot progress:(void (^)(NSString *message))progress;
+- (NSDictionary *)compare:(NSString *)libraryID node:(NSString *)nodeID;
+- (NSString *)receive:(NSDictionary *)comparison progress:(void (^)(NSString *message))progress;
+- (NSArray *)jobs;
+- (void)restoreJob:(NSString *)identifier;
+@end

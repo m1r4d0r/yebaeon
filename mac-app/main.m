@@ -2,6 +2,7 @@
 #import "PPSPlaylistController.h"
 #import "YBDocumentsController.h"
 #import "YBMediaController.h"
+#import "YBServerPlaylistsController.h"
 @interface YBCanvas : NSView
 @end
 @implementation YBCanvas
@@ -16,6 +17,7 @@
 @property PPSPlaylistController *playlist;
 @property YBDocumentsController *documents;
 @property YBMediaController *media;
+@property YBServerPlaylistsController *serverPlaylists;
 @end
 @implementation YBAppDelegate
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
@@ -25,9 +27,10 @@
     NSRect screen=NSScreen.mainScreen.visibleFrame;NSRect frame=NSMakeRect(0,0,MIN(1120,screen.size.width-40),MIN(825,screen.size.height-60));
     self.window=[[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];self.window.title=@"예배온 Sync";self.window.minSize=NSMakeSize(880,620);self.window.delegate=self;[self.window center];
     self.controlStates=[NSMapTable weakToStrongObjectsMapTable];self.work=[YBWork new];self.playlist=[PPSPlaylistController new];self.documents=[[YBDocumentsController alloc] initWithWork:self.work];self.media=[[YBMediaController alloc] initWithWork:self.work documentsRoot:self.documents.documentsRoot];
-    __weak YBAppDelegate *weakSelf=self;self.documents.rootChanged=^(NSString *root){[weakSelf.media setDocumentsRoot:root];};
+    self.serverPlaylists=[[YBServerPlaylistsController alloc] initWithWork:self.work documents:self.documents];
+    __weak YBAppDelegate *weakSelf=self;self.documents.rootChanged=^(NSString *root){[weakSelf.media setDocumentsRoot:root];[weakSelf.serverPlaylists rootChanged];};
     self.tabs=[[NSTabView alloc] initWithFrame:NSMakeRect(10,34,frame.size.width-20,frame.size.height-44)];self.tabs.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
-    NSArray *labels=@[@"재생목록",@"문서",@"미디어"],*views=@[self.playlist.view,self.documents.view,self.media.view];
+    NSArray *labels=@[@"서버 재생목록",@"문서",@"미디어",@"로컬 재생목록 비교"],*views=@[self.serverPlaylists.view,self.documents.view,self.media.view,self.playlist.view];
     for(NSUInteger i=0;i<labels.count;i++) {
         NSTabViewItem *item=[[NSTabViewItem alloc] initWithIdentifier:labels[i]];item.label=labels[i];
         NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,1060,720)];scroll.hasVerticalScroller=YES;scroll.hasHorizontalScroller=YES;scroll.autohidesScrollers=YES;scroll.drawsBackground=YES;
@@ -35,7 +38,7 @@
     }
     [self.window.contentView addSubview:self.tabs];self.status=YBLabel(@"예배온 Studio와 교회 Mac을 연결합니다.",NSMakeRect(22,7,frame.size.width-44,22),12,NO);self.status.autoresizingMask=NSViewWidthSizable;self.status.textColor=NSColor.secondaryLabelColor;[self.window.contentView addSubview:self.status];
     self.work.busyChanged=^(BOOL busy) {
-        YBAppDelegate *app=weakSelf;[app enableView:app.playlist.view enabled:!busy];[app enableView:app.documents.view enabled:!busy];[app enableView:app.media.view enabled:!busy];
+        YBAppDelegate *app=weakSelf;[app enableView:app.serverPlaylists.view enabled:!busy];[app enableView:app.playlist.view enabled:!busy];[app enableView:app.documents.view enabled:!busy];[app enableView:app.media.view enabled:!busy];
         app.status.stringValue=busy ? @"작업 중입니다. 완료될 때까지 앱을 열어 두세요." : @"예배온 Studio와 교회 Mac을 연결합니다.";
     };
     [self.window makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];

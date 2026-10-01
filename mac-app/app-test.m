@@ -1,6 +1,7 @@
 #import "PPSPlaylistController.h"
 #import "YBDocumentsController.h"
 #import "YBMediaController.h"
+#import "YBServerPlaylistsController.h"
 #import "YBPlaylistIO.h"
 #import "YBLibrary.h"
 #import "../mac-sync/PP6Core.h"
@@ -95,6 +96,9 @@ int main(void) {@autoreleasepool {
         for(NSUInteger i=0;i<statuses.count;i++)[rows addObject:@{@"path":paths[i],@"status":statuses[i],@"localHash":NSNull.null,@"remote":i==1 ? (id)NSNull.null : @{@"version":@(i+1),@"updatedBy":@"예배 준비팀"}}];
         [controller acceptRows:rows];Check([[controller valueForKey:@"visibleRows"] count]==4,@"document UI row binding");[controller setValue:@"말씀" forKeyPath:@"search.stringValue"];[controller performSelector:@selector(filter)];Check([[controller valueForKey:@"visibleRows"] count]==1,@"document search");[controller setValue:@"" forKeyPath:@"search.stringValue"];[controller performSelector:@selector(filter)];Render(controller.view,@"documents");
         YBMediaController *mediaUI=[[YBMediaController alloc] initWithWork:work documentsRoot:documents];[mediaUI setValue:report forKey:@"report"];[mediaUI filter];Check([[mediaUI valueForKey:@"visibleRows"] count]==4,@"media UI binding");[mediaUI setValue:@1 forKeyPath:@"problemsOnly.state"];[mediaUI filter];Check([[mediaUI valueForKey:@"visibleRows"] count]==3,@"media problem filter");[mediaUI setValue:@0 forKeyPath:@"problemsOnly.state"];[mediaUI filter];Render(mediaUI.view,@"media");
+        YBServerPlaylistsController *serverUI=[[YBServerPlaylistsController alloc] initWithWork:work documents:controller];
+        [serverUI setValue:@{@"ready":@YES,@"orderChanged":@YES,@"rows":@[@{@"path":@"찬양/공유 찬양.pro6",@"status":@"download"}],@"manifest":@{@"playlist":@{@"name":@"주일 1부 예배"},@"items":@[@{@"name":@"공유 찬양",@"kind":@"document",@"path":@"찬양/공유 찬양.pro6",@"sharedWith":@[@"주일 2부 예배"]}]}} forKey:@"comparison"];
+        [[serverUI valueForKey:@"table"] reloadData];Check([[serverUI valueForKey:@"table"] numberOfRows]==1,@"server playlist UI row binding");Render(serverUI.view,@"server-playlists");
         __block BOOL finished=NO;__block NSString *failure=nil;
         [work run:^id {YBRequire(!NSThread.isMainThread,@"background worker");return @42;} completion:^(id result,NSString *error){Check(NSThread.isMainThread && [result isEqual:@42] && !error,@"UI completion on main thread");finished=YES;}];
         NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:3];while(!finished && deadline.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];Check(finished && !work.busy,@"async UI work completes");

@@ -223,7 +223,14 @@ static NSString *YBNow(void) { return [NSISO8601DateFormatter.new stringFromDate
 - (NSDictionary *)entries { [self open]; return [_state[@"entries"] copy]; }
 - (void)saveState { YBWrite(self.profile,@"state.json",YBJSONData(_state),0600,nil); }
 - (void)closed { [self open]; YBRequire(!self.presenterRunning(),@"ProPresenter를 종료한 뒤 다시 실행해 주세요."); }
-- (void)assertReady { YBRequire(self.pendingTransactions.count==0,@"중단된 적용이 있습니다. 먼저 ‘중단 작업 복구’를 실행해 주세요."); }
+- (void)assertReady {
+    [self open];
+    NSData *batch=YBRead(self.profile,@"playlist-active.json",NULL);
+    if(batch && !self.playlistOperationActive) {
+        NSDictionary *record=[NSJSONSerialization JSONObjectWithData:batch options:0 error:NULL];
+        YBRequire([record isKindOfClass:NSDictionary.class] && [record[@"status"] isEqual:@"complete"],@"중단된 플레이리스트 작업이 있습니다. 서버 재생목록 탭에서 먼저 중단 복구하세요.");
+    }
+    YBRequire(self.pendingTransactions.count==0,@"중단된 적용이 있습니다. 먼저 ‘중단 작업 복구’를 실행해 주세요."); }
 - (NSData *)readDocument:(NSString *)path { [self open]; YBPath(path); NSData *data=YBRead(self.root,path,NULL); if(data)YBValidateDocument(data); return data; }
 - (NSArray *)plan:(NSArray *)remoteDocuments {
     NSMutableDictionary *remote=[NSMutableDictionary dictionary], *local=[NSMutableDictionary dictionary], *aliases=[NSMutableDictionary dictionary];

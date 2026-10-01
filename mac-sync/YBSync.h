@@ -36,6 +36,8 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 @property(nonatomic, copy) BOOL (^presenterRunning)(void);
 // Native tests inject interruption after durable stages. Never exposed as a CLI option.
 @property(nonatomic, copy) void (^checkpoint)(NSString *stage);
+// Set only by the playlist coordinator while its durable batch journal owns the folder.
+@property(nonatomic) BOOL playlistOperationActive;
 - (instancetype)initWithRoot:(NSString *)root profile:(NSString *)profile origin:(NSString *)origin;
 - (NSArray *)plan:(NSArray *)remoteDocuments;
 - (NSData *)readDocument:(NSString *)path;
