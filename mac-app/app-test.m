@@ -16,6 +16,7 @@
 @end
 @interface YBDocumentsController (Tests)
 - (void)acceptRows:(NSArray *)rows;
+- (void)orderChanged:(id)sender;
 - (void)selectAllUploads:(id)sender;
 - (void)selectAllDownloads:(id)sender;
 @end
@@ -109,6 +110,9 @@ int main(void) {@autoreleasepool {
         [controller selectAllDownloads:nil];selected=[controller valueForKey:@"checked"];
         Check(selected.count==1 && [selected containsObject:paths[0]],@"bulk download replaces upload selection");
         [controller acceptRows:rows];[controller setValue:@"" forKeyPath:@"search.stringValue"];[controller performSelector:@selector(filter)];
+        [controller acceptRows:@[@{@"path":@"a.pro6",@"status":@"upload"},@{@"path":@"b.pro6",@"status":@"upload",@"lastUsedTime":@100},@{@"path":@"c.pro6",@"status":@"upload",@"lastUsedTime":@200}]];
+        NSArray *ordered=[controller valueForKey:@"rows"];Check([ordered[0][@"path"] isEqual:@"c.pro6"] && [ordered[2][@"path"] isEqual:@"a.pro6"],@"recent order and missing date last");
+        NSPopUpButton *order=[controller valueForKey:@"order"];[order selectItemAtIndex:1];[controller orderChanged:nil];ordered=[controller valueForKey:@"rows"];Check([ordered[0][@"path"] isEqual:@"a.pro6"],@"name order selectable");[order selectItemAtIndex:0];[controller acceptRows:rows];
         YBMediaController *mediaUI=[[YBMediaController alloc] initWithWork:work documentsRoot:documents];[mediaUI setValue:report forKey:@"report"];[mediaUI filter];Check([[mediaUI valueForKey:@"visibleRows"] count]==4,@"media UI binding");[mediaUI setValue:@1 forKeyPath:@"problemsOnly.state"];[mediaUI filter];Check([[mediaUI valueForKey:@"visibleRows"] count]==3,@"media problem filter");[mediaUI setValue:@0 forKeyPath:@"problemsOnly.state"];[mediaUI filter];Render(mediaUI.view,@"media");
         YBServerPlaylistsController *serverUI=[[YBServerPlaylistsController alloc] initWithWork:work documents:controller];
         [serverUI setValue:@{@"ready":@YES,@"orderChanged":@YES,@"rows":@[@{@"path":@"찬양/공유 찬양.pro6",@"status":@"download"}],@"manifest":@{@"playlist":@{@"name":@"주일 1부 예배"},@"items":@[@{@"name":@"공유 찬양",@"kind":@"document",@"path":@"찬양/공유 찬양.pro6",@"sharedWith":@[@"주일 2부 예배"]}]}} forKey:@"comparison"];

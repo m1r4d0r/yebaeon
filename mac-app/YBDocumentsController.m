@@ -16,6 +16,7 @@
 @property NSArray *visibleRows;
 @property NSMutableSet *checked;
 @property BOOL sessionLoaded;
+@property NSPopUpButton *order;
 @end
 @implementation YBDocumentsController
 - (instancetype)initWithWork:(YBWork *)work {
@@ -42,8 +43,9 @@
     [v addSubview:YBButton(@"선택 문서 내용 비교",NSMakeRect(827,575,209,34),self,@selector(preview:))];
     [v addSubview:YBButton(@"보내기 전체 선택",NSMakeRect(24,535,166,34),self,@selector(selectAllUploads:))];
     [v addSubview:YBButton(@"받기 전체 선택",NSMakeRect(199,535,166,34),self,@selector(selectAllDownloads:))];
-    [v addSubview:YBLabel(@"검색과 관계없이 해당 방향의 문서를 선택합니다. 충돌·제외 항목은 선택하지 않습니다.",NSMakeRect(380,541,656,23),12,NO)];
-    self.table=YBTable(v,NSMakeRect(24,151,1012,366),@[@[@"check",@"선택",@46],@[@"status",@"상태",@138],@[@"path",@"문서 / 폴더",@451],@[@"version",@"서버 버전",@86],@[@"author",@"작업자",@175]],self);
+    self.order=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(380,535,180,32) pullsDown:NO];[self.order addItemsWithTitles:@[@"최근 사용순",@"이름순"]];self.order.target=self;self.order.action=@selector(orderChanged:);[v addSubview:self.order];
+    [v addSubview:YBLabel(@"선택한 순서로 최대 4개씩 업로드 · 충돌·제외 항목은 선택하지 않습니다.",NSMakeRect(570,541,466,23),12,NO)];
+    self.table=YBTable(v,NSMakeRect(24,151,1012,366),@[@[@"check",@"선택",@46],@[@"status",@"상태",@138],@[@"path",@"문서 / 폴더",@325],@[@"lastUsed",@"최근 사용일",@146],@[@"version",@"서버 버전",@76],@[@"author",@"작업자",@155]],self);
     self.table.allowsMultipleSelection=NO;
     self.statusLabel=YBLabel(@"‘서버와 비교’를 눌러 받기·보내기·충돌 상태를 확인하세요.",NSMakeRect(24,119,1012,24),13,NO);[v addSubview:self.statusLabel];
     NSTextField *note=YBLabel(@"송수신 전 PP6를 종료하세요. 받기는 원본을 백업하며, 양쪽에서 수정된 문서는 자동으로 덮어쓰지 않습니다.",NSMakeRect(24,91,1012,22),12,NO);note.textColor=NSColor.secondaryLabelColor;[v addSubview:note];
@@ -59,10 +61,18 @@
 }
 - (void)ensureSessionLoaded {if(!self.sessionLoaded){[self.server loadSession];self.sessionLoaded=YES;}}
 - (void)acceptRows:(NSArray *)rows {
-    self.rows=rows ?: @[];[self.checked removeAllObjects];[self filter];
+    self.rows=rows ?: @[];[self.checked removeAllObjects];[self sortRows];[self filter];
     NSMutableDictionary *count=[NSMutableDictionary dictionary];for(NSDictionary *r in self.rows)count[r[@"status"]]=@([count[r[@"status"]] integerValue]+1);
     self.statusLabel.stringValue=[NSString stringWithFormat:@"전체 %lu · 받기 %@ · 보내기 %@ · 일치 %@ · 충돌 %@",(unsigned long)self.rows.count,count[@"download"] ?: @0,count[@"upload"] ?: @0,count[@"same"] ?: @0,count[@"conflict"] ?: @0];
 }
+- (void)sortRows {
+    BOOL recent=self.order.indexOfSelectedItem==0;
+    self.rows=[self.rows sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){
+        if(recent){NSNumber *x=a[@"lastUsedTime"],*y=b[@"lastUsedTime"];if(x && !y)return NSOrderedAscending;if(!x && y)return NSOrderedDescending;if(x && y){NSComparisonResult order=[y compare:x];if(order!=NSOrderedSame)return order;}}
+        return [a[@"path"] compare:b[@"path"]];
+    }];
+}
+- (void)orderChanged:(id)sender {[self sortRows];[self filter];}
 - (void)filter {
     NSString *query=self.search.stringValue;NSMutableArray *visible=[NSMutableArray array];
     for(NSDictionary *row in self.rows)if(!query.length || [row[@"path"] rangeOfString:query options:NSCaseInsensitiveSearch].location!=NSNotFound)[visible addObject:row];
@@ -151,6 +161,7 @@
 - (NSView *)tableView:(NSTableView *)table viewForTableColumn:(NSTableColumn *)column row:(NSInteger)index {
     NSDictionary *row=self.visibleRows[index],*doc=row[@"remote"]==NSNull.null ? nil : row[@"remote"];
     if([column.identifier isEqual:@"check"]) {NSButton *b=[[NSButton alloc] initWithFrame:NSMakeRect(7,2,30,24)];b.buttonType=NSSwitchButton;b.title=@"";b.state=[self.checked containsObject:row[@"path"]] ? NSControlStateValueOn : NSControlStateValueOff;b.target=self;b.action=@selector(toggle:);b.tag=index;b.enabled=!self.work.busy && ![row[@"status"] isEqual:@"conflict"];return b;}
+    if([column.identifier isEqual:@"lastUsed"]){NSString *value=@"기록 없음";if(row[@"lastUsedTime"]){NSDateFormatter *format=[NSDateFormatter new];format.dateFormat=@"yyyy-MM-dd HH:mm";value=[format stringFromDate:[NSDate dateWithTimeIntervalSince1970:[row[@"lastUsedTime"] doubleValue]]];}NSTextField *field=YBLabel(value,NSMakeRect(0,2,column.width,24),12,NO);field.toolTip=row[@"lastDateUsed"] ?: row[@"dateWarning"] ?: @"문서에 유효한 lastDateUsed 기록이 없습니다.";return field;}
     NSString *text=[column.identifier isEqual:@"status"] ? ([row[@"error"] length] ? @"업로드 제외" : YBStatusName(row[@"status"])) : [column.identifier isEqual:@"path"] ? row[@"path"] : [column.identifier isEqual:@"version"] ? (doc ? [NSString stringWithFormat:@"v%@",doc[@"version"]] : @"—") : doc[@"updatedBy"] ?: @"—";
     NSTextField *field=YBLabel(text,NSMakeRect(0,2,column.width,24),13,NO);field.toolTip=row[@"error"] ?: text;if([row[@"status"] isEqual:@"conflict"])field.textColor=[NSColor colorWithCalibratedRed:0.68 green:0.15 blue:0.12 alpha:1];return field;
 }
@@ -166,7 +177,7 @@
     if(!selected.count){YBAlert(@"문서를 선택해 주세요.",@"목록 왼쪽에서 송수신할 문서를 체크하세요.");return;}
     NSString *details=[[names subarrayWithRange:NSMakeRange(0,MIN(names.count,15))] componentsJoinedByString:@"\n"];
     if(names.count>15)details=[details stringByAppendingFormat:@"\n… 외 %lu개",(unsigned long)names.count-15];
-    NSString *message=[NSString stringWithFormat:@"%@\n\n문서 폴더: %@\n%@\n일치하는 문서는 동기화 기준만 기록합니다.",details,self.documentsRoot,receiving ? @"원본 백업 후 적용합니다. PP6를 종료해 주세요." : @"작업자 이름과 새 버전이 서버에 기록됩니다. PP6를 종료해 주세요."];
+    NSString *message=[NSString stringWithFormat:@"%@\n\n문서 폴더: %@\n%@\n일치하는 문서는 동기화 기준만 기록합니다.",details,self.documentsRoot,receiving ? @"원본 백업 후 적용합니다. PP6를 종료해 주세요." : @"최대 4개씩 병렬 업로드합니다. 선택한 정렬 순서로 처리하고 성공 기록은 순서대로 저장합니다. 업로드 중 자동 잠자기를 방지합니다. PP6를 종료해 주세요."];
     if(!YBConfirm([NSString stringWithFormat:@"%lu개 문서를 %@까요?",(unsigned long)selected.count,receiving ? @"받을" : @"보낼"],message,receiving ? @"백업 후 받기" : @"서버로 보내기"))return;
     self.statusLabel.stringValue=@"선택한 문서를 처리하고 있습니다…";
     [self.work run:^id {
