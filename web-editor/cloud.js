@@ -8,6 +8,7 @@
   const recalledName = () => { try { return localStorage.getItem('yebaeon.workerName') || ''; } catch (_) { return ''; } };
   const time = value => new Date(value).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
   function update() {
+    window.dispatchEvent(new CustomEvent("yebaeonsession", { detail: { authenticated: !!user } }));
     $('cloudAccount').textContent = online ? (user ? user.name + ' · 작업 중' : '입장하기') : '로컬 모드';
     $('cloudAccount').disabled = !online;
     $('cloudLibrary').disabled = !online;

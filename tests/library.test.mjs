@@ -11,7 +11,7 @@ const hash = text => createHash('sha256').update(text).digest('hex');
 
 test('private document library with real Worker, D1 and R2 bindings', { timeout: 90000 }, async t => {
   const bundled = await build({ entryPoints: ['cloudflare/worker.mjs'], bundle: true, write: false, format: 'esm', platform: 'browser' });
-  const options = { modules: true, script: bundled.outputFiles[0].text, compatibilityDate: '2026-09-28', bindings: { SITE_PASSWORD: password }, d1Databases: ['DB'], r2Buckets: ['FILES'], cf: false };
+  const options = { modules: true, script: bundled.outputFiles[0].text, compatibilityDate: '2026-09-28', bindings: { SITE_PASSWORD: password }, d1Databases: ['DB'], r2Buckets: ['FILES'], serviceBindings: { ASSETS: () => new Response('private resource', { headers: { 'Cache-Control': 'public' } }) }, cf: false };
   const mf = new Miniflare(convertV4MiniflareOptions(options));
   t.after(() => mf.dispose());
   const db = await mf.getD1Database('DB');
@@ -24,7 +24,7 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
   let cookie, id;
 
   await t.test('private reads and writes require a session; unknown API stays JSON', async () => {
-    for (const path of ['/documents', '/documents/11111111-1111-4111-a111-111111111111/content', '/documents/11111111-1111-4111-a111-111111111111/versions']) {
+    for (const path of ['/status', '/documents', '/documents/11111111-1111-4111-a111-111111111111/content', '/documents/11111111-1111-4111-a111-111111111111/versions']) {
       await code(await call(path), 401, 'login_required');
     }
     await code(await call('/documents?path=private.pro6', { method: 'POST', body: xml('private') }), 401);
@@ -132,6 +132,22 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     const changed = await call('/documents/' + doc.id, { cookie, method: 'PUT', body: xml('updated special'), headers: { 'If-Match': '"1"' } });
     await code(changed, 200); assert.equal((await changed.json()).document.path, path);
     assert.equal(await (await call('/documents/' + doc.id + '/content', { cookie })).text(), xml('updated special'));
+  });
+  await t.test('status reflects committed documents and native connect/compare requests', async () => {
+    const before = await (await call('/status', { cookie })).json();
+    const totals = await db.prepare('SELECT COUNT(*) AS count, SUM(size) AS size FROM yebaeon_documents').first();
+    assert.equal(before.documents, totals.count); assert.equal(before.bytes, totals.size); assert.ok(before.recent.length <= 12);
+    const native = { 'User-Agent': 'YebaeOn-Sync/0.3 (macOS)' };
+    await code(await call('/session', { cookie, headers: native }), 200);
+    await code(await call('/documents', { cookie, headers: native }), 200);
+    const after = await (await call('/status', { cookie })).json();
+    assert.equal(after.sync.length, 1); assert.ok(after.sync[0].connectedAt); assert.ok(after.sync[0].comparedAt);
+    const protectedAsset = await mf.dispatchFetch(origin + '/resources/catalog.json');
+    await code(protectedAsset, 401, 'login_required');
+    await code(await mf.dispatchFetch(origin + '/resources%2fcatalog.json'), 401, 'login_required');
+    const allowed = await mf.dispatchFetch(origin + '/resources/catalog.json', { headers: { Cookie: cookie } });
+    assert.equal(allowed.status, 200); assert.equal(await allowed.text(), 'private resource');
+    assert.equal(allowed.headers.get('Cache-Control'), 'private, no-store');
   });
   await t.test('logout, expiration and password rotation invalidate server sessions', async () => {
     await code(await call('/session', { cookie, method: 'DELETE' }), 200);

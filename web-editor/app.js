@@ -172,8 +172,31 @@
   $('export').onclick=guard(()=>exclusive(exportPackage));
   $('png').onclick=guard(async()=>{const canvas=document.createElement('canvas');canvas.width=1920;canvas.height=Math.round(1920*model.height/model.width);await R.draw(canvas,model,current(),library);const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw new Error('PNG 저장에 실패했습니다.');download(blob,`pp6-web-preview-${selected+1}.png`);status('근사 미리보기 PNG를 저장했습니다. PP6 실기 화면과 대조할 때 사용할 수 있습니다.');});
   window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
+  function templateSlide(template) {
+    if(template.width!==model.width || template.height!==model.height)throw new Error(`템플릿은 ${template.width}×${template.height}입니다. 같은 크기의 문서에서 사용하세요.`);
+    const doc=new DOMParser().parseFromString(template.xml,'application/xml');
+    if(doc.querySelector('parsererror') || doc.documentElement.tagName!=='RVDisplaySlide')throw new Error('템플릿을 읽지 못했습니다.');
+    const slide=model.doc.importNode(doc.documentElement,true);P.refreshIDs(slide);
+    const cues=P.ivar(slide,'array','cues');if(cues)cues.replaceChildren();
+    for(const key of ['hotKey','notes','chordChartPath'])slide.setAttribute(key,'');
+    return slide;
+  }
+  function applyTemplate(template) {
+    const old=current(), copy=templateSlide(template), values=P.textElements(old).map(x=>P.parseRTF(P.textNode(x)?.textContent || '').text), boxes=P.textElements(copy);
+    if(boxes.length<values.length)throw new Error('기존 텍스트 상자보다 적은 템플릿입니다. 텍스트를 먼저 정리해 주세요.');
+    boxes.forEach((box,i)=>P.setText(box,values[i] || ''));
+    copy.setAttribute('label',P.attr(old,'label'));
+    snapshot();old.replaceWith(copy);render();status('템플릿을 적용했습니다. 텍스트는 유지되고 배경과 서식은 선택한 템플릿으로 바뀝니다.');
+  }
+  function addBible(verses,template) {
+    if(!verses.length || verses.length>100)throw new Error('한 번에 1~100절을 선택해 주세요.');
+    const base=template?templateSlide(template):current().cloneNode(true);
+    if(!P.textElements(base).length)throw new Error('말씀 텍스트 상자가 있는 슬라이드나 템플릿을 선택하세요.');
+    const copies=verses.map(v=>{const slide=base.cloneNode(true);P.refreshIDs(slide);const cues=P.ivar(slide,'array','cues');if(cues)cues.replaceChildren();for(const key of ['hotKey','notes','chordChartPath'])slide.setAttribute(key,'');const boxes=P.textElements(slide);boxes.forEach((x,i)=>P.setText(x,i===0?(boxes.length===1?v.text+'\n'+v.reference:v.text):i===1?v.reference:''));slide.setAttribute('label',v.reference);return slide;});
+    snapshot();let after=current();for(const slide of copies){after.parentNode.insertBefore(slide,after.nextSibling);after=slide;}selected=P.slides(model).indexOf(copies[0]);render();status(`${copies.length}개 말씀 슬라이드를 추가했습니다. 본문·장절 위치와 넘침을 미리보기에서 확인하세요.`);
+  }
   window.YebaeonEditor={
-    open,
+    open,applyTemplate,addBible,redraw:render,
     state:()=>({name:model.name,serial:editSerial,dirty}),
     document:()=>({xml:P.serialize(model),name:model.name,serial:editSerial,dirty}),
     markSaved(serial){if(editSerial===serial)dirty=false;},

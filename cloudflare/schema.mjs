@@ -1,5 +1,6 @@
 // Version 1: additive initialization; existing rows and other tables are untouched.
 export const schema = [
+  `CREATE TABLE IF NOT EXISTS yebaeon_sync_status (session_id TEXT PRIMARY KEY, author TEXT NOT NULL, connected_at TEXT NOT NULL, compared_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS yebaeon_playlists (
     id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, source_root TEXT NOT NULL,
     current_version INTEGER NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL,

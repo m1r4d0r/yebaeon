@@ -67,3 +67,14 @@ ZIP은 소스 이력 대신 비공개 Releases에 첨부한다. `git pull`로는
 2026-10-01 공식 기준: Netlify 새 크레딧 요금제는 운영 배포당 15크레딧이다. Cloudflare Workers는 같은 배포 횟수당 크레딧 차감 방식이 아니며 요청/실행량과 D1/R2 사용량을 계산한다. 예배온은 GitHub Actions에서 빌드하므로 Cloudflare Workers Builds 시간은 사용하지 않는다. GitHub Actions 사용량은 별도다. 계정의 실제 요금제/잔여량을 확인한 기록은 아니다.
 
 [Netlify 크레딧](https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/how-credits-work/) · [Workers 요금](https://developers.cloudflare.com/workers/platform/pricing/) · [Builds 요금](https://developers.cloudflare.com/workers/ci-cd/builds/limits-and-pricing/)
+
+
+## 2026-10-01 교회 자료 업로드와 현황판
+
+- 교회 Mac에서 약 3,107개 원본 문서 업로드가 진행 중이다. 중단·앱 교체를 요구하지 않는다. 현재 앱도 `YebaeOn-Sync/` 요청 식별자로 서버에서 연결 및 첫 문서 목록 조회 시각을 기록한다. 비교 완료 기록으로 오인하지 않도록 표시한다.
+- `/status.html`: 실제 고유 경로 문서 수, 현재 버전 용량, 재생목록 파일 수, 최근 저장 12개, Sync 기록을 10초마다 조회한다. 3,107개는 이번 업로드 기준 수일 뿐 완료를 확정하는 수치가 아니다.
+- 선별 자료: 폰트 30종 WOFF2, 템플릿 37개 파일 / 196개 슬라이드, 개역개정 31,103절, 금요예배 이미지 20개. `church-resources/`에서 배포하고 모든 자료 요청을 Worker 세션 확인 후 제공한다. 성경 등록 정보, 원본 전체 폰트 ZIP, 문서 ZIP은 배포하지 않는다.
+- 웹 `성경 · 템플릿`: 같은 크기 템플릿을 현재 텍스트 유지하며 적용한다. 말씀은 선택 구간을 한 절씩 슬라이드에 삽입하며 장절은 두 번째 텍스트 상자에 넣는다. PP6 성경 슬라이드 화면 캡처는 추후 받아 실기 서식을 대조해야 한다.
+- 정확한 원본 경로로 금요 이미지와 PSD의 PNG 미리보기를 연결한다. 누락 파일을 동명 다른 위치 파일로 자동 대체하지 않는다. 문서의 원본 미디어 경로는 유지한다. 다른 템플릿 이미지와 영상은 미업로드 상태를 유지한다.
+- 다음 Mac 앱 0.4.1: 저장된 로그인과 문서 폴더로 시작 시 자동 비교 1회. 파일 송수신은 선택 실행. 성공한 자동·수동 비교는 로컬 `last-server-comparison.json`에 시각·폴더·개수·자동 여부를 남긴다.
+- 검증: 서버 22개 검사 통과, 배포 dry-run 통과, DOM에서 템플릿 텍스트 보존·말씀 삽입·UUID 중복 방지·크기 제한·되돌리기 확인. Mac 빌드와 실행 검증은 GitHub의 macOS CI에서 수행한다.

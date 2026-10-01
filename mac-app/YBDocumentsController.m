@@ -69,12 +69,30 @@
     self.visibleRows=visible;[self.table reloadData];
 }
 - (void)controlTextDidChange:(NSNotification *)note {[self filter];}
+- (void)startupCompare {
+    self.statusLabel.stringValue=@"시작 시 서버 연결과 문서 상태를 확인하고 있습니다…";
+    [self.work run:^id {
+        [self ensureSessionLoaded];NSDictionary *session=[self.server request:@"/api/session" method:@"GET" body:nil headers:nil];
+        if(![session[@"authenticated"] boolValue])return @{@"signedOut":@YES};
+        BOOL directory=NO;if(![[NSFileManager defaultManager] fileExistsAtPath:self.documentsRoot isDirectory:&directory] || !directory)return @{@"noFolder":@YES,@"name":session[@"name"] ?: @""};
+        YBLibrary *library=[self connectedLibrary];NSArray *rows=[library refresh];
+        YBSavePreferences(@"last-server-comparison.json",@{@"at":[NSDate.date description],@"root":self.documentsRoot,@"documents":@(rows.count),@"automatic":@YES});
+        return @{@"rows":rows,@"name":session[@"name"] ?: @"",@"pending":@(library.sync.pendingTransactions.count)};
+    } completion:^(NSDictionary *result,NSString *error) {
+        if(error){self.statusLabel.stringValue=@"자동 비교하지 못했습니다. 연결 후 ‘서버와 비교’를 눌러 다시 확인하세요.";return;}
+        if([result[@"signedOut"] boolValue]){self.statusLabel.stringValue=@"입장한 뒤 서버와 비교할 수 있습니다.";return;}
+        self.sessionLabel.stringValue=[NSString stringWithFormat:@"%@님 · 예배온 서버 연결됨",result[@"name"]];
+        if([result[@"noFolder"] boolValue]){self.statusLabel.stringValue=@"문서 폴더를 선택한 뒤 서버와 비교해 주세요.";return;}
+        [self acceptRows:result[@"rows"]];
+        if([result[@"pending"] unsignedIntegerValue])self.statusLabel.stringValue=@"중단된 적용이 있습니다. ‘백업 · 중단 복구’에서 먼저 복구하세요.";
+    }];
+}
 - (void)refresh:(id)sender {
     self.statusLabel.stringValue=@"서버와 문서를 비교하고 있습니다…";
     [self.work run:^id {
         [self ensureSessionLoaded];NSDictionary *session=[self.server request:@"/api/session" method:@"GET" body:nil headers:nil];
         YBRequire([session[@"authenticated"] boolValue],@"먼저 ‘입장 / 이름 변경’에서 공용 비밀번호로 입장해 주세요.");
-        YBLibrary *library=[self connectedLibrary];return @{@"rows":[library refresh],@"name":session[@"name"] ?: @"",@"pending":@(library.sync.pendingTransactions.count)};
+        YBLibrary *library=[self connectedLibrary];NSArray *rows=[library refresh];YBSavePreferences(@"last-server-comparison.json",@{@"at":[NSDate.date description],@"root":self.documentsRoot,@"documents":@(rows.count),@"automatic":@NO});return @{@"rows":rows,@"name":session[@"name"] ?: @"",@"pending":@(library.sync.pendingTransactions.count)};
     } completion:^(NSDictionary *result,NSString *error) {
         if(error){[self acceptRows:@[]];self.statusLabel.stringValue=@"비교하지 못했습니다. 입장 상태와 폴더를 확인해 주세요.";YBAlert(@"문서 비교",error);return;}
         [self acceptRows:result[@"rows"]];self.sessionLabel.stringValue=[NSString stringWithFormat:@"%@님 · 예배온 서버 연결됨",result[@"name"]];

@@ -1,9 +1,10 @@
 /* Preview-only aliases. Never rewrite the source RTF font names. */
 (function () {
   'use strict';
-  const entries=new Map();
+  const entries=new Map(), exact=new Map();
+  function registerCatalog(fonts) { for(const f of fonts) { const family="YebaeFont-"+f.file.split(".")[0]; const face=new FontFace(family,`url(/resources/${f.file})`,{weight:String(f.weight)});document.fonts.add(face);exact.set(f.name.toLowerCase(),{family,label:f.name,weight:f.weight,note:"",key:family+":"+f.weight}); } entries.clear();notify(); }
   function resolve(style) {
-    const name=String(style.font || ''), key=name.toLowerCase().replace(/[\s_-]/g,'');
+    const name=String(style.font || ''); const installed=exact.get(name.toLowerCase()); if(installed)return {...installed,weight:style.bold?Math.max(700,installed.weight):installed.weight}; const key=name.toLowerCase().replace(/[\s_-]/g,'');
     let family, label, weight=400, note='';
     if(key.startsWith('aritaburi') || key.startsWith('아리따부리')) {
       family='PP6 Arita Buri';label='아리따부리';weight=500;
@@ -67,5 +68,5 @@
     return [...new Set(lines)];
   }
   function state(){return [...entries.values()].map(({family,weight,status})=>({family,weight,status}));}
-  window.PP6Fonts={resolve,ensure,css,descriptions,state};
+  window.PP6Fonts={registerCatalog,resolve,ensure,css,descriptions,state};
 })();

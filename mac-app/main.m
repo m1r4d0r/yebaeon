@@ -41,7 +41,8 @@
         YBAppDelegate *app=weakSelf;[app enableView:app.serverPlaylists.view enabled:!busy];[app enableView:app.playlist.view enabled:!busy];[app enableView:app.documents.view enabled:!busy];[app enableView:app.media.view enabled:!busy];
         app.status.stringValue=busy ? @"작업 중입니다. 완료될 때까지 앱을 열어 두세요." : @"예배온 Studio와 교회 Mac을 연결합니다.";
     };
-    [self.window makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];
+    [self.window makeKeyAndOrderFront:nil];
+    [self.documents startupCompare];[NSApp activateIgnoringOtherApps:YES];
 }
 - (void)enableView:(NSView *)view enabled:(BOOL)enabled {
     if([view isKindOfClass:NSControl.class]) {NSControl *control=(NSControl *)view;if(!enabled)[self.controlStates setObject:@(control.enabled) forKey:control];NSNumber *previous=[self.controlStates objectForKey:control];control.enabled=enabled ? (previous ? previous.boolValue : YES) : NO;}
@@ -53,3 +54,4 @@
 - (BOOL)windowShouldClose:(NSWindow *)window {return [self applicationShouldTerminate:NSApp]==NSTerminateNow;}
 @end
 int main(int argc,const char *argv[]) {@autoreleasepool {NSApplication *app=NSApplication.sharedApplication;YBAppDelegate *delegate=[YBAppDelegate new];app.delegate=delegate;[app setActivationPolicy:NSApplicationActivationPolicyRegular];[app run];}return 0;}
+

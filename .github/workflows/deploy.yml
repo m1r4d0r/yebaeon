@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'web-editor/**'
+      - 'church-resources/**'
       - 'cloudflare/**'
       - 'scripts/**'
       - 'tests/**'

@@ -72,6 +72,7 @@
       const box=isBackground?{x:0,y:0,w:model.width,h:model.height}:P.rect(element);
       if(!box.w || !box.h)continue;
       const files=library.get(name) || [];
+      if(!files.length && window.YebaeonResources) {const file=await window.YebaeonResources.media(P.attr(element,"source"));if(file)files.push(file);}
       const result=files.length===1?await media(files[0],element.tagName):null;
       ctx.save();ctx.beginPath();ctx.rect(box.x,box.y,box.w,box.h);ctx.clip();
       if(!result) {

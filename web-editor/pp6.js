@@ -179,5 +179,5 @@
   function serialize(model) {
     return '<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(model.doc.documentElement);
   }
-  window.PP6={all,ivar,attr,nfc,basename,uuid,rect,color,parseRTF,textRTF,textNode,parse,slides,textElements,mediaElements,setText,duplicate,serialize};
+  window.PP6={all,ivar,attr,nfc,basename,uuid,rect,color,parseRTF,textRTF,textNode,parse,slides,textElements,mediaElements,setText,duplicate,refreshIDs,serialize};
 })();
