@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>예배온 Studio · 예배 자료를 준비하는 공간</title><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="fonts.css"></head>
 <body>
-<header class="topbar"><div class="brand"><span class="brandmark" aria-hidden="true">ON</span><div><strong>예배온 Studio</strong><span>예배 자료를 준비하는 공간</span></div></div><div class="actions"><button id="cloudPlaylists">플레이리스트</button><button id="resourceOpen">성경 · 템플릿</button><button id="serverStatus">업로드 현황</button><button id="cloudLibrary">전체 문서</button><button id="open">내 파일 열기</button><button id="sample">샘플 열기</button><button id="cloudSave" class="primary" disabled>서버에 저장</button><button id="export">ZIP 저장</button><button id="cloudAccount">입장하기</button></div></header>
+<header class="topbar"><div class="brand"><span class="brandmark" aria-hidden="true">ON</span><div><strong>예배온 Studio</strong><span>예배 자료를 준비하는 공간</span></div></div><div class="actions"><button id="cloudPlaylists">플레이리스트</button><button id="resourceOpen">성경 · 템플릿</button><button id="serverStatus">서버 현황판</button><button id="cloudLibrary">전체 문서</button><button id="open">내 파일 열기</button><button id="sample">샘플 열기</button><button id="cloudSave" class="primary" disabled>서버에 저장</button><button id="export">ZIP 저장</button><button id="cloudAccount">입장하기</button></div></header>
 <div class="notice"><span class="dot"></span>집에서 편집하고, 교회에서 최종 확인하세요.<span class="notice-detail">플레이리스트에서 곡과 말씀을 골라 편집하세요. 새 미디어 전송과 PP6 최종 화면 확인은 별도입니다.</span></div>
 <div class="cloud-context"><button id="playlistBack" hidden>← 플레이리스트로</button><span id="cloudContext">로컬 문서 · 서버에 저장하지 않았습니다.</span><button id="cloudHistory" hidden>저장 이력</button></div>
 <div id="playlistContext" class="playlist-context" hidden></div>
@@ -17,13 +17,13 @@
 <label class="remember"><input id="entryRemember" type="checkbox" checked>이 브라우저에서 30일간 로그인 유지</label>
 <p id="entryMessage" class="dialog-message" role="status"></p><button id="entrySubmit" class="primary wide" type="submit">입장하기</button>
 <button id="entryLocal" class="wide quiet" type="button">로컬 파일로 작업하기</button></form></dialog>
-<dialog id="libraryDialog" class="library-dialog" aria-labelledby="libraryTitle"><div class="dialog-heading"><h2 id="libraryTitle">문서 라이브러리</h2><button id="libraryClose">닫기</button></div>
-<div class="library-toolbar"><input id="libraryQuery" class="search" aria-label="서버 문서 검색" placeholder="문서 이름 또는 폴더 검색"><button id="libraryRefresh">새로고침</button><button id="libraryUpload">문서 올리기</button><button id="libraryFolder">폴더 올리기</button></div>
+<dialog id="libraryDialog" class="library-dialog" aria-labelledby="libraryTitle"><div class="dialog-heading"><h2 id="libraryTitle">문서 라이브러리</h2><div class="dialog-buttons"><a class="status-link" href="/status" target="_blank" rel="noopener">서버 현황판 ↗</a><button id="libraryClose">닫기</button></div></div>
+<div class="library-toolbar"><input id="libraryQuery" class="search" aria-label="서버 문서 검색" placeholder="문서 이름 또는 폴더 검색"><label class="library-sort">정렬<select id="librarySort" aria-label="문서 정렬"><option value="name">이름순 (가나다)</option><option value="name-desc">이름 역순</option><option value="used">최근 사용일순 (PP6)</option><option value="updated">서버 저장 최신순</option></select></label><button id="libraryRefresh">새로고침</button><button id="libraryUpload">문서 올리기</button><button id="libraryFolder">폴더 올리기</button></div>
 <p class="dialog-help">.pro6 문서를 올리면 함께 작업하는 사람들이 같은 문서를 열 수 있습니다. 같은 경로의 다른 내용은 자동으로 덮어쓰지 않습니다.</p>
 <p id="libraryMessage" class="dialog-message" role="status"></p><div id="libraryList" class="library-list"></div><button id="libraryMore" class="wide" hidden>더 보기</button>
 </dialog>
 <dialog id="playlistsDialog" class="library-dialog playlists-dialog" aria-labelledby="playlistsTitle">
-<div class="dialog-heading"><h2 id="playlistsTitle">플레이리스트</h2><button id="playlistsClose">닫기</button></div>
+<div class="dialog-heading"><h2 id="playlistsTitle">플레이리스트</h2><div class="dialog-buttons"><a class="status-link" href="/status" target="_blank" rel="noopener">서버 현황판 ↗</a><button id="playlistsClose">닫기</button></div></div>
 <div class="library-toolbar"><button id="playlistsHome">전체 목록</button><button id="playlistsRefresh">새로고침</button><button id="playlistsImport">재생목록 가져오기</button><button id="playlistsDocuments">문서 올리기 / 전체 문서</button></div>
 <p id="playlistsMessage" class="dialog-message" role="status"></p>
 <div id="playlistsList" class="library-list"></div>

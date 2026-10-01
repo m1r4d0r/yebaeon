@@ -1,4 +1,5 @@
-import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { usageFromXML, usageStatement, readStoredUsage, indexUsage } from './document-usage.mjs';
+import { XMLValidator } from 'fast-xml-parser';
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
 export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
 export function documentPath(value) {
@@ -20,10 +21,10 @@ export async function readDocument(request) {
     throw new HttpError(400, 'invalid_document', '올바른 PP6 .pro6 문서가 아닙니다.');
   }
   if (/file:\/\/\/PP6-Package\//i.test(xml)) throw new HttpError(422, 'package_media', '새로 교체한 미디어가 포함된 문서는 아직 서버에 저장할 수 없습니다. ZIP으로 보관해 주세요.');
-  return { data, hash: await sha256(data), size: data.length };
+  return { data, hash: await sha256(data), size: data.length, lastDateUsed: usageFromXML(xml) };
 }
 function document(row) {
-  return { id: row.id, path: row.path, name: row.path.split('/').pop(), version: row.current_version, updatedAt: row.updated_at, updatedBy: row.updated_by, sha256: row.sha256, size: row.size };
+  return { id: row.id, path: row.path, name: row.path.split('/').pop(), version: row.current_version, updatedAt: row.updated_at, updatedBy: row.updated_by, sha256: row.sha256, size: row.size, ...(row.usage_indexed ? {lastDateUsed: row.last_used, usageError: row.usage_error} : {}) };
 }
 async function find(db, id) {
   const row = await db.prepare('SELECT * FROM yebaeon_documents WHERE id = ?').bind(id).first();
@@ -38,8 +39,23 @@ export async function documentsRoute(request, env, user, id, action) {
     if (request.method === 'GET') {
       const query = url.searchParams.get('q') || '', after = url.searchParams.get('after') || '';
       if (query.length > 120 || after.length > 600) throw new HttpError(400, 'invalid_query', '검색어가 너무 깁니다.');
-      const rows = (await db.prepare('SELECT * FROM yebaeon_documents WHERE path > ? AND instr(lower(path), lower(?)) > 0 ORDER BY path LIMIT 101').bind(after, query).all()).results;
-      return json({ documents: rows.slice(0, 100).map(document), next: rows.length > 100 ? rows[99].path : null });
+      const sort = url.searchParams.get('sort') || 'name';
+      if (!['name','name-desc','updated','used'].includes(sort)) throw new HttpError(400,'invalid_sort','정렬 기준을 확인해 주세요.');
+      const indexing = sort === 'used' ? await indexUsage(env, query) : null;
+      if (indexing?.remaining) return json({ documents: [], next: null, indexing });
+      let cursor = null;
+      if (url.searchParams.has('cursor')) {
+        try { const raw=url.searchParams.get('cursor'); if(raw.length>2000)throw Error(); cursor=JSON.parse(raw); if(typeof cursor.path!=='string'||cursor.path.length>600||typeof cursor.value!=='string'||cursor.value.length>40)throw Error(); }
+        catch (_) { throw new HttpError(400,'invalid_cursor','목록을 새로고침해 주세요.'); }
+      }
+      const field = sort==='used' ? "COALESCE(u.last_used,'')" : 'd.updated_at';
+      let clause='', args=[query];
+      if(sort==='name'||sort==='name-desc') { clause=after ? ` AND d.path ${sort==='name' ? '>' : '<'} ?` : ''; if(after)args.push(after); }
+      else if(cursor) { clause=` AND (${field} < ? OR (${field} = ? AND d.path > ?))`; args.push(cursor.value,cursor.value,cursor.path); }
+      const order = sort==='name' ? 'd.path ASC' : sort==='name-desc' ? 'd.path DESC' : `${field} DESC, d.path ASC`;
+      const rows = (await db.prepare(`SELECT d.*, u.document_id AS usage_indexed, u.last_used, u.error AS usage_error FROM yebaeon_documents d LEFT JOIN yebaeon_document_usage u ON u.document_id=d.id AND u.version=d.current_version WHERE instr(lower(d.path),lower(?))>0${clause} ORDER BY ${order} LIMIT 101`).bind(...args).all()).results;
+      const last=rows[99], next=rows.length>100 ? ((sort==='name'||sort==='name-desc') ? last.path : JSON.stringify({path:last.path,value:sort==='used' ? last.last_used||'' : last.updated_at})) : null;
+      return json({ documents: rows.slice(0,100).map(document), next, indexing });
     }
     sameOrigin(request);
     const path = documentPath(url.searchParams.get('path')), content = await readDocument(request);
@@ -54,7 +70,8 @@ export async function documentsRoute(request, env, user, id, action) {
     try {
       await db.batch([
         db.prepare('INSERT INTO yebaeon_documents(id, path, created_at, current_version, updated_at, updated_by, sha256, size, write_id) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)').bind(newId, path, now, now, user.author, content.hash, content.size, writeId),
-        db.prepare('INSERT INTO yebaeon_versions(document_id, version, object_key, sha256, size, author, created_at) VALUES (?, 1, ?, ?, ?, ?, ?)').bind(newId, key, content.hash, content.size, user.author, now)
+        db.prepare('INSERT INTO yebaeon_versions(document_id, version, object_key, sha256, size, author, created_at) VALUES (?, 1, ?, ?, ?, ?, ?)').bind(newId, key, content.hash, content.size, user.author, now),
+        usageStatement(db,newId,1,content.lastDateUsed)
       ]);
     } catch (error) {
       const winner = await db.prepare('SELECT * FROM yebaeon_documents WHERE path = ?').bind(path).first();
@@ -73,17 +90,9 @@ export async function documentsRoute(request, env, user, id, action) {
     if (!Number.isSafeInteger(number) || number < 1) throw new HttpError(400, 'invalid_version', '버전 번호를 확인해 주세요.');
     const version = await db.prepare('SELECT object_key FROM yebaeon_versions WHERE document_id = ? AND version = ?').bind(id, number).first();
     if (!version) throw new HttpError(404, 'not_found', '저장 버전을 찾지 못했습니다.');
-    // Only the root attributes are needed; never download all slide/media data for a date.
-    const object = await env.FILES.get(version.object_key, { range: { offset: 0, length: 65536 } });
-    if (!object) throw new HttpError(503, 'file_unavailable', '문서 파일을 읽지 못했습니다.');
-    const prefix = (await object.text()).replace(/^\uFEFF/, '').replace(/^\s*(?:<\?xml[^?]*\?>)?\s*/, '').replace(/^(?:<!--[\s\S]*?-->\s*)*/, '');
-    const root = /^<RVPresentationDocument(?=\s|\/?>)(?:[^>"']|"[^"]*"|'[^']*')*>/.exec(prefix)?.[0];
-    if (!root) throw new HttpError(422, 'usage_unavailable', '최근 사용일을 읽지 못했습니다.');
-    const fragment = root.endsWith('/>') ? root : root + '</RVPresentationDocument>';
-    const attrs = new XMLParser({ ignoreAttributes: false, parseAttributeValue: false }).parse(fragment).RVPresentationDocument;
-    const value = attrs?.['@_lastDateUsed'];
-    const valid = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value));
-    return json({ id, version: number, lastDateUsed: valid ? value : null });
+    const usage = await readStoredUsage(env,id,number,version.object_key);
+    if (usage.error) throw new HttpError(422,'usage_unavailable','최근 사용일을 읽지 못했습니다.');
+    return json({ id, version: number, lastDateUsed: usage.last_used });
   }
   if (action === 'versions') {
     method(request, ['GET']); await find(db, id);
@@ -122,6 +131,7 @@ export async function documentsRoute(request, env, user, id, action) {
       SELECT id, ?, ?, ?, ?, ?, ? FROM yebaeon_documents WHERE id = ? AND write_id = ?`).bind(next, key, content.hash, content.size, user.author, now, id, writeId)
   ]);
   if (results[0].meta.changes !== 1) { await env.FILES.delete(key); throw conflict(); }
+  await usageStatement(db,id,next,content.lastDateUsed).run().catch(() => {});
   // Return this exact commit, even if another writer saved a later version immediately after it.
   return json({ document: { ...document(row), version: next, updatedAt: now, updatedBy: user.author, sha256: content.hash, size: content.size } });
 }

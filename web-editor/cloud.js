@@ -51,11 +51,18 @@
   function empty(target, message) { const div = document.createElement('div'); div.className = 'library-empty'; div.textContent = message; target.append(div); }
   async function list(more = false) {
     if (!needUser()) return;
-    const sequence = ++listSequence, query = $('libraryQuery').value.trim();
+    const sequence = ++listSequence, query = $('libraryQuery').value.trim(), sort = $('librarySort').value;
     if (!more) { listNext = null; $('libraryList').replaceChildren(); }
     $('libraryMore').hidden = true; $('libraryMessage').textContent = '문서 목록을 불러오고 있습니다…';
     try {
-      const data = await (await api('/documents?' + new URLSearchParams({ q: query, after: more ? listNext || '' : '' }))).json();
+      const params = new URLSearchParams({q:query,sort});
+      if(more && listNext) params.set(sort==='name'||sort==='name-desc' ? 'after' : 'cursor',listNext);
+      let data;
+      do {
+        data = await (await api('/documents?' + params)).json();
+        if(sequence!==listSequence || !$('libraryDialog').open)return;
+        if(data.indexing?.remaining) $('libraryMessage').textContent = `최근 사용일 준비 중 · ${data.indexing.total-data.indexing.remaining}/${data.indexing.total}개 확인. 최초 한 번 수집하며 창을 닫아도 확인한 날짜는 유지됩니다.`;
+      } while(data.indexing?.remaining);
       if (sequence !== listSequence) return;
       for (const doc of data.documents) {
         const item = row(doc.path, `버전 ${doc.version} · ${doc.updatedBy} · 서버 저장 ${time(doc.updatedAt)} · ${Math.ceil(doc.size / 1024)}KB`, '열기', () => openCloud(doc.id));
@@ -64,7 +71,7 @@
       }
       listNext = data.next; $('libraryMore').hidden = !listNext;
       if (!$('libraryList').children.length) empty($('libraryList'), query ? '검색 결과가 없습니다.' : '아직 저장된 문서가 없습니다. .pro6 파일을 올려 시작해 보세요.');
-      $('libraryMessage').textContent = '';
+      $('libraryMessage').textContent = data.indexing?.failed ? `최근 사용일 확인 실패 ${data.indexing.failed}개는 날짜 없는 문서와 함께 뒤에 표시됩니다.` : '';
     } catch (error) { if (sequence === listSequence) $('libraryMessage').textContent = error.message; }
   }
   async function openCloud(id, fromPlaylist = false) {
@@ -150,7 +157,10 @@
   };
   $('entryLocal').onclick = () => $('entryDialog').close();
   $('cloudLibrary').onclick = () => { if (needUser()) { $('libraryDialog').showModal(); list(); } };
-  $('libraryClose').onclick = () => $('libraryDialog').close();
+  $('libraryClose').onclick = () => { ++listSequence; $('libraryDialog').close(); };
+  $('libraryDialog').addEventListener('cancel', () => ++listSequence);
+  try { const saved=localStorage.getItem('yebaeon.librarySort'); if(['name','name-desc','used','updated'].includes(saved))$('librarySort').value=saved; } catch (_) {}
+  $('librarySort').onchange = () => { try { localStorage.setItem('yebaeon.librarySort',$('librarySort').value); } catch (_) {} list(); };
   $('libraryRefresh').onclick = () => list(); $('libraryMore').onclick = () => list(true);
   let searchTimer; $('libraryQuery').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => list(), 250); };
   $('libraryUpload').onclick = () => $('uploadDocuments').click(); $('libraryFolder').onclick = () => $('uploadFolder').click();

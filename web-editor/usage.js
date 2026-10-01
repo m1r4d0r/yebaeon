@@ -29,7 +29,8 @@
       const prefix = label ? '최근 사용일 (PP6) · ' : '';
       element.textContent = prefix + '확인 중…';
       element.title = 'ProPresenter 문서의 lastDateUsed · 한국시간. 서버 저장 시각과 별개입니다.';
-      read(doc).then(data => {
+      const source = Object.prototype.hasOwnProperty.call(doc, 'lastDateUsed') ? (doc.usageError ? read(doc) : Promise.resolve(doc)) : read(doc);
+      source.then(data => {
         if (element.isConnected) element.textContent = prefix + (data.lastDateUsed ? format(data.lastDateUsed) : '기록 없음');
       }).catch(() => {
         if (element.isConnected) element.textContent = prefix + '확인 실패 · 목록 새로고침';

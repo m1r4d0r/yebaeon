@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { build } from 'esbuild';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
@@ -139,7 +139,7 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     const doc = created.document;
     const usage = await call(`/documents/${doc.id}/usage?version=1`, { cookie });
     await code(usage, 200);
-    assert.equal((await usage.json()).lastDateUsed, '2026-04-05T09:21:09+09:00');
+    assert.equal((await usage.json()).lastDateUsed, '2026-04-05T00:21:09.000Z');
     const after = (await (await call(`/documents/${doc.id}`, { cookie })).json()).document;
     assert.equal(after.updatedAt, doc.updatedAt); assert.equal(after.sha256, doc.sha256);
     assert.equal(await (await call(`/documents/${doc.id}/content`, { cookie })).text(), original);
@@ -147,7 +147,36 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     await code(await call(`/documents/${doc.id}/usage?version=99`, { cookie }), 404);
     await code(await call(`/documents/${doc.id}`, { cookie, method: 'PUT', body: xml('no usage date'), headers: { 'If-Match': '"1"' } }), 200);
     assert.equal((await (await call(`/documents/${doc.id}/usage`, { cookie })).json()).lastDateUsed, null);
-    assert.equal((await (await call(`/documents/${doc.id}/usage?version=1`, { cookie })).json()).lastDateUsed, '2026-04-05T09:21:09+09:00');
+    assert.equal((await (await call(`/documents/${doc.id}/usage?version=1`, { cookie })).json()).lastDateUsed, '2026-04-05T00:21:09.000Z');
+  });
+  await t.test('global sorting, stable date pagination and legacy usage backfill', async () => {
+    const ids=[];
+    for(let i=0;i<130;i++) {
+      const fixtureId=randomUUID(), path=`sort-fixture/${String(i).padStart(3,'0')}.pro6`, stamp=i===129 ? '2026-10-01T00:00:00.000Z' : '2026-04-01T00:00:00.000Z';
+      ids.push(fixtureId);
+      await db.batch([
+        db.prepare('INSERT INTO yebaeon_documents VALUES (?, ?, ?, 1, ?, ?, ?, 1, ?)').bind(fixtureId,path,stamp,stamp,'sort-test','fixture-hash',fixtureId),
+        db.prepare('INSERT INTO yebaeon_versions VALUES (?, 1, ?, ?, 1, ?, ?)').bind(fixtureId,'sort-'+fixtureId,'fixture-hash','sort-test',stamp),
+        db.prepare('INSERT INTO yebaeon_document_usage VALUES (?, 1, ?, NULL)').bind(fixtureId,i===0 ? null : stamp)
+      ]);
+    }
+    // Simulate an already-uploaded document from before the index existed.
+    await db.prepare('DELETE FROM yebaeon_document_usage WHERE document_id=?').bind(ids[128]).run();
+    await bucket.put('sort-'+ids[128], '<RVPresentationDocument lastDateUsed="2026-10-01T10:00:00+09:00"></RVPresentationDocument>');
+    for(const fixtureId of ids.slice(1,14)) {
+      await db.prepare('DELETE FROM yebaeon_document_usage WHERE document_id=?').bind(fixtureId).run();
+      await bucket.put('sort-'+fixtureId,'<RVPresentationDocument lastDateUsed="2026-04-01T00:00:00Z"></RVPresentationDocument>');
+    }
+    const preparing=await (await call('/documents?q=sort-fixture%2F&sort=used',{cookie})).json();
+    assert.equal(preparing.indexing.remaining,2);assert.deepEqual(preparing.documents,[]);
+    const collect=async(sort)=>{let result=[],next=null; do {const params=new URLSearchParams({q:'sort-fixture/',sort});if(next)params.set(sort.startsWith('name')?'after':'cursor',next);const page=await (await call('/documents?'+params,{cookie})).json();assert.equal(page.indexing?.remaining||0,0);result.push(...page.documents);next=page.next;}while(next);return result;};
+    const used=await collect('used'); assert.equal(used.length,130);assert.equal(new Set(used.map(d=>d.id)).size,130);
+    assert.equal(used[0].id,ids[128]);assert.equal(used[1].id,ids[129]);assert.equal(used.at(-1).id,ids[0]);
+    const updated=await collect('updated');assert.equal(updated[0].id,ids[129]);assert.equal(updated.length,130);
+    const reverse=await collect('name-desc');assert.equal(reverse[0].id,ids[129]);assert.equal(reverse.at(-1).id,ids[0]);
+    const cache=await db.prepare('SELECT last_used FROM yebaeon_document_usage WHERE document_id=?').bind(ids[128]).first();assert.equal(cache.last_used,'2026-10-01T01:00:00.000Z');
+    await code(await call('/documents?sort=bad',{cookie}),400);
+    await code(await call('/documents?sort=updated&cursor=broken',{cookie}),400);
   });
   await t.test('status reflects committed documents and native connect/compare requests', async () => {
     const before = await (await call('/status', { cookie })).json();
