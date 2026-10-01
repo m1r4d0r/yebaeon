@@ -9,7 +9,7 @@ int main(int argc,const char *argv[]) { @autoreleasepool {
         YBServer *mac=[[YBServer alloc] initWithOrigin:origin allowLocalTestServer:YES], *web=[[YBServer alloc] initWithOrigin:origin allowLocalTestServer:YES];
         [mac login:@"Mac 시험" password:@"native-integration-only"]; [web login:@"웹 시험" password:@"native-integration-only"];
         YBSync *s=[[YBSync alloc] initWithRoot:[area stringByAppendingPathComponent:@"documents"] profile:[area stringByAppendingPathComponent:@"profile"] origin:mac.origin]; s.presenterRunning=^BOOL{return NO;};
-        NSString *path=@"예배/말씀.pro6", *actual=[s.root stringByAppendingPathComponent:path.decomposedStringWithCanonicalMapping];
+        NSString *path=@"예배/말씀 : \"은혜\" & %3A.pro6", *actual=[s.root stringByAppendingPathComponent:path.decomposedStringWithCanonicalMapping];
         NSData *a=XML(@"원본\r\nfile:///Users/church/Media/a.jpg"), *b=XML(@"웹 수정"), *c=XML(@"Mac 수정"), *d=XML(@"다른 웹 수정");
         Check([NSFileManager.defaultManager createDirectoryAtPath:actual.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:NULL],@"local folder");
         Check([a writeToFile:actual atomically:YES],@"local original");
