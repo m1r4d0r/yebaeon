@@ -3,6 +3,8 @@
   const $ = id => document.getElementById(id), editor = window.YebaeonEditor;
   const online = /^https?:$/.test(location.protocol);
   let user = null, ready = false, linked = null, epoch = 0, saving = false;
+  const drafts = window.YebaeonDrafts;
+  let draftID = drafts.id(), baseXML = editor.document().xml;
   let listNext = null, listSequence = 0, historyDoc = null, historyNext = null;
   const rememberName = name => { try { localStorage.setItem('yebaeon.workerName', name); } catch (_) {} };
   const recalledName = () => { try { return localStorage.getItem('yebaeon.workerName') || ''; } catch (_) { return ''; } };
@@ -17,6 +19,20 @@
     $('cloudHistory').hidden = !linked || !user;
     const changed = linked && editor.state().serial !== linked.serial;
     $('cloudContext').textContent = linked ? `${linked.path} · 버전 ${linked.version} · ${linked.updatedBy} 저장${changed ? ' · 저장하지 않은 변경 있음' : ''}` : '로컬 문서 · 서버에 저장하지 않았습니다.';
+  }
+  function checkpointDraft() {
+    const current = editor.document();
+    if (!current.dirty) return Promise.resolve();
+    const record = { id:draftID, kind:'document', name:current.name, author:user?.name || recalledName(), base:linked ? {...linked} : null, baseXML, xml:current.xml, serial:current.serial };
+    return drafts.put(record).then(() => drafts.notify(editor.hasPackageMedia() ? '문서 초안 보존 · 새 미디어는 ZIP으로 별도 저장 필요' : '브라우저에 초안 보존됨 · 서버 저장은 별도'));
+  }
+  async function restoreDraft(record) {
+    if (!record || record.kind !== 'document' || typeof record.xml !== 'string' || typeof record.baseXML !== 'string') throw new Error('복구할 문서 초안 형식이 올바르지 않습니다.');
+    await checkpointDraft();
+    if (!editor.open(record.xml, record.name)) return false;
+    linked = record.base ? {...record.base,serial:-1} : null; baseXML=record.baseXML;
+    editor.markDirty(); await checkpointDraft(); update();
+    return true;
   }
   async function api(path, options = {}) {
     const response = await fetch('/api' + path, { credentials: 'same-origin', cache: 'no-store', ...options });
@@ -80,8 +96,9 @@
       const response = await api(`/documents/${id}/content?version=${doc.version}`), bytes = await response.arrayBuffer();
       const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), n => n.toString(16).padStart(2, '0')).join('');
       if (hash !== doc.sha256) throw new Error('받은 문서를 확인하지 못했습니다. 다시 열어 주세요.');
-      if (!editor.open(new TextDecoder('utf-8', { fatal: true }).decode(bytes), doc.name)) return false;
-      linked = { ...doc, serial: editor.state().serial }; update(); $('libraryDialog').close();
+      const xml=new TextDecoder('utf-8', {fatal:true}).decode(bytes);
+      if (!editor.open(xml, doc.name)) return false;
+      linked = { ...doc, serial: editor.state().serial }; baseXML = xml; update(); $('libraryDialog').close();
       window.dispatchEvent(new CustomEvent('yebaeonclouddocument', { detail: { doc, fromPlaylist } }));
       editor.status(`${doc.updatedBy}님이 ${time(doc.updatedAt)}에 저장한 버전 ${doc.version}을 열었습니다.`);
       return true;
@@ -114,38 +131,57 @@
   async function save(path) {
     if (!needUser() || saving) return;
     if (editor.hasPackageMedia()) throw new Error('새 미디어를 교체한 문서는 지금은 ZIP으로 저장해 주세요. 서버는 기존 미디어 경로를 유지하는 .pro6 문서를 지원합니다.');
-    const current = editor.document(), target = linked, startedEpoch = epoch;
+    const current = editor.document(), target = linked, startedEpoch = epoch, savedDraftID = draftID;
     if (target && target.serial === current.serial) { editor.status('이미 서버에 저장된 내용입니다.'); return; }
     saving = true; update();
     try {
+      await checkpointDraft();
       const endpoint = target ? '/documents/' + target.id : '/documents?' + new URLSearchParams({ path });
       const result = await (await api(endpoint, { method: target ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/xml; charset=utf-8', ...(target ? { 'If-Match': `"${target.version}"` } : {}) }, body: current.xml })).json();
       if (epoch === startedEpoch) {
-        linked = { ...result.document, serial: current.serial }; editor.markSaved(current.serial);
+        linked = { ...result.document, serial: current.serial }; baseXML = current.xml; editor.markSaved(current.serial);
         const newer = editor.state().serial !== current.serial;
         editor.status(`${result.document.updatedBy} · 버전 ${result.document.version} 서버 저장 완료.${newer ? ' 저장 중에 추가한 변경은 아직 저장되지 않았습니다.' : ''}`);
       }
+      try { if (epoch === startedEpoch && editor.state().serial !== current.serial) await checkpointDraft(); else await drafts.settle(savedDraftID,current.serial,result.document,current.xml); } catch(error) { drafts.report(error); }
       $('saveDialog').close();
       window.dispatchEvent(new CustomEvent('yebaeoncloudsaved', { detail: result.document }));
     } finally { saving = false; update(); }
   }
+  let historyGroups = new Map();
+  async function restoreVersion(doc, version) {
+    if (!confirm(`버전 ${version.version}의 내용으로 새 현재 버전을 저장할까요? 기존 이력은 유지됩니다.`)) return;
+    await checkpointDraft();
+    const bytes = await (await api(`/documents/${doc.id}/content?version=${version.version}`)).arrayBuffer();
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)), n=>n.toString(16).padStart(2,'0')).join('');
+    if (hash !== version.sha256) throw new Error('이전 버전의 내용 확인에 실패했습니다. 복원하지 않았습니다.');
+    const result = await (await api(`/documents/${doc.id}`, {method:'PUT',headers:{'Content-Type':'application/xml; charset=utf-8','If-Match':`"${doc.version}"`},body:bytes})).json();
+    historyDoc = {...result.document}; await history();
+    $('historyMessage').textContent=`${result.unchanged ? '이미 같은 내용입니다.' : '버전 ' + result.document.version + '으로 복원했습니다.'} 편집 중인 화면은 유지됩니다. 최신 내용은 문서를 다시 열어 확인하세요.`;
+  }
   async function history(more = false) {
     if (!historyDoc || !needUser()) return;
     const doc = historyDoc;
-    if (!more) { historyNext = null; $('historyList').replaceChildren(); }
+    if (!more) { historyNext = null; historyGroups = new Map(); $('historyList').replaceChildren(); }
     $('historyMore').hidden = true; $('historyMessage').textContent = '저장 이력을 불러오고 있습니다…';
     try {
       const result = await (await api(`/documents/${doc.id}/versions` + (more ? '?before=' + historyNext : ''))).json();
+      if(historyDoc.id !== doc.id || historyDoc.version !== doc.version)return;
       for (const version of result.versions) {
-        const item = row(`버전 ${version.version} · ${version.author}`, `${time(version.createdAt)} · ${Math.ceil(version.size / 1024)}KB`, '', () => {});
-        const link = document.createElement('a');
-        link.className = 'document-download'; link.textContent = '.pro6 받기';
-        link.href = `/api/documents/${doc.id}/content?version=${version.version}`;
-        link.download = doc.name.replace(/\.pro6$/i, '') + `-v${version.version}.pro6`;
-        item.querySelector('button').replaceWith(link); $('historyList').append(item);
+        const day = new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(version.createdAt));
+        const key=JSON.stringify([day,version.author]); let group=historyGroups.get(key);
+        if(!group){group=document.createElement('details'); const summary=document.createElement('summary'); summary.textContent=day+' · '+version.author+' (한국시간)'; group.append(summary); group.open=historyGroups.size===0; historyGroups.set(key,group); $('historyList').append(group);}
+        const item = row(`버전 ${version.version}${version.version===doc.version ? ' · 현재' : ''}`, `${time(version.createdAt)} · ${Math.ceil(version.size / 1024)}KB`, '이 내용으로 복원', async () => {
+          try { await restoreVersion(doc,version); } catch(error) { $('historyMessage').textContent=error.message + (error.status===409 ? ' 다른 사람이 먼저 저장했습니다. 이력을 다시 열어 최신 버전을 확인하세요.' : ''); }
+        });
+        item.querySelector('button').disabled=version.version===doc.version;
+        const link = document.createElement('a'); link.className='document-download'; link.textContent='.pro6 받기';
+        link.href=`/api/documents/${doc.id}/content?version=${version.version}`;
+        link.download=doc.name.replace(/\.pro6$/i,'')+`-v${version.version}.pro6`;
+        item.append(link);group.append(item);
       }
-      historyNext = result.next; $('historyMore').hidden = !historyNext; $('historyMessage').textContent = doc.path;
-    } catch (error) { $('historyMessage').textContent = error.message; }
+      historyNext=result.next; $('historyMore').hidden=!historyNext; $('historyMessage').textContent=doc.path;
+    } catch(error) { $('historyMessage').textContent=error.message; }
   }
   $('entryForm').onsubmit = async event => {
     event.preventDefault(); $('entrySubmit').disabled = true; $('entryMessage').textContent = '확인하고 있습니다…';
@@ -188,9 +224,11 @@
   };
   $('cloudHistory').onclick = () => { if (linked && needUser()) { historyDoc = { ...linked }; $('historyDialog').showModal(); history(); } };
   $('historyClose').onclick = () => $('historyDialog').close(); $('historyMore').onclick = () => history(true);
-  window.addEventListener('yebaeonopen', () => { epoch++; linked = null; update(); });
-  window.addEventListener('yebaeonchange', () => queueMicrotask(update));
-  window.YebaeonCloud = { api, needUser, openDocument: openCloud, online };
+  window.addEventListener('yebaeonbeforeopen', () => { checkpointDraft().catch(drafts.report); });
+  window.addEventListener('yebaeonopen', () => { epoch++; linked = null; draftID=drafts.id(); baseXML=editor.document().xml; update(); });
+  window.addEventListener('yebaeonchange', () => queueMicrotask(() => { update(); checkpointDraft().catch(drafts.report); }));
+  document.addEventListener('visibilitychange', () => { if(document.hidden)checkpointDraft().catch(drafts.report); });
+  window.YebaeonCloud = { api, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName() };
   update();
   if (online) (async () => {
     try {

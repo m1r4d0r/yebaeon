@@ -116,6 +116,36 @@ int main(void) { @autoreleasepool {
             NSString *area=NewArea(base); YBSync *s=Engine(area); Put(s.root,path,a); [s acknowledge:v1 expectedLocalHash:YBHash(a)]; NSString *root=s.root, *profile=s.profile; [s close]; s=nil;
             Reject(^{YBSync *bad=[[YBSync alloc] initWithRoot:root profile:profile origin:@"https://other.test"]; (void)bad;},@"state origin binding");
         }
+        {
+            YBSync *s=Engine(NewArea(base));
+            NSString *legacy=[s apply:a document:Doc(a,1,@"legacy.pro6") expectedLocalHash:nil];
+            [s beginBackupBatch:@"documents" playlistJob:nil];
+            for(int i=0;i<12;i++)[s apply:a document:Doc(a,1,[NSString stringWithFormat:@"batch-large/%d.pro6",i]) expectedLocalHash:nil];
+            Check(s.transactions.count==13,@"a multi-file operation retains every member until completed");
+            [s endBackupBatch:YES];
+            for(int i=0;i<10;i++) {
+                [s beginBackupBatch:@"documents" playlistJob:nil];
+                [s apply:a document:Doc(a,1,[NSString stringWithFormat:@"later/%d.pro6",i]) expectedLocalHash:nil];
+                [s endBackupBatch:YES];Check(!s.backupWarning,@"completed batch cleanup succeeds");
+            }
+            Check(s.transactions.count==11,@"retain ten operations, not ten individual files; retain legacy");
+            Check([s.transactions filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"id == %@",legacy]].count==1,@"legacy backup is not automatically deleted");
+            Check([[s readDocument:@"batch-large/0.pro6"] isEqual:a],@"retention never deletes live documents");
+            [s beginBackupBatch:@"documents" playlistJob:nil];
+            [s apply:a document:Doc(a,1,@"failed.pro6") expectedLocalHash:nil];[s endBackupBatch:NO];
+            for(int i=10;i<12;i++){[s beginBackupBatch:@"documents" playlistJob:nil];[s apply:a document:Doc(a,1,[NSString stringWithFormat:@"later/%d.pro6",i]) expectedLocalHash:nil];[s endBackupBatch:YES];}
+            Check(s.transactions.count==12,@"failed batch is retained in addition to ten complete operations");
+        }
+        {
+            YBSync *s=Engine(NewArea(base));[s beginBackupBatch:@"documents" playlistJob:nil];
+            NSString *first=[s apply:a document:Doc(a,1,@"safe.pro6") expectedLocalHash:nil];[s endBackupBatch:YES];
+            NSString *outside=[base stringByAppendingPathComponent:@"keep-outside"];Put(base,@"keep-outside",a);
+            NSString *link=[s.profile stringByAppendingPathComponent:[NSString stringWithFormat:@"transactions/%@/foreign",first]];
+            Check(symlink(outside.fileSystemRepresentation,link.fileSystemRepresentation)==0,@"retention symlink fixture");
+            [s beginBackupBatch:@"documents" playlistJob:nil];[s apply:a document:Doc(a,1,@"safe2.pro6") expectedLocalHash:nil];[s endBackupBatch:YES];
+            Reject(^{[s pruneBackupBatchesKeeping:1];},@"cleanup refuses symlink contents");
+            Check([[NSData dataWithContentsOfFile:outside] isEqual:a],@"cleanup cannot follow a link outside profile");
+        }
         (void)v3; printf("Native safety checks passed: %d\n",checks);
         Check([base hasPrefix:[NSTemporaryDirectory() stringByAppendingPathComponent:@"yebaeon-tests-"]],@"cleanup boundary");
         [NSFileManager.defaultManager removeItemAtPath:base error:NULL]; return 0;

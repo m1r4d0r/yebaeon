@@ -65,7 +65,7 @@
 - (void)receive:(id)sender {
     if(![self.comparison[@"ready"] boolValue]){YBAlert(@"먼저 순서를 비교해 주세요.",@"문서 누락/충돌을 해결한 뒤 다시 비교하면 받을 수 있습니다.");return;}NSDictionary *comparison=self.comparison;
     if(!YBConfirm(@"이 플레이리스트를 Mac에 적용할까요?",[NSString stringWithFormat:@"%@\n%@\n\n연결 문서를 먼저 백업·적용하고 선택한 순서를 반영합니다. 공유 문서 변경은 다른 예배에도 반영됩니다. PP6를 종료하세요.",comparison[@"manifest"][@"playlist"][@"name"],self.target.path],@"백업 후 동기화"))return;
-    [self.work run:^id{return [[self engine] receive:comparison progress:^(NSString *message){dispatch_async(dispatch_get_main_queue(),^{self.status.stringValue=message;});}];} completion:^(NSString *identifier,NSString *error){self.comparison=nil;[self.table reloadData];if(error){self.status.stringValue=@"미완료 · 백업 / 중단 복구를 확인하세요.";YBAlert(@"플레이리스트 동기화 중단",error);}else{self.status.stringValue=@"플레이리스트와 문서 적용 완료 · PP6에서 같은 순서를 확인하세요.";}}];
+    [self.work run:^id{return [[self engine] receive:comparison progress:^(NSString *message){dispatch_async(dispatch_get_main_queue(),^{self.status.stringValue=message;});}];} completion:^(NSString *identifier,NSString *error){self.comparison=nil;[self.table reloadData];if(error){self.status.stringValue=@"미완료 · 백업 / 중단 복구를 확인하세요.";YBAlert(@"플레이리스트 동기화 중단",error);}else{self.status.stringValue=@"플레이리스트와 문서 적용 완료 · PP6에서 같은 순서를 확인하세요.";NSString *warning=[self engine].library.sync.backupWarning;if(warning.length)YBAlert(@"동기화 완료 · 백업 정리 안내",warning);}}];
 }
 - (void)restore:(id)sender {
     [self.work run:^id{return [[self engine] jobs];} completion:^(NSArray *jobs,NSString *error){if(error){YBAlert(@"백업 목록",error);return;}NSMutableArray *available=[NSMutableArray array];for(NSDictionary *job in jobs)if(![job[@"status"] isEqual:@"restored"])[available addObject:job];if(!available.count){YBAlert(@"백업 · 중단 복구",@"복구할 플레이리스트 기록이 없습니다.");return;}
@@ -75,3 +75,4 @@
 }
 - (void)openStudio:(id)sender {[NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"https://yebaeon.grace-jean-p.workers.dev/"]];}
 @end
+

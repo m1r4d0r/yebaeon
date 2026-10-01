@@ -184,7 +184,7 @@
         YBLibrary *library=[self connectedLibrary];NSUInteger count=[library transfer:selected receiving:receiving progress:^(NSString *path,NSUInteger done) {
             dispatch_async(dispatch_get_main_queue(),^{self.statusLabel.stringValue=[NSString stringWithFormat:@"%lu/%lu 완료 · %@",(unsigned long)done,(unsigned long)selected.count,path];});
         }];
-        NSString *warning=@"";NSArray *rows=@[];@try{rows=[library refresh];}@catch(NSException *e){warning=e.reason;}
+        NSString *warning=receiving ? (library.sync.backupWarning ?: @"") : @"";NSArray *rows=@[];@try{rows=[library refresh];}@catch(NSException *e){warning=[warning stringByAppendingFormat:@"\n%@",e.reason];}
         return @{@"count":@(count),@"rows":rows,@"warning":warning};
     } completion:^(NSDictionary *result,NSString *error) {
         [self acceptRows:result[@"rows"] ?: @[]];

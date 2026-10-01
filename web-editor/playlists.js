@@ -2,6 +2,7 @@
   'use strict';
   const $ = id => document.getElementById(id), cloud = window.YebaeonCloud;
   let plan = null, draft = [], dirty = false, busy = false, sequence = 0, context = null;
+  const drafts=window.YebaeonDrafts; let draftID=drafts.id(), revision=0;
   let pickerTarget = -1, pickerNext = null, pickerSequence = 0;
   const message = value => { $('playlistsMessage').textContent = value; };
   function text(tag, value, className) { const el = document.createElement(tag); el.textContent = value; if (className) el.className = className; return el; }
@@ -10,8 +11,8 @@
     b.onclick = async () => { b.disabled = true; try { await action(); } catch (e) { message(e.message); } finally { if (b.isConnected) b.disabled = disabled; } };
     return b;
   }
-  function discard() { return !dirty || confirm('저장하지 않은 순서 변경이 있습니다. 이 변경을 버릴까요?'); }
-  function close() { if (busy || !discard()) return; dirty = false; $('playlistsDialog').close(); }
+  function discard() { return !dirty || confirm('현재 순서 초안을 브라우저에 남기고 다른 내용을 열까요?'); }
+  async function close() { if (busy || !discard()) return; try { await checkpointDraft(); dirty = false; $('playlistsDialog').close(); } catch(error) { drafts.report(error); message(error.message); } }
   function updateContext() {
     $('playlistBack').hidden = !context;
     $('playlistContext').hidden = !context;
@@ -21,11 +22,11 @@
     if (!cloud.needUser()) return;
     if (!$('playlistsDialog').open) $('playlistsDialog').showModal();
     if (plan && !dirty) await load(plan.library.id, plan.playlist.id);
-    else if (!plan) await home();
+    else if (!plan) { let last; try { last=JSON.parse(localStorage.getItem('yebaeon.lastPlaylist')); } catch(_) {} if(last?.id && last?.node) { if(!await load(last.id,last.node))await home(); } else await home(); }
   }
   async function home() {
     if (busy || !discard()) return;
-    dirty = false; plan = null; const token = ++sequence;
+    await checkpointDraft(); dirty = false; plan = null; const token = ++sequence;
     $('playlistsTitle').textContent = '플레이리스트'; $('playlistDetail').hidden = true; $('playlistsList').hidden = false; $('playlistsList').replaceChildren();
     message('플레이리스트를 불러오고 있습니다…');
     try {
@@ -48,15 +49,18 @@
   }
   async function load(id, node) {
     if (busy || !discard()) return;
+    await checkpointDraft();
     const token = ++sequence; message('순서와 연결 문서를 확인하고 있습니다…');
     try {
       const value = await (await cloud.api(`/playlists/${id}/plan?` + new URLSearchParams({ node }))).json();
       if (token !== sequence) return;
-      plan = value; draft = value.items.map(x => ({ ...x })); dirty = false; render();
+      plan = value; draft = value.items.map(x => ({ ...x })); dirty = false; draftID=drafts.id(); revision=0; render();
+      try { localStorage.setItem('yebaeon.lastPlaylist',JSON.stringify({id,node})); } catch(_) {}
       message(value.ready ? '곡·말씀을 열어 수정하고 서버에 저장하세요.' : '연결되지 않은 항목이 있습니다. 문서를 올리거나 연결할 문서를 교체한 뒤 새로고침해 주세요.');
-    } catch (e) { if (token === sequence) message(e.message); }
+      return true;
+    } catch (e) { if (token === sequence) message(e.message); return false; }
   }
-  function changed() { dirty = true; render(); message('순서 변경은 ‘순서 저장’을 눌러야 서버에 반영됩니다.'); }
+  function changed() { dirty = true; revision++; checkpointDraft().catch(drafts.report); render(); message('순서 변경은 ‘순서 저장’을 눌러야 서버에 반영됩니다.'); }
   function render() {
     $('playlistsTitle').textContent = plan.playlist.name;
     $('playlistsList').hidden = true; $('playlistDetail').hidden = false;
@@ -90,13 +94,26 @@
   async function save() {
     if (!plan || busy || !dirty) return;
     busy = true; render(); message('순서를 저장하고 있습니다…');
-    const id = plan.library.id, node = plan.playlist.id;
+    const id = plan.library.id, node = plan.playlist.id, savedID=draftID;
+    const savedRevision=revision;
     try {
+      await checkpointDraft();
       const items = draft.map(x => ({ ...(x.id ? { id: x.id } : {}), ...(x.documentId ? { documentId: x.documentId } : {}) }));
       await cloud.api(`/playlists/${id}?` + new URLSearchParams({ node }), { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'If-Match': `"${plan.library.version}"` }, body: JSON.stringify({ items }) });
-      dirty = false; busy = false; await load(id, node); message('순서를 저장했습니다. 교회 Mac에서 같은 플레이리스트를 동기화하세요.');
-    } catch (e) { message(e.message + (e.status === 409 ? ' 현재 변경은 화면에 남아 있습니다. 새로고침하면 서버의 순서를 다시 가져옵니다.' : '')); }
+      dirty = false; try { await drafts.settle(savedID,savedRevision,null,null); } catch(error) { drafts.report(error); } busy = false; await load(id, node); message('순서를 저장했습니다. 교회 Mac에서 같은 플레이리스트를 동기화하세요.');
+    } catch (e) { message(e.message + (e.status === 409 ? ' 현재 변경은 브라우저 초안에도 남습니다. 최신 서버 순서와 비교한 뒤 다시 작업하세요.' : '')); }
     finally { busy = false; render(); }
+  }
+  function checkpointDraft() {
+    if(!dirty || !plan)return Promise.resolve();
+    return drafts.put({id:draftID,kind:'playlist',name:plan.playlist.name,author:cloud.worker(),base:{id:plan.library.id,version:plan.library.version},basePlan:plan,items:draft,serial:revision}).then(()=>drafts.notify('순서 초안을 브라우저에 보존했습니다.'));
+  }
+  async function restoreDraft(record) {
+    if(busy || !cloud.needUser() || !discard())return false;
+    if(!record.basePlan?.library || !Array.isArray(record.items))throw new Error('순서 초안 형식이 올바르지 않습니다.');
+    await checkpointDraft(); plan=record.basePlan; draft=record.items.map(x=>({...x})); draftID=drafts.id(); revision=0; dirty=true;
+    await checkpointDraft();render();if(!$('playlistsDialog').open)$('playlistsDialog').showModal();
+    message('초안의 순서를 복구했습니다. 기준 버전 이후 다른 저장이 있었다면 충돌로 보호됩니다.');return true;
   }
   async function pickerList(more = false) {
     const token = ++pickerSequence;
@@ -145,6 +162,6 @@
   window.addEventListener('yebaeonopen', () => { context = null; updateContext(); });
   window.addEventListener('yebaeonclouddocument', event => { if (!event.detail.fromPlaylist) { context = null; updateContext(); $('playlistsDialog').close(); } });
   window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
-  window.YebaeonPlaylists = { show };
+  window.YebaeonPlaylists = { show, restoreDraft };
   window.dispatchEvent(new Event('yebaeonplaylistsready'));
 })();

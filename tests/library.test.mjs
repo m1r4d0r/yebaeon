@@ -17,7 +17,7 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
   const db = await mf.getD1Database('DB');
   const bucket = await mf.getR2Bucket('FILES');
   const call = (path, { cookie, method = 'GET', body, headers = {} } = {}) => mf.dispatchFetch(origin + '/api' + path, {
-    method, body, headers: { ...(method !== 'GET' && method !== 'HEAD' ? { Origin: origin } : {}), ...(cookie ? { Cookie: cookie } : {}), ...headers }
+    method, body, ...(body instanceof ReadableStream ? {duplex:'half'} : {}), headers: { ...(method !== 'GET' && method !== 'HEAD' ? { Origin: origin } : {}), ...(cookie ? { Cookie: cookie } : {}), ...headers }
   });
   const signIn = (name = '은혜', extra = {}) => call('/session', { method: 'POST', body: JSON.stringify({ name, password, remember: true, ...extra }), headers: { 'Content-Type': 'application/json' } });
   const code = async (response, status, expected) => { assert.equal(response.status, status, await response.clone().text()); if (expected) assert.equal((await response.json()).error, expected); };
@@ -57,8 +57,28 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     }
     await code(await call('/documents?path=bad.pro6', { cookie, method: 'POST', body: new Uint8Array([0xff]) }), 400, 'invalid_encoding');
     await code(await call('/documents?path=bad.pro6', { cookie, method: 'POST', body: xml('file:///PP6-Package/media/a.jpg') }), 422, 'package_media');
-    await code(await call('/documents?path=large.pro6', { cookie, method: 'POST', body: 'x'.repeat(25 * 1024 * 1024 + 1) }), 413, 'too_large');
+    await code(await call('/documents?path=large.pro6', { cookie, method: 'POST', body: new ReadableStream({start(controller){for(let i=0;i<401;i++)controller.enqueue(new Uint8Array(i===400 ? 1 : 65536).fill(120));controller.close();}}) }), 413, 'too_large');
     assert.equal((await bucket.list()).objects.length, 0);
+  });
+  await t.test('restoring old content creates a new CAS version and storage totals separate history', async () => {
+    const first=(await (await call('/documents?path=restore.pro6',{cookie,method:'POST',body:xml('first')})).json()).document;
+    const id=first.id;
+    await code(await call(`/documents/${id}`,{cookie,method:'PUT',body:xml('second'),headers:{'If-Match':'"1"'}}),200);
+    const original=await (await call(`/documents/${id}/content?version=1`,{cookie})).text();
+    await code(await call(`/documents/${id}`,{cookie,method:'PUT',body:original,headers:{'If-Match':'"1"'}}),409);
+    const restored=await (await call(`/documents/${id}`,{cookie,method:'PUT',body:original,headers:{'If-Match':'"2"'}})).json();
+    assert.equal(restored.document.version,3);
+    assert.equal(await (await call(`/documents/${id}/content?version=2`,{cookie})).text(),xml('second'));
+    const status=await (await call('/status',{cookie})).json();
+    assert.equal(status.storage.currentDocuments.bytes,Buffer.byteLength(xml('first')));
+    assert.equal(status.storage.documentHistory.count,2);
+    assert.equal(status.storage.documentHistory.bytes,Buffer.byteLength(xml('first'))+Buffer.byteLength(xml('second')));
+    assert.equal(status.storage.trackedBytes,status.storage.currentDocuments.bytes+status.storage.documentHistory.bytes);
+    // Leave the shared fixture empty for subsequent tests.
+    await db.prepare('DELETE FROM yebaeon_document_usage WHERE document_id=?').bind(id).run();
+    await db.prepare('DELETE FROM yebaeon_versions WHERE document_id=?').bind(id).run();
+    await db.prepare('DELETE FROM yebaeon_documents WHERE id=?').bind(id).run();
+    for(const object of (await bucket.list()).objects)await bucket.delete(object.key);
   });
   await t.test('upload preserves bytes, folder path, author and version 1; repeats are idempotent', async () => {
     const body = xml('한글 원본\r\n줄바꿈'), path = '주일예배/말씀.pro6';

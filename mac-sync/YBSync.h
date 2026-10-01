@@ -43,6 +43,13 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 - (NSData *)readDocument:(NSString *)path;
 - (void)acknowledge:(NSDictionary *)document expectedLocalHash:(NSString *)hash;
 - (NSString *)apply:(NSData *)data document:(NSDictionary *)document expectedLocalHash:(NSString *)hash;
+// One receive operation is one retention unit, regardless of document count.
+@property(nonatomic, readonly) NSString *activeBackupBatch;
+@property(nonatomic, readonly) NSString *backupWarning;
+- (NSString *)beginBackupBatch:(NSString *)kind playlistJob:(NSString *)job;
+- (void)endBackupBatch:(BOOL)completed;
+- (NSArray *)backupBatches;
+- (void)pruneBackupBatchesKeeping:(NSUInteger)limit;
 - (NSArray *)transactions;
 - (NSArray *)pendingTransactions;
 - (void)recover:(NSString *)transactionID;
@@ -51,3 +58,4 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 // Release the folder lock before switching/reopening a profile. Do not reuse afterwards.
 - (void)close;
 @end
+

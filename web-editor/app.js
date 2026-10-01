@@ -14,6 +14,7 @@
   function open(xml,name,force=false) {
     const incoming=P.parse(xml,name);
     if(!force && dirty && !confirm('저장하지 않은 변경이 있습니다. 다른 문서를 열까요?'))return false;
+    window.dispatchEvent(new Event('yebaeonbeforeopen'));
     model=incoming;selected=0;dirty=false;history.length=0;library.clear();assets.clear();R.clear();$('search').value='';
     editSerial++;render();status(`${name} · ${P.slides(model).length}장을 열었습니다. 배경 파일을 연결하면 미디어도 확인할 수 있습니다.`);window.dispatchEvent(new Event('yebaeonopen'));return true;
   }
@@ -199,6 +200,7 @@
     open,applyTemplate,addBible,redraw:render,
     state:()=>({name:model.name,serial:editSerial,dirty}),
     document:()=>({xml:P.serialize(model),name:model.name,serial:editSerial,dirty}),
+    markDirty:changed,
     markSaved(serial){if(editSerial===serial)dirty=false;},
     status,
     hasPackageMedia:()=>P.all(model.doc,'[source]').some(el=>P.attr(el,'source').startsWith('file:///PP6-Package/'))

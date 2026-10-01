@@ -12,12 +12,14 @@ export async function statusRoute(request, env) {
   method(request, ['GET']);
   const totals = await env.DB.prepare(`SELECT COUNT(*) AS documents, COALESCE(SUM(size),0) AS bytes,
     MAX(updated_at) AS latestUploadAt FROM yebaeon_documents`).first();
-  const playlists = await env.DB.prepare('SELECT COUNT(*) AS count FROM yebaeon_playlists').first();
+  const playlists = await env.DB.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(size),0) AS bytes FROM yebaeon_playlists').first();
+  const documentHistory = await env.DB.prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(v.size),0) AS bytes FROM yebaeon_versions v JOIN yebaeon_documents d ON d.id=v.document_id WHERE v.version<>d.current_version`).first();
+  const playlistHistory = await env.DB.prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(v.size),0) AS bytes FROM yebaeon_playlist_versions v JOIN yebaeon_playlists p ON p.id=v.library_id WHERE v.version<>p.current_version`).first();
   const recent = (await env.DB.prepare(`SELECT id, path, current_version AS version, updated_by AS author,
     updated_at AS updatedAt, size FROM yebaeon_documents ORDER BY updated_at DESC, path LIMIT 12`).all()).results;
   const workers = (await env.DB.prepare(`SELECT updated_by AS author, COUNT(*) AS documents,
     MAX(updated_at) AS latestUploadAt FROM yebaeon_documents GROUP BY updated_by ORDER BY latestUploadAt DESC`).all()).results;
   const sync = (await env.DB.prepare(`SELECT author, connected_at AS connectedAt, compared_at AS comparedAt
     FROM yebaeon_sync_status ORDER BY COALESCE(compared_at, connected_at) DESC LIMIT 10`).all()).results;
-  return json({ ...totals, playlists: playlists.count, recent, workers, sync, observedAt: new Date().toISOString() });
+  return json({ ...totals, playlists: playlists.count, storage: { currentDocuments:{count:totals.documents,bytes:totals.bytes}, currentPlaylists:playlists, documentHistory, playlistHistory, trackedBytes:totals.bytes+playlists.bytes+documentHistory.bytes+playlistHistory.bytes }, recent, workers, sync, observedAt: new Date().toISOString() });
 }

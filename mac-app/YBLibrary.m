@@ -62,7 +62,7 @@
 - (NSUInteger)transfer:(NSArray *)rows receiving:(BOOL)receiving progress:(void (^)(NSString *,NSUInteger))progress {
     [self.sync assertReady];YBRequire(!self.sync.presenterRunning(),@"ProPresenter를 종료한 후 송수신해 주세요.");
     if(!receiving)return [self uploadParallel:rows progress:progress];
-    NSUInteger count=0;
+    NSUInteger count=0;BOOL completed=NO;[self.sync beginBackupBatch:@"documents" playlistJob:nil];
     @try {
         for(NSDictionary *row in rows) {
             NSString *status=row[@"status"], *path=row[@"path"];
@@ -82,7 +82,9 @@
             }
             count++;if(progress)progress(path,count);
         }
+        completed=YES;
     } @catch(NSException *error) {YBRequire(NO,[NSString stringWithFormat:@"%lu/%lu개 완료 후 중단했습니다. 완료된 문서는 유지합니다.\n%@",(unsigned long)count,(unsigned long)rows.count,error.reason]);}
+    @finally {[self.sync endBackupBatch:completed];}
     return count;
 }
 @end

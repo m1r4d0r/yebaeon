@@ -185,10 +185,50 @@ static id YBNull(id x) { return x ?: NSNull.null; }
 static id YBUnnull(id x) { return x==NSNull.null ? nil : x; }
 static NSString *YBNow(void) { return [NSISO8601DateFormatter.new stringFromDate:NSDate.date]; }
 
+// Enumerate profile-owned directories without following symlinks.
+static NSArray *YBNames(NSString *root,NSString *path) {
+    NSString *leaf;int parent=YBParent(root,path,NO,&leaf);
+    int fd=openat(parent,leaf.fileSystemRepresentation,O_RDONLY|O_DIRECTORY|O_NOFOLLOW);int saved=errno;close(parent);
+    if(fd<0 && saved==ENOENT)return @[];
+    YBRequire(fd>=0,@"백업 폴더를 안전하게 열 수 없습니다.");
+    DIR *dir=fdopendir(fd);if(!dir){close(fd);YBRequire(NO,@"백업 폴더를 읽을 수 없습니다.");}
+    NSMutableArray *names=[NSMutableArray array];
+    @try {struct dirent *entry;while((entry=readdir(dir))) {NSString *name=[[NSString alloc] initWithUTF8String:entry->d_name];YBRequire(name!=nil,@"백업 파일 이름 오류");if(![name isEqual:@"."] && ![name isEqual:@".."]) [names addObject:name];}}
+    @finally {closedir(dir);}return names;
+}
+static void YBDeleteTree(int parent,const char *name) {
+    struct stat st;if(fstatat(parent,name,&st,AT_SYMLINK_NOFOLLOW)<0){YBRequire(errno==ENOENT,@"백업 삭제 검사 실패");return;}
+    YBRequire(S_ISDIR(st.st_mode) || S_ISREG(st.st_mode),@"특수 파일 또는 링크가 있어 백업 정리를 중단했습니다.");
+    if(S_ISDIR(st.st_mode)) {
+        int fd=openat(parent,name,O_RDONLY|O_DIRECTORY|O_NOFOLLOW);YBRequire(fd>=0,@"백업 하위 폴더 접근 실패");
+        DIR *dir=fdopendir(fd);if(!dir){close(fd);YBRequire(NO,@"백업 폴더 읽기 실패");}
+        @try {struct dirent *entry;while((entry=readdir(dir))) {if(!strcmp(entry->d_name,".") || !strcmp(entry->d_name,".."))continue;YBDeleteTree(fd,entry->d_name);}}
+        @finally {closedir(dir);}
+        YBRequire(unlinkat(parent,name,AT_REMOVEDIR)==0,@"백업 폴더 삭제 실패");
+    } else YBRequire(unlinkat(parent,name,0)==0,@"백업 파일 삭제 실패");
+    YBDirFlush(parent);
+}
+static void YBTrash(NSString *root,NSString *path,NSString *batch) {
+    NSString *leaf,*targetLeaf;int source=YBParent(root,path,NO,&leaf),target=-1;
+    @try {
+        NSString *targetPath=[NSString stringWithFormat:@"backup-trash/%@/%@-%@",batch,path.pathComponents[0],path.lastPathComponent];
+        target=YBParent(root,targetPath,YES,&targetLeaf);
+        struct stat st;int exists=fstatat(source,leaf.fileSystemRepresentation,&st,AT_SYMLINK_NOFOLLOW);
+        if(exists==0) {
+            YBRequire(S_ISDIR(st.st_mode),@"백업 작업 폴더가 아닙니다.");
+            struct stat other;YBRequire(fstatat(target,targetLeaf.fileSystemRepresentation,&other,AT_SYMLINK_NOFOLLOW)<0 && errno==ENOENT,@"백업 정리 위치가 이미 사용 중입니다.");
+            YBRequire(renameat(source,leaf.fileSystemRepresentation,target,targetLeaf.fileSystemRepresentation)==0,@"백업 정리 이동 실패");YBDirFlush(source);YBDirFlush(target);
+        } else YBRequire(errno==ENOENT,@"백업 정리 원본 검사 실패");
+        YBDeleteTree(target,targetLeaf.fileSystemRepresentation);
+    } @finally {close(source);if(target>=0)close(target);}
+}
+
 @interface YBSync () {
     int _lock;
     NSMutableDictionary *_state;
 }
+@property(nonatomic, readwrite) NSString *activeBackupBatch;
+@property(nonatomic, readwrite) NSString *backupWarning;
 @property(nonatomic, readwrite) NSString *root;
 @property(nonatomic, readwrite) NSString *profile;
 @end
@@ -274,6 +314,82 @@ static NSString *YBNow(void) { return [NSISO8601DateFormatter.new stringFromDate
     id old=_state[@"entries"][doc[@"path"]]; _state[@"entries"][doc[@"path"]]=doc;
     @try { [self saveState]; } @catch(NSException *e) { if(old)_state[@"entries"][doc[@"path"]]=old; else [_state[@"entries"] removeObjectForKey:doc[@"path"]]; @throw; }
 }
+- (NSArray *)backupBatches {
+    [self open]; NSMutableArray *result=[NSMutableArray array];
+    for(NSString *name in YBNames(self.profile,@"backup-batches")) {
+        YBRequire(YBMatch(name,@"^[0-9A-Fa-f-]{36}$"),@"백업 작업 번호가 손상됐습니다.");
+        NSData *data=YBRead(self.profile,[NSString stringWithFormat:@"backup-batches/%@/batch.json",name],NULL);
+        if(!data)continue;
+        NSDictionary *b=YBJSON(data);
+        YBRequire([b[@"id"] isEqual:name] && [b[@"root"] isEqual:self.root] && [b[@"origin"] isEqual:_state[@"origin"]] && [b[@"createdAt"] isKindOfClass:NSNumber.class] && [@[@"prepared",@"complete",@"pruning",@"pruned"] containsObject:b[@"status"]],@"백업 작업 기록이 손상됐습니다. 자동 정리를 보류합니다.");
+        [result addObject:b];
+    }
+    return [result sortedArrayUsingDescriptors:@[[NSSortDescriptor sortDescriptorWithKey:@"createdAt" ascending:NO]]];
+}
+- (void)saveBatch:(NSDictionary *)batch {
+    YBRequire(YBMatch(batch[@"id"],@"^[0-9A-Fa-f-]{36}$"),@"백업 작업 번호 오류");
+    YBWrite(self.profile,[NSString stringWithFormat:@"backup-batches/%@/batch.json",batch[@"id"]],YBJSONData(batch),0600,nil);
+}
+- (NSString *)beginBackupBatch:(NSString *)kind playlistJob:(NSString *)job {
+    [self assertReady]; YBRequire(!self.activeBackupBatch,@"이미 진행 중인 백업 작업이 있습니다.");
+    YBRequire([@[@"documents",@"playlist"] containsObject:kind] && (!job || YBMatch(job,@"^[0-9A-Fa-f-]{36}$")),@"백업 작업 종류 오류");
+    NSString *identifier=NSUUID.UUID.UUIDString;
+    [self saveBatch:@{@"id":identifier,@"root":self.root,@"origin":_state[@"origin"],@"kind":kind,@"playlistJob":YBNull(job),@"status":@"prepared",@"createdAt":@(NSDate.date.timeIntervalSince1970)}];
+    self.activeBackupBatch=identifier; self.backupWarning=nil; return identifier;
+}
+- (void)endBackupBatch:(BOOL)completed {
+    NSString *identifier=self.activeBackupBatch;
+    @try {
+        if(completed && identifier) {
+            NSMutableDictionary *batch=nil;for(NSDictionary *b in self.backupBatches)if([b[@"id"] isEqual:identifier])batch=[b mutableCopy];
+            YBRequire(batch!=nil,@"백업 작업 기록을 찾지 못했습니다.");
+            NSMutableArray *members=[NSMutableArray array];
+            for(NSDictionary *t in self.transactions)if([t[@"batchID"] isEqual:identifier]) {
+                YBRequire([t[@"status"] isEqual:@"committed"],@"완료하지 않은 문서가 있어 백업을 유지합니다.");[members addObject:t[@"id"]];
+            }
+            batch[@"transactionIDs"]=members;batch[@"status"]=(members.count || YBUnnull(batch[@"playlistJob"])) ? @"complete" : @"pruned";batch[@"completedAt"]=@(NSDate.date.timeIntervalSince1970);[self saveBatch:batch];
+        }
+    } @catch(NSException *e) { self.backupWarning=[@"파일 적용은 완료했지만 백업 완료 기록/정리를 보류했습니다: " stringByAppendingString:e.reason]; }
+    @finally { self.activeBackupBatch=nil; }
+    if(completed && !self.backupWarning) {
+        @try { [self pruneBackupBatchesKeeping:10]; }
+        @catch(NSException *e) { self.backupWarning=[@"동기화는 완료했습니다. 이전 백업 정리는 보류했습니다: " stringByAppendingString:e.reason]; }
+    }
+}
+- (void)pruneBackupBatchesKeeping:(NSUInteger)limit {
+    [self assertReady];YBRequire(limit>=1 && !self.activeBackupBatch,@"백업 유지 개수 또는 실행 상태 오류");
+    NSArray *batches=self.backupBatches,*transactions=self.transactions;
+    // An interrupted coordinator can still depend on earlier journals. Keep everything.
+    for(NSString *name in YBNames(self.profile,@"playlist-batches")) {
+        YBRequire(YBMatch(name,@"^[0-9A-Fa-f-]{36}$"),@"플레이리스트 백업 목록 오류");
+        NSData *data=YBRead(self.profile,[NSString stringWithFormat:@"playlist-batches/%@/job.json",name],NULL);
+        if(!data)return;
+        NSDictionary *j=YBJSON(data);
+        if(![@[@"committed",@"restored"] containsObject:j[@"status"]])return;
+    }
+    NSUInteger kept=0;
+    for(NSDictionary *record in batches) {
+        if([@[@"prepared",@"pruned"] containsObject:record[@"status"]])continue;
+        if([record[@"status"] isEqual:@"complete"] && kept++<limit)continue;
+        YBRequire([record[@"transactionIDs"] isKindOfClass:NSArray.class],@"백업 작업의 구성 목록이 없습니다.");
+        NSMutableArray *paths=[NSMutableArray array];NSString *job=YBUnnull(record[@"playlistJob"]);
+        if(job){YBRequire(YBMatch(job,@"^[0-9A-Fa-f-]{36}$"),@"백업 재생목록 번호 오류");
+            NSData *data=YBRead(self.profile,[NSString stringWithFormat:@"playlist-batches/%@/job.json",job],NULL);
+            if(data){NSDictionary *j=YBJSON(data);YBRequire([j[@"batchID"] isEqual:record[@"id"]] && [j[@"root"] isEqual:self.root] && [j[@"origin"] isEqual:_state[@"origin"]],@"다른 작업의 재생목록 백업은 정리할 수 없습니다.");}
+            else YBRequire([record[@"status"] isEqual:@"pruning"],@"재생목록 백업이 없습니다.");
+            [paths addObject:[@"playlist-batches/" stringByAppendingString:job]];}
+        for(NSString *identifier in record[@"transactionIDs"]) {
+            YBRequire(YBMatch(identifier,@"^[0-9A-Fa-f-]{36}$"),@"백업 문서 번호 오류");
+            for(NSDictionary *t in transactions)if([t[@"id"] isEqual:identifier])YBRequire([t[@"batchID"] isEqual:record[@"id"]] && [@[@"committed",@"restored",@"rolled_back"] containsObject:t[@"status"]],@"다른 작업 또는 복구 중인 백업은 정리할 수 없습니다.");
+            [paths addObject:[@"transactions/" stringByAppendingString:identifier]];
+        }
+        NSMutableDictionary *batch=[record mutableCopy];batch[@"status"]=@"pruning";[self saveBatch:batch];
+        // Quarantine complete directories before deleting bytes. Interrupted cleanup is retryable.
+        for(NSString *path in paths)YBTrash(self.profile,path,record[@"id"]);
+        batch[@"status"]=@"pruned";[self saveBatch:batch];
+    }
+}
+
 - (NSString *)journalPath:(NSString *)identifier { YBRequire(YBMatch(identifier,@"^[0-9A-Fa-f-]{36}$"),@"복원 번호가 올바르지 않습니다."); return [NSString stringWithFormat:@"transactions/%@/transaction.json",identifier]; }
 - (void)saveJournal:(NSDictionary *)j { YBWrite(self.profile,[self journalPath:j[@"id"]],YBJSONData(j),0600,nil); }
 - (NSArray *)transactions {
@@ -316,6 +432,7 @@ static NSString *YBNow(void) { return [NSISO8601DateFormatter.new stringFromDate
     if(before)YBWrite(self.profile,[dir stringByAppendingString:@"/before.pro6"],before,0600,nil);
     YBWrite(self.profile,[dir stringByAppendingString:@"/after.pro6"],data,0600,nil);
     NSMutableDictionary *j=[@{@"schema":@1,@"id":identifier,@"root":self.root,@"origin":_state[@"origin"],@"path":path,@"incoming":doc,@"previous":YBNull(self.entries[path]),@"beforeHash":YBNull(hash),@"mode":@(mode),@"createdAt":YBNow(),@"status":@"prepared"} mutableCopy];
+    if(self.activeBackupBatch)j[@"batchID"]=self.activeBackupBatch;
     [self saveJournal:j];
     // Any interruption after this durable journal is recoverable on the next launch.
     // Do not hide an ambiguous failure by continuing with another document.
