@@ -186,10 +186,10 @@
     if(names.count>15)details=[details stringByAppendingFormat:@"\n… 외 %lu개",(unsigned long)names.count-15];
     NSString *message=[NSString stringWithFormat:@"%@\n\n문서 폴더: %@\n%@\n일치하는 문서는 동기화 기준만 기록합니다.",details,self.documentsRoot,receiving ? @"원본 백업 후 적용합니다. PP6를 종료해 주세요." : @"최대 4개씩 병렬 업로드합니다. 선택한 정렬 순서로 처리하고 성공 기록은 순서대로 저장합니다. 업로드 중 자동 잠자기를 방지합니다. PP6를 종료해 주세요."];
     if(!YBConfirm([NSString stringWithFormat:@"%lu개 문서를 %@까요?",(unsigned long)selected.count,receiving ? @"받을" : @"보낼"],message,receiving ? @"백업 후 받기" : @"서버로 보내기"))return;
-    self.progress.indeterminate=NO;self.progress.maxValue=selected.count;self.progress.doubleValue=0;self.statusLabel.stringValue=@"전송 준비 중 · 완료 0 · 실패 0";
+    self.progress.indeterminate=NO;self.progress.maxValue=selected.count;self.progress.doubleValue=0;self.statusLabel.stringValue=@"전송 준비 중 · 완료 0";
     [self.work run:^id {
         YBLibrary *library=[self connectedLibrary];NSUInteger count=[library transfer:selected receiving:receiving progress:^(NSString *path,NSUInteger done) {
-            dispatch_async(dispatch_get_main_queue(),^{self.progress.doubleValue=done;NSDateFormatter *clock=[NSDateFormatter new];clock.dateFormat=@"HH:mm:ss";self.statusLabel.stringValue=[NSString stringWithFormat:@"%@ %lu/%lu · 실패 0 · 마지막 성공 %@ · %@",receiving ? @"받는 중" : @"보내는 중",(unsigned long)done,(unsigned long)selected.count,[clock stringFromDate:NSDate.date],path];});
+            dispatch_async(dispatch_get_main_queue(),^{self.progress.doubleValue=done;NSDateFormatter *clock=[NSDateFormatter new];clock.dateFormat=@"HH:mm:ss";self.statusLabel.stringValue=[NSString stringWithFormat:@"%@ %lu/%lu · 마지막 성공 %@ · %@",receiving ? @"받는 중" : @"보내는 중",(unsigned long)done,(unsigned long)selected.count,[clock stringFromDate:NSDate.date],path];});
         }];
         NSString *warning=receiving ? (library.sync.backupWarning ?: @"") : @"";NSArray *rows=@[];@try{rows=[library refresh];}@catch(NSException *e){warning=[warning stringByAppendingFormat:@"\n%@",e.reason];}
         return @{@"count":@(count),@"rows":rows,@"warning":warning};
