@@ -50,7 +50,7 @@
     @try {
         NSString *identity=[NSString stringWithFormat:@"%@|%@|%@",self.sync.profile,self.sync.root,self.server.origin];
         NSString *device=YBHash([identity dataUsingEncoding:NSUTF8StringEncoding]);
-        for(NSUInteger i=0;i<items.count;i+=400){NSArray *slice=[items subarrayWithRange:NSMakeRange(i,MIN((NSUInteger)400,items.count-i))];NSData *body=[NSJSONSerialization dataWithJSONObject:@{@"deviceId":device,@"items":slice} options:0 error:NULL];
+        for(NSUInteger i=0;i<items.count;i+=400){if(self.sync.comparisonCheck)self.sync.comparisonCheck();NSArray *slice=[items subarrayWithRange:NSMakeRange(i,MIN((NSUInteger)400,items.count-i))];NSData *body=[NSJSONSerialization dataWithJSONObject:@{@"deviceId":device,@"items":slice} options:0 error:NULL];
             [self.server request:@"/api/sync-observations" method:@"POST" body:body headers:@{@"Content-Type":@"application/json"} timeout:10];for(NSDictionary *item in slice){NSString *key=[NSString stringWithFormat:@"%@/%@/%@",item[@"kind"],item[@"id"],item[@"node"]];self.recentReports[key]=@{@"item":item,@"at":@(now)};}}
     }@catch(NSException *error){NSLog(@"Sync 상태 보고 실패: %@",error.reason);}
 }
