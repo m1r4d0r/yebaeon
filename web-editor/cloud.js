@@ -65,7 +65,7 @@
     $('entryName').value = recalledName();
     $('entryPassword').value = '';
     $('entrySubmit').disabled = !ready;
-    $('entryMessage').textContent = ready ? '' : '서버 연결 준비 중입니다. 연결되면 서버 문서를 열 수 있습니다.';
+    $('entryMessage').textContent = ready ? '' : '서버의 공용 비밀번호 설정이 아직 완료되지 않았습니다.';
     if (!$('entryDialog').open) $('entryDialog').showModal();
   }
   async function showPlaylists() {
