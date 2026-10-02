@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {build} from 'esbuild';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
-import {observationState} from '../cloudflare/sync-observations.mjs';
+import {observationState,linkedObservation} from '../cloudflare/sync-observations.mjs';
 const xml='<RVPlaylistDocument><RVPlaylistNode UUID="ROOT"><array rvXMLIvarName="children"><RVPlaylistNode UUID="A" displayName="금요예배"><array rvXMLIvarName="children"><RVHeaderCue UUID="a" displayName="기도"/><RVHeaderCue UUID="b" displayName="찬양"/></array></RVPlaylistNode><RVPlaylistNode UUID="B" displayName="1부예배"><array rvXMLIvarName="children"><RVHeaderCue UUID="c" displayName="기도"/><RVHeaderCue UUID="d" displayName="찬양"/></array></RVPlaylistNode></array></RVPlaylistNode></RVPlaylistDocument>';
 test('independent playlist CAS, scoped versions, restore and last observed sync state',{timeout:90000},async t=>{
  const bundle=await build({entryPoints:['cloudflare/worker.mjs'],bundle:true,write:false,format:'esm',platform:'browser'});
@@ -21,8 +21,18 @@ test('independent playlist CAS, scoped versions, restore and last observed sync 
  const current=await plan('A');await ok(await call(`/playlists/${id}?node=A`,'PATCH',JSON.stringify({baseNodeHash:current.playlist.sha256,restoreVersion:1}),{'If-Match':`"${current.library.version}"`}));assert.deepEqual((await plan('A')).items.map(x=>x.id),['a','b']);assert.deepEqual((await plan('B')).items.map(x=>x.id),['d','c']);
  const exported=await(await call(`/playlists/${id}/content?node=B&nodeVersion=1`)).text();assert.ok(exported.includes('UUID="c"'));assert.equal((await plan('B')).playlist.version,2);
  const fresh=await plan('A'),device='a'.repeat(64);const report=status=>call('/sync-observations','POST',JSON.stringify({deviceId:device,items:[{kind:'playlist',id,node:'A',serverHash:fresh.playlist.sha256,status}]}));
- assert.equal((await ok(await call('/sync-observations'))).items['playlist/'+id+'/A'],undefined);await ok(await report('same'));assert.equal((await ok(await call('/sync-observations'))).items['playlist/'+id+'/A'].state,'synced');
+ assert.equal((await ok(await call('/sync-observations'))).items['playlist/'+id+'/A'],undefined);await ok(await report('same'));assert.equal((await ok(await call('/sync-observations'))).items['playlist/'+id+'/A'].deviceId,device);assert.equal((await ok(await call('/sync-observations'))).items['playlist/'+id+'/A'].state,'synced');
  await ok(await patch('A',fresh,[{id:'b'}]));assert.equal((await ok(await call('/sync-observations'))).items['playlist/'+id+'/A'].state,'pending');await ok(await report('upload'));assert.equal((await ok(await call('/sync-observations'))).items['playlist/'+id+'/A'].state,'conflict');
  assert.equal((await call('/sync-observations','POST',JSON.stringify({deviceId:device,items:[]}),{Origin:'https://elsewhere.test'})).status,403);
  assert.equal(observationState({status:'same',server_hash:'old'},'new'),'pending');assert.equal(observationState({status:'upload',server_hash:'old'},'new'),'conflict');
+});
+
+
+test('A matching order never hides missing or unknown linked-document observations',()=>{
+ const own={state:'synced',observedAt:'2026-10-02',deviceId:'device'};
+ assert.equal(linkedObservation(own,['missing'],{}).state,'unknown');
+ assert.equal(linkedObservation(own,['unknown','same'],{unknown:{state:'unknown'},same:{state:'synced'}}).state,'unknown');
+ assert.equal(linkedObservation({state:'unknown'},['same'],{same:{state:'synced'}}).state,'unknown');
+ const changed=linkedObservation(own,['changed'],{changed:{state:'pending',deviceId:'other',observedAt:'later'}});assert.equal(changed.state,'pending');assert.equal(changed.reason,'연결 문서 상태 반영');assert.equal(changed.deviceId,'other');
+ assert.equal(linkedObservation({state:'conflict'},['missing'],{}).state,'conflict');
 });
