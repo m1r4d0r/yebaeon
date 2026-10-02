@@ -109,7 +109,12 @@
     NSButton *receive=[self.serverPlaylists valueForKey:@"receiveButton"],*receiveAll=[self.serverPlaylists valueForKey:@"receiveAllButton"],*apply=[self.documents valueForKey:@"applyButton"];
     for(NSButton *button in @[self.compareButton,receive,receiveAll,apply])button.keyEquivalent=@"";
     self.compareButton.enabled=!self.work.busy;
-    if(self.settingsSheet.sheetParent){self.window.defaultButtonCell=nil;return;}
+    if(self.settingsSheet.sheetParent){
+        self.window.defaultButtonCell=nil;
+        self.settingsSheet.defaultButtonCell=self.settingsClose.cell;
+        [self.settingsSheet enableKeyEquivalentForDefaultButtonCell];
+        return;
+    }
     NSButton *primary=[self.tabs.selectedTabViewItem.identifier isEqual:@"재생목록"] ? (receive.enabled ? receive : receiveAll.enabled ? receiveAll : nil) : [self.tabs.selectedTabViewItem.identifier isEqual:@"문서"] && apply.enabled ? apply : nil;
     if(self.work.busy){self.window.defaultButtonCell=nil;return;}
     NSButton *button=primary ?: self.compareButton;button.keyEquivalent=@"\r";self.window.defaultButtonCell=button.cell;
@@ -147,7 +152,7 @@
         [v addSubview:YBButton(@"이름 변경…",NSMakeRect(510,90,132,32),self.documents,@selector(login:))];[v addSubview:YBButton(@"로그아웃",NSMakeRect(652,90,124,32),self.documents,@selector(logout:))];
         self.settingsClose=YBButton(@"닫기",NSMakeRect(626,20,150,32),self,@selector(closeSettings:));self.settingsClose.font=[NSFont boldSystemFontOfSize:13];self.settingsClose.keyEquivalent=@"\r";[v addSubview:self.settingsClose];self.settingsSheet.defaultButtonCell=self.settingsClose.cell;
     }
-    [self updateSettings];if(!self.settingsSheet.sheetParent)[self.window beginSheet:self.settingsSheet completionHandler:^(NSModalResponse response){[self updateDefaultButton];}];[self updateDefaultButton];
+    [self updateSettings];self.window.defaultButtonCell=nil;if(!self.settingsSheet.sheetParent)[self.window beginSheet:self.settingsSheet completionHandler:^(NSModalResponse response){[self updateDefaultButton];}];[self updateDefaultButton];
 }
 - (void)closeSettings:(id)sender {[self.window endSheet:self.settingsSheet];[self.settingsSheet orderOut:nil];[self updateDefaultButton];}
 - (void)showLocal:(id)sender {if(self.work.busy)return;if(!self.toolWindow){self.toolWindow=[[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,1060,720) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];self.toolWindow.releasedWhenClosed=NO;self.toolWindow.title=@"로컬 재생목록 비교";NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:self.toolWindow.contentView.bounds];scroll.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;scroll.hasVerticalScroller=YES;scroll.hasHorizontalScroller=YES;scroll.documentView=self.playlist.view;[self.toolWindow.contentView addSubview:scroll];[self.toolWindow center];}[self.toolWindow makeKeyAndOrderFront:nil];}
