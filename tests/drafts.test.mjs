@@ -45,7 +45,7 @@ test('separate tabs keep independent drafts and failed writes are not acknowledg
   a.fixture.fail(true);await assert.rejects(a.drafts.put({id:a.drafts.id(),xml:'unsaved'}),/quota/);
   a.fixture.fail(false);await a.drafts.put({id:a.drafts.id(),xml:'retry'});assert.equal((await a.drafts.all())[0].xml,'retry');
 });
-async function cloudSetup(){
+async function cloudSetup(sessionFailure=false){
   const app=await setup();let current={xml:'base',name:'song.pro6',serial:0,dirty:false},pending=[],serverVersion=1;
   const metadata=()=>({id:'11111111-1111-4111-a111-111111111111',name:'song.pro6',path:'song.pro6',version:serverVersion,updatedBy:'tester',updatedAt:new Date().toISOString(),sha256:'cae662172fd450bb0cd710a769079c05bfc5d8e35efa6576edc7d0377afdd4a2'});
   app.window.YebaeonEditor={ready:()=>true,state:()=>({...current}),document:()=>({...current}),status(){},hasPackageMedia:()=>false,markSaved(serial){if(serial===current.serial)current.dirty=false;},markDirty(){current.dirty=true;current.serial++;app.window.dispatchEvent(new Event('yebaeonchange'));},open(xml,name){app.window.dispatchEvent(new Event('yebaeonbeforeopen'));current={xml,name,serial:current.serial+1,dirty:false};app.window.dispatchEvent(new Event('yebaeonopen'));return true;}};
@@ -53,7 +53,7 @@ async function cloudSetup(){
   app.context.YebaeonSelection={Selection:class{constructor(){this.chosen=new Set();}setKeys(){} bind(){}}};
   Object.assign(app.context,{location:{protocol:'https:'},localStorage:{getItem(){return null;},setItem(){}},queueMicrotask,Event,CustomEvent,TextDecoder,URLSearchParams,fetch:async(path,options={})=>{
     if(path==='/api/sync-observations')return Response.json({items:{}});
-    if(path==='/api/session')return Response.json({ready:true,authenticated:true,name:'tester'});
+    if(path==='/api/session'){if(sessionFailure){if(options.method==='POST'){sessionFailure=false;return Response.json({ready:true,authenticated:true,name:'tester'});}throw new TypeError('temporary connection failure');}return Response.json({ready:true,authenticated:true,name:'tester'});}
     if(options.method==='PUT')return new Promise(resolve=>pending.push({options,resolve}));
     if(path.includes('/content'))return new Response('base');
     if(path.startsWith('/api/documents?'))return Response.json({documents:[],next:null});
@@ -83,3 +83,11 @@ test('changing worker session leaves the previous worker draft under a separate 
   const records=await app.drafts.all();assert.equal(records.length,2);assert.ok(records.some(x=>x.xml==='before logout' && x.author==='tester'));assert.ok(records.some(x=>x.xml==='after logout'));
 });
 
+
+test('initial session connection failure permits login retry without reloading',async()=>{
+  const app=await cloudSetup(true),button=app.document.getElementById('entrySubmit'),dialog=app.document.getElementById('entryDialog');
+  assert.equal(dialog.open,true);assert.equal(button.disabled,false);
+  assert.match(app.document.getElementById('entryMessage').textContent,/다시 시도/);
+  await app.document.getElementById('entryForm').onsubmit({preventDefault(){}});
+  assert.equal(app.window.YebaeonCloud.authenticated(),true);assert.equal(dialog.open,false);assert.equal(button.disabled,false);
+});
