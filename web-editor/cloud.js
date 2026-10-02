@@ -82,7 +82,7 @@
     if (!more) { listNext = null; documents=[]; $('libraryList').replaceChildren(); }
     $('libraryMore').hidden = true; $('libraryMessage').textContent = '문서 목록을 불러오고 있습니다…';
     try {
-      const params = new URLSearchParams({q:query,sort,includeUses:'1'});
+      const params = new URLSearchParams({q:query,sort});
       if(more && listNext) params.set(sort==='name'||sort==='name-desc' ? 'after' : 'cursor',listNext);
       const data = await (await api('/documents?' + params)).json();
       if (sequence !== listSequence) return;
@@ -90,7 +90,7 @@
         documents.push(doc);const item=document.createElement('div');item.className='document-item';select.bind(item,doc.id);
         const name=document.createElement('strong');name.textContent=doc.name.replace(/\.pro6$/i,'');const small=document.createElement('small');
         const date=doc.lastDateUsed ? new Date(doc.lastDateUsed).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric',timeZone:'Asia/Seoul'})+' 사용' : '사용일 없음';
-        small.textContent=date+(doc.useCount===null?' · 참조 확인 중':doc.useCount?` · ${doc.useCount}곳`:'');item.append(name,small);item.title=doc.path;
+        small.textContent=date;item.append(name,small);item.title=doc.path;
         item.addEventListener('click',e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey)openCloud(doc.id);});
         item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()}]);};$('libraryList').append(item);
       }
@@ -238,3 +238,4 @@
     } catch (_) { ready = false; showEntry(); $('entryMessage').textContent = '서버에 연결하지 못했습니다. 현재 편집 내용은 브라우저 초안에 보존됩니다.'; }
   })();
 })();
+
