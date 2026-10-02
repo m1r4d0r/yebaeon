@@ -23,9 +23,9 @@ export async function readStoredUsage(env, id, version, key) {
   if (!error) await usageStatement(env.DB, id, version, value).run();
   return { last_used: value ? new Date(value).toISOString() : null, error };
 }
-export async function indexUsage(env, query) {
+export async function indexUsage(env, query, batchSize = 12) {
   const join = 'FROM yebaeon_documents d LEFT JOIN yebaeon_document_usage u ON u.document_id=d.id AND u.version=d.current_version';
-  const rows = (await env.DB.prepare(`SELECT d.id, d.current_version, v.object_key ${join} JOIN yebaeon_versions v ON v.document_id=d.id AND v.version=d.current_version WHERE u.document_id IS NULL AND instr(lower(d.path),lower(?))>0 ORDER BY d.path LIMIT 12`).bind(query).all()).results;
+  const rows = (await env.DB.prepare(`SELECT d.id, d.current_version, v.object_key ${join} JOIN yebaeon_versions v ON v.document_id=d.id AND v.version=d.current_version WHERE u.document_id IS NULL AND instr(lower(d.path),lower(?))>0 ORDER BY d.path LIMIT ?`).bind(query, batchSize).all()).results;
   for (let i=0; i<rows.length; i+=4) await Promise.all(rows.slice(i,i+4).map(async row => {
     const result = await readStoredUsage(env, row.id, row.current_version, row.object_key);
     if (result.error) await usageStatement(env.DB,row.id,row.current_version,null,result.error).run();
