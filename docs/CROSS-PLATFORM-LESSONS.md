@@ -1,5 +1,21 @@
 # Mac ↔ Windows 개발 시행착오와 재발 방지
 
+## 공개 Mac CI 재개 후 실패·수정·성공 연결 · 2026-10-02
+
+최종 성공은 [37013171919](https://github.com/m1r4d0r/yebaeon/actions/runs/37013171919), 소스 `b32cecf1`이다. 다음 실패는 운영 업로드 장애가 아니라 PR 검증 실패였고 모두 후속 검사에서 해결됐다.
+
+| 실패 실행 | 확인한 원인 | 수정·재검증 |
+|---|---|---|
+| [37010916867](https://github.com/m1r4d0r/yebaeon/actions/runs/37010916867) 진단 검사 시작 | 테스트 임시 경로의 /var 별칭이 심볼릭 링크 금지 검사에 걸림 | fixture 임시 루트만 POSIX realpath로 정한다. 사용자 원본 경로나 안전 검사 정책을 바꾸지 않는다. |
+| [37011150473](https://github.com/m1r4d0r/yebaeon/actions/runs/37011150473) 진단 경로 검사 | Foundation stringByStandardizingPath가 /private/var를 /var로 줄여 절대 경로 검증에서 오탐 | 절대 경로·빈 요소·점/상위 요소는 어휘적으로 검사하고 모든 조상의 lstat 링크 거부는 유지한다. traversal 거부 회귀 검사 추가. 최종 진단 20개 통과. |
+| [37011553074](https://github.com/m1r4d0r/yebaeon/actions/runs/37011553074) GUI119 | 빈 제목의 설정 아이콘 버튼에 제목+베젤 폭 검사를 적용 | 제목 버튼은 기존 검사 유지, 아이콘은 실제 imageRect가 버튼 안에 들어오는지 검사. 캡처에서도 확인. |
+| [37011925161](https://github.com/m1r4d0r/yebaeon/actions/runs/37011925161) GUI126 | 재생목록 왼쪽 표의 자동 열 너비가 표시 폭을 넘어 날짜 열이 잘림 | 프레임 배치 시 실제 scroll content 폭과 열 간격으로 너비를 계산하고 자동 열 크기 조정 해제. 880/1060/1440 폭 검사 및 최소 창 PNG 확인. |
+| [37012344012](https://github.com/m1r4d0r/yebaeon/actions/runs/37012344012) GUI406 | 설정 시트 표시 후 닫기의 Return 키 활성화가 보장되지 않음 | 시트 연결 전에 부모 기본 버튼을 해제하고 연결 중에는 닫기 defaultButtonCell 및 enableKeyEquivalentForDefaultButtonCell을 명시. 부모 기본 셀 없음/시트 기본 셀/닫기 Return을 각각 검사하며 닫은 뒤 부모 기본 버튼 복구도 확인. |
+
+- 최초 GUI segfault의 updateReceiveAll 자기 재귀 제거도 이번 전체 성공 실행으로 재검증했다. 현재 검사 중단/실패 상태는 없다.
+- 성공 소스 이후 문서 갱신은 `[skip ci]`로 실행하며 앱 소스와 배포 ZIP은 재생성하지 않는다. 같은 소스의 캡처만을 위한 반복 Mac 실행을 하지 않는다.
+
+
 최종 확인: 2026-10-01 (한국 시간). 집 Windows PC, 교회 macOS High Sierra 10.13.6, ProPresenter 6을 기준으로 한다. 사용자 보고·당시 인수인계 기록·현재 코드·GitHub 검사 로그를 구분하며, 확인되지 않은 세부 원인을 확정하지 않는다.
 
 ## 앞으로 작업을 마칠 때 보고할 것
