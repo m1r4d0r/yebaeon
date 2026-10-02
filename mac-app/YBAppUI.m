@@ -53,13 +53,22 @@ NSString *YBProfilePath(NSString *root,NSString *origin) {NSString *identity=[NS
 @interface YBWork ()
 @property(nonatomic,readwrite) BOOL busy;
 @property(nonatomic,strong) dispatch_queue_t queue;
+@property(atomic) NSUInteger generation;
 @end
 @implementation YBWork
 - (void)setMessage:(NSString *)message {_message=[message copy];if(self.messageChanged)self.messageChanged();}
 - (instancetype)init {if((self=[super init]))self.queue=dispatch_queue_create("org.yebaeon.sync.work",DISPATCH_QUEUE_SERIAL);return self;}
+- (void)runBackground:(id (^)(BOOL (^)(void)))task completion:(void (^)(id,NSString *))completion {
+    if(self.busy)return;NSUInteger generation=++self.generation;
+    BOOL (^cancelled)(void)=^BOOL{return self.generation!=generation;};
+    dispatch_async(self.queue,^{@autoreleasepool {
+        id result=nil;NSString *error=nil;@try{if(!cancelled())result=task(cancelled);}@catch(NSException *e){error=e.reason;}
+        dispatch_async(dispatch_get_main_queue(),^{completion(cancelled() ? nil : result,cancelled() ? @"사용자 작업을 우선하여 나머지 점검을 멈췄습니다. 필요하면 서버와 비교를 눌러 주세요." : error);});
+    }});
+}
 - (void)run:(id (^)(void))task completion:(void (^)(id,NSString *))completion {
     if(self.busy) {YBAlert(@"작업 중입니다.",@"현재 작업이 끝난 후 다시 시도해 주세요.");return;}
-    self.message=@"작업 준비 중";self.busy=YES;if(self.busyChanged)self.busyChanged(YES);
+    self.generation++;self.message=@"작업 준비 중";self.busy=YES;if(self.busyChanged)self.busyChanged(YES);
     dispatch_async(self.queue,^{@autoreleasepool {
         id result=nil;NSString *error=nil;@try {result=task();}@catch(NSException *e){error=e.reason ?: @"작업을 완료하지 못했습니다.";}
         dispatch_async(dispatch_get_main_queue(),^{self.busy=NO;self.message=nil;if(self.busyChanged)self.busyChanged(NO);completion(result,error);});
@@ -67,3 +76,33 @@ NSString *YBProfilePath(NSString *root,NSString *origin) {NSString *identity=[NS
 }
 @end
 
+
+
+@interface YBPanel ()
+@property NSMutableDictionary *originalFrames;
+@end
+@implementation YBPanel
+- (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
+    if(!self.originalFrames){self.originalFrames=[NSMutableDictionary dictionary];for(NSView *v in self.subviews)self.originalFrames[[NSValue valueWithNonretainedObject:v]]=[NSValue valueWithRect:v.frame];}
+    CGFloat w=self.bounds.size.width,h=self.bounds.size.height,scale=(w-48)/1012.0;
+    for(NSView *v in self.subviews){NSRect f=[self.originalFrames[[NSValue valueWithNonretainedObject:v]] rectValue];
+        f.origin.x=24+(f.origin.x-24)*scale;f.size.width*=scale;
+        if([v isKindOfClass:NSScrollView.class])f.size.height=MAX(80,f.size.height+h-720);
+        else if(f.origin.y>300)f.origin.y+=h-720;
+        v.frame=f;
+        if([v isKindOfClass:NSSegmentedControl.class]){NSSegmentedControl *s=(id)v;for(NSInteger i=0;i<s.segmentCount;i++)[s setWidth:f.size.width/s.segmentCount forSegment:i];}
+    }
+}
+@end
+NSString *YBDisplayDate(id value) {
+    NSDate *date=nil;
+    if([value isKindOfClass:NSDate.class])date=value;
+    else if([value isKindOfClass:NSNumber.class])date=[NSDate dateWithTimeIntervalSince1970:[value doubleValue]];
+    else if([value isKindOfClass:NSString.class]){NSISO8601DateFormatter *iso=[NSISO8601DateFormatter new];date=[iso dateFromString:value];if(!date){iso.formatOptions=NSISO8601DateFormatWithInternetDateTime|NSISO8601DateFormatWithFractionalSeconds;date=[iso dateFromString:value];}}
+    if(!date)return @"—";
+    NSTimeZone *zone=[NSTimeZone timeZoneWithName:@"Asia/Seoul"];NSCalendar *cal=[[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];cal.timeZone=zone;
+    NSDateFormatter *f=[NSDateFormatter new];f.locale=[[NSLocale alloc] initWithLocaleIdentifier:@"ko_KR"];f.timeZone=zone;
+    NSDate *today=[cal startOfDayForDate:NSDate.date],*yesterday=[cal dateByAddingUnit:NSCalendarUnitDay value:-1 toDate:today options:0];
+    NSString *prefix=[cal isDate:date inSameDayAsDate:today] ? @"오늘 " : [cal isDate:date inSameDayAsDate:yesterday] ? @"어제 " : @"";
+    f.dateFormat=prefix.length ? @"a h:mm" : @"yyyy.MM.dd a h:mm";return [prefix stringByAppendingString:[f stringFromDate:date]];
+}

@@ -7,38 +7,51 @@
 @end
 @implementation YBUploadJob
 @end
+@interface YBLibrary ()
+@property NSMutableDictionary *recentReports;
+@end
 @implementation YBLibrary
 - (instancetype)initWithRoot:(NSString *)root profile:(NSString *)profile server:(YBServer *)server {
     if((self=[super init])) {_server=server;_sync=[[YBSync alloc] initWithRoot:root profile:profile origin:server.origin];}return self;
 }
 - (void)dealloc {[_sync close];}
-- (NSArray *)refresh {
+- (NSArray *)refresh {return [self refreshChecking:nil];}
+- (NSArray *)refreshChecking:(void (^)(void))check {
+    self.sync.comparisonCheck=check;@try{return [self refreshBody:check];}@finally{self.sync.comparisonCheck=nil;}
+}
+- (NSArray *)refreshBody:(void (^)(void))check {
+    if(check)check();
     if(self.phaseChanged)self.phaseChanged(@"① 문서 인덱스 갱신 중 · 원본 업로드 없이 파일 목록 확인");
     NSArray *inventory=[self.sync inventory];
     NSString *identity=[NSString stringWithFormat:@"%@|%@|%@",self.sync.profile,self.sync.root,self.server.origin];
     NSData *body=[NSJSONSerialization dataWithJSONObject:@{@"deviceId":YBHash([identity dataUsingEncoding:NSUTF8StringEncoding]),@"documents":inventory} options:0 error:NULL];
-    [self.server request:@"/api/inventory" method:@"POST" body:body headers:@{@"Content-Type":@"application/json"}];
+    if(check)check();[self.server request:@"/api/inventory" method:@"POST" body:body headers:@{@"Content-Type":@"application/json"} timeout:10];
+    if(check)check();
     if(self.phaseChanged)self.phaseChanged([NSString stringWithFormat:@"② 문서 %lu개와 서버 변경 비교 중",(unsigned long)inventory.count]);
+    NSUInteger readsBefore=self.sync.summaryReads,hitsBefore=self.sync.summaryHits;NSDate *started=NSDate.date;
     NSMutableArray *result=[NSMutableArray array];NSISO8601DateFormatter *dates=[NSISO8601DateFormatter new];
-    for(NSDictionary *row in [self.sync plan:[self.server documents]]) {@autoreleasepool {
-        NSMutableDictionary *copy=[row mutableCopy];NSDate *modified=[NSFileManager.defaultManager attributesOfItemAtPath:[self.sync.root stringByAppendingPathComponent:row[@"path"]] error:NULL][NSFileModificationDate];if(modified)copy[@"modifiedTime"]=@(modified.timeIntervalSince1970);
-        if(row[@"localHash"]!=NSNull.null && !row[@"error"]) {
-            @try {NSData *data=[self.sync readDocument:row[@"path"]];NSXMLDocument *xml=[[NSXMLDocument alloc] initWithData:data options:0 error:NULL];NSString *value=[[xml.rootElement attributeForName:@"lastDateUsed"] stringValue];NSDate *date=[dates dateFromString:value ?: @""];
-                if(date){copy[@"lastDateUsed"]=value;copy[@"lastUsedTime"]=@(date.timeIntervalSince1970);}
-            } @catch(NSException *error) {copy[@"dateWarning"]=@"최근 사용일을 읽지 못했습니다.";}
-        }
+    for(NSDictionary *row in [self.sync plan:[self.server documentsChecking:check]]) {@autoreleasepool {
+        if(check)check();NSMutableDictionary *copy=[row mutableCopy];NSDate *modified=[NSFileManager.defaultManager attributesOfItemAtPath:[self.sync.root stringByAppendingPathComponent:row[@"path"]] error:NULL][NSFileModificationDate];if(modified)copy[@"modifiedTime"]=@(modified.timeIntervalSince1970);
+        NSString *value=row[@"lastDateUsed"];NSDate *date=[dates dateFromString:value ?: @""];
+        if(date){copy[@"lastDateUsed"]=value;copy[@"lastUsedTime"]=@(date.timeIntervalSince1970);}
         [result addObject:copy];
     }}
     NSMutableArray *reports=[NSMutableArray array];for(NSDictionary *r in result){id remote=r[@"remote"];if([remote isKindOfClass:NSDictionary.class]) [reports addObject:@{@"kind":@"document",@"id":remote[@"id"],@"node":@"",@"serverHash":remote[@"sha256"],@"status":r[@"status"] ?: @"unknown"}];}
-    [self reportSyncItems:reports];return result;
+    if(check)check();[self reportSyncItems:reports];NSLog(@"Sync compare: documents=%lu reads=%lu cacheHits=%lu seconds=%.3f",(unsigned long)result.count,(unsigned long)(self.sync.summaryReads-readsBefore),(unsigned long)(self.sync.summaryHits-hitsBefore),-started.timeIntervalSinceNow);return result;
 }
 - (void)reportSyncItems:(NSArray *)items {
+    // Coalesce identical observations from the priority and background pass.
+    // This is a bounded local cache, not a timer or an extra server query.
+    if(!self.recentReports)self.recentReports=[NSMutableDictionary dictionary];
+    NSMutableArray *pending=[NSMutableArray array];NSTimeInterval now=NSDate.date.timeIntervalSince1970;
+    for(NSDictionary *item in items){NSString *key=[NSString stringWithFormat:@"%@/%@/%@",item[@"kind"],item[@"id"],item[@"node"]];NSDictionary *old=self.recentReports[key];if(![old[@"item"] isEqual:item] || now-[old[@"at"] doubleValue]>=60)[pending addObject:item];}
+    items=pending;
     // Optional telemetry never changes whether a local transfer succeeded.
     @try {
         NSString *identity=[NSString stringWithFormat:@"%@|%@|%@",self.sync.profile,self.sync.root,self.server.origin];
         NSString *device=YBHash([identity dataUsingEncoding:NSUTF8StringEncoding]);
-        for(NSUInteger i=0;i<items.count;i+=400){NSArray *slice=[items subarrayWithRange:NSMakeRange(i,MIN((NSUInteger)400,items.count-i))];NSData *body=[NSJSONSerialization dataWithJSONObject:@{@"deviceId":device,@"items":slice} options:0 error:NULL];
-            [self.server request:@"/api/sync-observations" method:@"POST" body:body headers:@{@"Content-Type":@"application/json"} timeout:10];}
+        for(NSUInteger i=0;i<items.count;i+=400){if(self.sync.comparisonCheck)self.sync.comparisonCheck();NSArray *slice=[items subarrayWithRange:NSMakeRange(i,MIN((NSUInteger)400,items.count-i))];NSData *body=[NSJSONSerialization dataWithJSONObject:@{@"deviceId":device,@"items":slice} options:0 error:NULL];
+            [self.server request:@"/api/sync-observations" method:@"POST" body:body headers:@{@"Content-Type":@"application/json"} timeout:10];for(NSDictionary *item in slice){NSString *key=[NSString stringWithFormat:@"%@/%@/%@",item[@"kind"],item[@"id"],item[@"node"]];self.recentReports[key]=@{@"item":item,@"at":@(now)};}}
     }@catch(NSException *error){NSLog(@"Sync 상태 보고 실패: %@",error.reason);}
 }
 
@@ -106,5 +119,6 @@
     return count;
 }
 @end
+
 
 

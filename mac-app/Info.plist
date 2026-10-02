@@ -9,9 +9,10 @@
 <key>CFBundleDisplayName</key><string>예배온 Sync</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>AppIcon.icns</string>
-<key>CFBundleShortVersionString</key><string>0.5.4</string>
-<key>CFBundleVersion</key><string>12</string>
+<key>CFBundleShortVersionString</key><string>0.6.0</string>
+<key>CFBundleVersion</key><string>13</string>
 <key>LSMinimumSystemVersion</key><string>10.13</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
+
 

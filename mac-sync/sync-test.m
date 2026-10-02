@@ -36,6 +36,8 @@ int main(void) { @autoreleasepool {
             NSArray *inventory=[s inventory];Check(inventory.count==1 && [inventory[0][@"originalPath"] isEqual:nfd] && [inventory[0][@"size"] unsignedIntegerValue]==a.length,@"metadata inventory preserves original NFD path and size");
             Check([s plan:@[v1]].count==1 && [[s plan:@[v1]][0][@"status"] isEqual:@"same"],@"NFD and NFC match with actual local bytes");
             Check([s plan:@[]].count==1 && [[s plan:@[]][0][@"status"] isEqual:@"upload"],@"scan finds unregistered local file");
+            NSUInteger reads=s.summaryReads;[s plan:@[v1]];Check(s.summaryReads==reads && s.summaryHits>0,@"unchanged repeat comparison reads no original bytes");
+            NSData *sameSize=XML(@"modified\r\n한글");Put(s.root,nfd,sameSize);Check(![[s documentSummary:path][@"hash"] isEqual:YBHash(a)],@"same-size atomic replacement invalidates summary");Put(s.root,nfd,a);
             [s acknowledge:v1 expectedLocalHash:YBHash(a)];
             Check([s.entries[path][@"version"] isEqual:@1],@"baseline initial");
             NSString *transaction=[s apply:b document:v2 expectedLocalHash:YBHash(a)];
@@ -162,3 +164,4 @@ int main(void) { @autoreleasepool {
         [NSFileManager.defaultManager removeItemAtPath:base error:NULL]; return 0;
     } @catch(NSException *e) { fprintf(stderr,"FAIL after %d checks: %s (%s)\n",checks,e.reason.UTF8String,base.UTF8String); return 1; }
 } }
+
