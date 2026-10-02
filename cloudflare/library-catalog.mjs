@@ -34,7 +34,7 @@ export async function catalogList(request,env){
     FROM yebaeon_documents d LEFT JOIN yebaeon_library_catalog c ON c.path=d.path LEFT JOIN yebaeon_document_usage u ON u.document_id=d.id AND u.version=d.current_version LEFT JOIN yebaeon_document_search s ON s.document_id=d.id AND s.version=d.current_version
     UNION ALL
     SELECT c.id,c.path,NULL,NULL,NULL,NULL,c.size,0,c.original_path,c.slide_count,NULL,NULL,NULL,'' FROM yebaeon_library_catalog c WHERE NOT EXISTS(SELECT 1 FROM yebaeon_documents d WHERE d.path=c.path)
-    ) SELECT * FROM library WHERE (instr(lower(path),lower(?))>0 OR instr(COALESCE(search_text,''),?)>0)${clause} ORDER BY ${order} LIMIT 101`).bind(...args).all()).results;
+    ) SELECT id,path,current_version,updated_at,updated_by,sha256,size,available,original_path,slide_count,last_used,usage_error,usage_indexed FROM library WHERE (instr(lower(path),lower(?))>0 OR instr(COALESCE(search_text,''),?)>0)${clause} ORDER BY ${order} LIMIT 101`).bind(...args).all()).results;
   const last=rows[99],next=rows.length>100?((sort==='name'||sort==='name-desc')?last.path:JSON.stringify({path:last.path,value:sort==='used'?last.last_used||'':last.updated_at||''})):null;
   const documents=rows.slice(0,100).map(r=>({...catalogDocument(r),available:!!r.available,version:r.current_version,sha256:r.sha256,updatedAt:r.updated_at,updatedBy:r.updated_by,...(r.usage_indexed?{lastDateUsed:r.last_used,usageError:r.usage_error}:{}),matchedBy:q&&!r.path.toLowerCase().includes(q.toLowerCase())?'content':'name'}));
   return json({documents,next,indexing,searchIndex:await searchProgress(env.DB)});
