@@ -65,7 +65,7 @@ static void CaptureWindow(NSWindow *window,NSString *name) {
     Check(png.length>1000,@"actual window pixels");Put([@"mac-app/test-output" stringByAppendingPathComponent:[name stringByAppendingString:@".png"]],png);
 }
 static void CheckButtons(NSView *view) {
-    for(NSView *v in view.subviews){if(v.hidden)continue;if([v isKindOfClass:NSButton.class]){NSButton *b=(id)v;Check(b.cell.cellSize.width<=b.frame.size.width+2,[@"button title fits: " stringByAppendingString:b.title]);}if(![v isKindOfClass:NSScrollView.class])[v layoutSubtreeIfNeeded];}
+    for(NSView *v in view.subviews){if(v.hidden)continue;if([v isKindOfClass:NSButton.class]){NSButton *b=(id)v;if(b.title.length)Check(b.cell.cellSize.width<=b.frame.size.width+2,[@"button title fits: " stringByAppendingString:b.title]);else {NSRect imageRect=[b.cell imageRectForBounds:b.bounds];Check(b.image && imageRect.size.width>0 && imageRect.size.height>0 && NSContainsRect(b.bounds,imageRect),@"icon button image fits");}}if(![v isKindOfClass:NSScrollView.class])[v layoutSubtreeIfNeeded];}
 }
 static void PumpUntil(BOOL (^condition)(void),NSTimeInterval seconds) {NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:seconds];while(!condition() && deadline.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];Check(condition(),@"async condition completed before deadline");}
 int main(void) {@autoreleasepool {
