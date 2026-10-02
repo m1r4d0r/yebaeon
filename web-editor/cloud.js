@@ -8,7 +8,7 @@
   const contexts=new Map(); let openSequence=0, documents=[], activityNext=null, activityScope='mine';
   const select=new YebaeonSelection.Selection($('documentsPane'),{kind:'documents',undo:redo=>editor.undo(redo),open:()=>openCloud(select.cursor),copy:()=>YebaeonSelection.copy({kind:'documents',documents:documents.filter(d=>select.chosen.has(d.id))})});
   let activitySequence=0;
-  let listNext = null, listSequence = 0, historyDoc = null, historyNext = null;
+  let listNext = null, listSequence = 0, indexTimer = null, historyDoc = null, historyNext = null;
   const rememberName = name => { try { localStorage.setItem('yebaeon.workerName', name); } catch (_) {} };
   const recalledName = () => { try { return localStorage.getItem('yebaeon.workerName') || ''; } catch (_) { return ''; } };
   const time = value => new Date(value).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short',timeZone:'Asia/Seoul' });
@@ -76,18 +76,15 @@
   function empty(target, message) { const div = document.createElement('div'); div.className = 'library-empty'; div.textContent = message; target.append(div); }
   async function list(more = false) {
     if (!needUser()) return;
+    clearTimeout(indexTimer);
     const sequence = ++listSequence, query = $('libraryQuery').value.trim(), sort = $('librarySort').value;
+    const scroll = more ? null : $('libraryList').scrollTop;
     if (!more) { listNext = null; documents=[]; $('libraryList').replaceChildren(); }
     $('libraryMore').hidden = true; $('libraryMessage').textContent = '문서 목록을 불러오고 있습니다…';
     try {
       const params = new URLSearchParams({q:query,sort,includeUses:'1'});
       if(more && listNext) params.set(sort==='name'||sort==='name-desc' ? 'after' : 'cursor',listNext);
-      let data;
-      do {
-        data = await (await api('/documents?' + params)).json();
-        if(sequence!==listSequence)return;
-        if(data.indexing?.remaining) $('libraryMessage').textContent = `최근 사용일 준비 중 · ${data.indexing.total-data.indexing.remaining}/${data.indexing.total}개 확인. 최초 한 번 수집하며 창을 닫아도 확인한 날짜는 유지됩니다.`;
-      } while(data.indexing?.remaining);
+      const data = await (await api('/documents?' + params)).json();
       if (sequence !== listSequence) return;
       for (const doc of data.documents) {
         documents.push(doc);const item=document.createElement('div');item.className='document-item';select.bind(item,doc.id);
@@ -98,9 +95,11 @@
         item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()}]);};$('libraryList').append(item);
       }
       select.setKeys(documents.map(d=>d.id));
+      if(scroll !== null) $('libraryList').scrollTop = scroll;
       listNext = data.next; $('libraryMore').hidden = !listNext;
       if (!$('libraryList').children.length) empty($('libraryList'), query ? '검색 결과가 없습니다.' : '아직 서버 문서가 없습니다. 교회 Sync에서 올려 주세요.');
-      $('libraryMessage').textContent = data.indexing?.failed ? `최근 사용일 확인 실패 ${data.indexing.failed}개는 날짜 없는 문서와 함께 뒤에 표시됩니다.` : '';
+      $('libraryMessage').textContent = data.indexing?.remaining ? `최근 사용일 수집 중 · ${data.indexing.total-data.indexing.remaining}/${data.indexing.total}개. 확인된 날짜부터 정렬해 표시합니다.` : data.indexing?.failed ? `최근 사용일 확인 실패 ${data.indexing.failed}개는 날짜 없는 문서와 함께 뒤에 표시됩니다.` : '';
+      if(data.indexing?.remaining && !more) indexTimer=setTimeout(()=>{if(document.visibilityState==='visible')list();},6000);
     } catch (error) { if (sequence === listSequence) $('libraryMessage').textContent = error.message; }
   }
   async function openCloud(id, fromPlaylist = false) {

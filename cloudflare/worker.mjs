@@ -4,8 +4,13 @@ import { ensureSchema } from './schema.mjs';
 import { configured, requireSession, sessionRoute } from './auth.mjs';
 import { playlistsRoute } from './playlists.mjs';
 import { documentsRoute } from './documents.mjs';
+import { indexUsage } from './document-usage.mjs';
 import { HttpError, headers, json, method } from './http.mjs';
 export default {
+  async scheduled(_event, env) {
+    await ensureSchema(env.DB);
+    await indexUsage(env, '', 32);
+  },
   async fetch(request, env) {
     let pathname;
     try { pathname = decodeURIComponent(new URL(request.url).pathname); } catch (_) { return json({ error: 'not_found', message: '없는 요청입니다.' }, 404); }

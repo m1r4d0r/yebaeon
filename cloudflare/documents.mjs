@@ -43,7 +43,6 @@ export async function documentsRoute(request, env, user, id, action) {
       const sort = url.searchParams.get('sort') || 'name';
       if (!['name','name-desc','updated','used'].includes(sort)) throw new HttpError(400,'invalid_sort','정렬 기준을 확인해 주세요.');
       const indexing = sort === 'used' ? await indexUsage(env, query) : null;
-      if (indexing?.remaining) return json({ documents: [], next: null, indexing });
       let cursor = null;
       if (url.searchParams.has('cursor')) {
         try { const raw=url.searchParams.get('cursor'); if(raw.length>2000)throw Error(); cursor=JSON.parse(raw); if(typeof cursor.path!=='string'||cursor.path.length>600||typeof cursor.value!=='string'||cursor.value.length>40)throw Error(); }

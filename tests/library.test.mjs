@@ -188,7 +188,8 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
       await bucket.put('sort-'+fixtureId,'<RVPresentationDocument lastDateUsed="2026-04-01T00:00:00Z"></RVPresentationDocument>');
     }
     const preparing=await (await call('/documents?q=sort-fixture%2F&sort=used',{cookie})).json();
-    assert.equal(preparing.indexing.remaining,2);assert.deepEqual(preparing.documents,[]);
+    assert.equal(preparing.indexing.remaining,2);assert.equal(preparing.documents.length,100);
+    assert.equal(preparing.documents[0].id,ids[129]);
     const collect=async(sort)=>{let result=[],next=null; do {const params=new URLSearchParams({q:'sort-fixture/',sort});if(next)params.set(sort.startsWith('name')?'after':'cursor',next);const page=await (await call('/documents?'+params,{cookie})).json();assert.equal(page.indexing?.remaining||0,0);result.push(...page.documents);next=page.next;}while(next);return result;};
     const used=await collect('used'); assert.equal(used.length,130);assert.equal(new Set(used.map(d=>d.id)).size,130);
     assert.equal(used[0].id,ids[128]);assert.equal(used[1].id,ids[129]);assert.equal(used.at(-1).id,ids[0]);
