@@ -2,6 +2,7 @@ import { referenceCounts } from './references.mjs';
 import { catalogList } from './library-catalog.mjs';
 import { searchData,searchStatement } from './document-search.mjs';
 import { usageFromXML, readStoredUsage } from './document-usage.mjs';
+import { categoryFromXML, categoryMetadata, categoryPolicy } from './document-category.mjs';
 import { XMLValidator } from 'fast-xml-parser';
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
 export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
@@ -15,7 +16,7 @@ export function documentPath(value) {
   }
   return path;
 }
-export async function readDocument(request, includeSearch=true) {
+export async function readDocument(request, previous=null) {
   const data = await bytes(request, MAX_DOCUMENT_BYTES); let xml;
   try { xml = new TextDecoder('utf-8', { fatal: true }).decode(data); }
   catch { throw new HttpError(400, 'invalid_encoding', 'UTF-8 .pro6 문서를 선택해 주세요.'); }
@@ -24,10 +25,11 @@ export async function readDocument(request, includeSearch=true) {
     throw new HttpError(400, 'invalid_document', '올바른 PP6 .pro6 문서가 아닙니다.');
   }
   if (/file:\/\/\/PP6-Package\//i.test(xml)) throw new HttpError(422, 'package_media', '새로 교체한 미디어가 포함된 문서는 아직 서버에 저장할 수 없습니다. ZIP으로 보관해 주세요.');
-  return { data, hash: await sha256(data), size: data.length, lastDateUsed: usageFromXML(xml), search:includeSearch?searchData(xml):{text:'',error:null} };
+  const policy = categoryMetadata(categoryFromXML(xml), previous, (previous?.current_version || 0) + 1);
+  return { data, hash: await sha256(data), size: data.length, lastDateUsed: usageFromXML(xml), policy, search:policy.search_enabled?searchData(xml):{text:'',error:null} };
 }
 function document(row) {
-  return { id: row.id, path: row.path, name: row.path.split('/').pop(), version: row.current_version, updatedAt: row.updated_at, updatedBy: row.updated_by, sha256: row.sha256, size: row.size, searchEnabled:row.search_enabled!==0,historyEnabled:row.history_enabled!==0,policyRevision:row.policy_revision||0,...(row.usage_version===row.current_version ? {lastDateUsed: row.last_used, usageError: row.usage_error} : {}) };
+  return { id: row.id, path: row.path, name: row.path.split('/').pop(), version: row.current_version, updatedAt: row.updated_at, updatedBy: row.updated_by, sha256: row.sha256, size: row.size, category:row.category??null,categoryManaged:!!categoryPolicy(row.category),searchEnabled:row.search_enabled!==0,historyEnabled:row.history_enabled!==0,policyRevision:row.policy_revision||0,...(row.usage_version===row.current_version ? {lastDateUsed: row.last_used, usageError: row.usage_error} : {}) };
 }
 async function find(db, id) {
   const row = await db.prepare('SELECT * FROM yebaeon_documents WHERE id = ?').bind(id).first();
@@ -35,6 +37,16 @@ async function find(db, id) {
   return row;
 }
 function conflict() { return new HttpError(409, 'version_conflict', '다른 작업자가 먼저 저장했습니다. 내 변경은 브라우저 초안에서 확인할 수 있습니다. 서버 최신 내용과 비교한 뒤 다시 저장해 주세요.'); }
+async function unchangedDocument(db, row, content) {
+  const p=content.policy;
+  if(p.policy_revision===row.policy_revision)return json({document:document(row),unchanged:true});
+  const writeId=crypto.randomUUID();
+  const statements=[db.prepare('UPDATE yebaeon_documents SET category=?,search_enabled=?,history_enabled=?,history_start=?,policy_revision=?,write_id=? WHERE id=? AND current_version=? AND policy_revision=?').bind(p.category,p.search_enabled,p.history_enabled,p.history_start,p.policy_revision,writeId,row.id,row.current_version,row.policy_revision),
+    db.prepare('DELETE FROM yebaeon_document_search WHERE document_id=? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=?)').bind(row.id,row.id,writeId)];
+  if(p.search_enabled)statements.push(db.prepare('INSERT INTO yebaeon_document_search(document_id,version,search_text,error) SELECT id,current_version,?,? FROM yebaeon_documents WHERE id=? AND write_id=? AND search_enabled=1').bind(content.search.text,content.search.error,row.id,writeId));
+  const results=await db.batch(statements);if(results[0].meta.changes!==1)throw conflict();
+  return json({document:document({...row,...p}),unchanged:true});
+}
 export async function documentsRoute(request, env, user, id, action) {
   const url = new URL(request.url), db = env.DB;
   if (!id) {
@@ -62,20 +74,22 @@ export async function documentsRoute(request, env, user, id, action) {
       return json({ documents: rows.slice(0,100).map(row=>({...document(row),...(refs?{useCount:refs.pending?null:(refs.uses.get(row.path)||0)}:{})})), next, indexing, referencesPending:refs?.pending||false });
     }
     sameOrigin(request);
-    const path = documentPath(url.searchParams.get('path')), content = await readDocument(request);
+    const path = documentPath(url.searchParams.get('path'));
     const existing = await db.prepare('SELECT * FROM yebaeon_documents WHERE path = ?').bind(path).first();
+    const content = await readDocument(request,existing);
     if (existing) {
-      if (existing.sha256 === content.hash) return json({ document: document(existing), unchanged: true });
+      if (existing.sha256 === content.hash) return unchangedDocument(db,existing,content);
       throw new HttpError(409, 'path_exists', '같은 경로의 문서가 이미 있습니다. 목록에서 열어 수정하거나 다른 경로로 저장해 주세요.');
     }
     const newId = crypto.randomUUID(), writeId = crypto.randomUUID(), key = `documents/${newId}/${writeId}.pro6`, now = new Date().toISOString();
-    const created = { id: newId, path, name: path.split('/').pop(), version: 1, updatedAt: now, updatedBy: user.author, sha256: content.hash, size: content.size };
+    const p=content.policy;
+    const created = document({id:newId,path,current_version:1,updated_at:now,updated_by:user.author,sha256:content.hash,size:content.size,last_used:content.lastDateUsed?new Date(content.lastDateUsed).toISOString():null,usage_version:1,usage_error:null,...p});
     await env.FILES.put(key, content.data, { httpMetadata: { contentType: 'application/xml' }, sha256: content.hash });
     try {
       await db.batch([
-        db.prepare('INSERT INTO yebaeon_documents(id, path, created_at, current_version, updated_at, updated_by, sha256, size, write_id,last_used,usage_version) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?,?,1)').bind(newId, path, now, now, user.author, content.hash, content.size, writeId,content.lastDateUsed?new Date(content.lastDateUsed).toISOString():null),
+        db.prepare('INSERT INTO yebaeon_documents(id, path, created_at, current_version, updated_at, updated_by, sha256, size, write_id,last_used,usage_version,category,search_enabled,history_enabled,history_start,policy_revision) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?,?,1,?,?,?,?,?)').bind(newId, path, now, now, user.author, content.hash, content.size, writeId,created.lastDateUsed,p.category,p.search_enabled,p.history_enabled,p.history_start,p.policy_revision),
         db.prepare('INSERT INTO yebaeon_versions(document_id, version, object_key, sha256, size, author, created_at) VALUES (?, 1, ?, ?, ?, ?, ?)').bind(newId, key, content.hash, content.size, user.author, now),
-        searchStatement(db,newId,1,content.search)
+        ...(p.search_enabled?[searchStatement(db,newId,1,content.search)]:[])
       ]);
     } catch (error) {
       const winner = await db.prepare('SELECT * FROM yebaeon_documents WHERE path = ?').bind(path).first();
@@ -127,26 +141,26 @@ export async function documentsRoute(request, env, user, id, action) {
   if (!match || !/^"[1-9][0-9]*"$/.test(match)) throw new HttpError(428, 'version_required', '문서의 기준 버전이 필요합니다.');
   const base = Number(match.slice(1, -1));
   if (base !== row.current_version) throw conflict();
-  const content = await readDocument(request,row.search_enabled!==0);
-  if (content.hash === row.sha256) return json({ document: document(row), unchanged: true });
-  const previousDisposableKey=!row.history_enabled&&row.history_start&&base>=row.history_start ? (await db.prepare('SELECT object_key FROM yebaeon_versions WHERE document_id=? AND version=?').bind(id,base).first())?.object_key : null;
+  const content = await readDocument(request,row),p=content.policy;
+  if (content.hash === row.sha256) return unchangedDocument(db,row,content);
+  const previousDisposableKey=!p.history_enabled&&p.history_start&&base>=p.history_start ? (await db.prepare('SELECT object_key FROM yebaeon_versions WHERE document_id=? AND version=?').bind(id,base).first())?.object_key : null;
   const next = base + 1, writeId = crypto.randomUUID(), key = `documents/${id}/${writeId}.pro6`, now = new Date().toISOString();
   await env.FILES.put(key, content.data, { httpMetadata: { contentType: 'application/xml' }, sha256: content.hash });
   const results = await db.batch([
-    db.prepare('UPDATE yebaeon_documents SET current_version = ?, updated_at = ?, updated_by = ?, sha256 = ?, size = ?, write_id = ?, last_used=?,usage_error=NULL,usage_version=? WHERE id = ? AND current_version = ? AND policy_revision=?').bind(next, now, user.author, content.hash, content.size, writeId,content.lastDateUsed?new Date(content.lastDateUsed).toISOString():null,next,id,base,row.policy_revision),
+    db.prepare('UPDATE yebaeon_documents SET current_version = ?, updated_at = ?, updated_by = ?, sha256 = ?, size = ?, write_id = ?, last_used=?,usage_error=NULL,usage_version=?,category=?,search_enabled=?,history_enabled=?,history_start=?,policy_revision=? WHERE id = ? AND current_version = ? AND policy_revision=?').bind(next, now, user.author, content.hash, content.size, writeId,content.lastDateUsed?new Date(content.lastDateUsed).toISOString():null,next,p.category,p.search_enabled,p.history_enabled,p.history_start,p.policy_revision,id,base,row.policy_revision),
     db.prepare(`INSERT INTO yebaeon_versions(document_id, version, object_key, sha256, size, author, created_at)
       SELECT id, ?, ?, ?, ?, ?, ? FROM yebaeon_documents WHERE id = ? AND write_id = ?`).bind(next, key, content.hash, content.size, user.author, now, id, writeId),
     db.prepare('DELETE FROM yebaeon_document_search WHERE document_id=? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=?)').bind(id,id,writeId),
     db.prepare(`INSERT INTO yebaeon_document_search(document_id,version,search_text,error) SELECT id,current_version,?,? FROM yebaeon_documents WHERE id=? AND write_id=? AND search_enabled=1`).bind(content.search.text,content.search.error,id,writeId),
     db.prepare('DELETE FROM yebaeon_document_usage WHERE document_id=? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=?)').bind(id,id,writeId),
     // Keep all historical backups from before the policy was changed.
-    db.prepare(`DELETE FROM yebaeon_versions WHERE document_id=? AND version>=? AND version<? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=? AND history_enabled=0)`).bind(id,row.history_start||next,next,id,writeId)
+    db.prepare(`DELETE FROM yebaeon_versions WHERE document_id=? AND version>=? AND version<? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=? AND history_enabled=0)`).bind(id,p.history_start||next,next,id,writeId)
   ]);
   if (results[0].meta.changes !== 1) { await env.FILES.delete(key); throw conflict(); }
   // Superseded originals created while history was disabled are no longer backups.
   if(previousDisposableKey)await env.FILES.delete(previousDisposableKey).catch(()=>console.warn('Deferred unretained document cleanup'));
   // Return this exact commit, even if another writer saved a later version immediately after it.
-  return json({ document: { ...document({...row,last_used:content.lastDateUsed?new Date(content.lastDateUsed).toISOString():null,usage_error:null,usage_version:next,current_version:next}), version: next, updatedAt: now, updatedBy: user.author, sha256: content.hash, size: content.size } });
+  return json({ document: { ...document({...row,...p,last_used:content.lastDateUsed?new Date(content.lastDateUsed).toISOString():null,usage_error:null,usage_version:next,current_version:next}), version: next, updatedAt: now, updatedBy: user.author, sha256: content.hash, size: content.size } });
 }
 
 
@@ -156,12 +170,17 @@ async function documentPolicy(request,env,id){
   if(typeof body?.searchEnabled!=='boolean'||typeof body?.historyEnabled!=='boolean'||!Number.isSafeInteger(body?.policyRevision))throw new HttpError(400,'invalid_policy','문서 설정을 확인해 주세요.');
   const db=env.DB,row=await find(db,id);
   if(request.headers.get('If-Match')!==`"${row.current_version}"`||body.policyRevision!==row.policy_revision)throw conflict();
+  const managed=categoryPolicy(row.category);
+  if(managed){
+    if(body.searchEnabled!==managed.searchEnabled||body.historyEnabled!==managed.historyEnabled)throw new HttpError(409,'category_policy','이 문서는 '+row.category+' 카테고리의 검색·이력 설정을 따릅니다. 분류를 바꾸려면 원본 문서의 카테고리를 변경해 주세요.');
+    return json({document:document(row)});
+  }
   let data=null;
   if(body.searchEnabled&&!row.search_enabled){const v=await db.prepare('SELECT object_key FROM yebaeon_versions WHERE document_id=? AND version=?').bind(id,row.current_version).first();const object=v&&await env.FILES.get(v.object_key);if(!object)throw new HttpError(503,'file_unavailable','원본을 읽지 못해 설정을 바꾸지 않았습니다.');data=searchData(await object.text());}
-  const revision=row.policy_revision+1;
-  const statements=[db.prepare('UPDATE yebaeon_documents SET search_enabled=?,history_enabled=?,history_start=?,policy_revision=? WHERE id=? AND current_version=? AND policy_revision=?').bind(+body.searchEnabled,+body.historyEnabled,body.historyEnabled?null:row.history_enabled?row.current_version+1:row.history_start,revision,id,row.current_version,row.policy_revision)];
-  if(!body.searchEnabled)statements.push(db.prepare('DELETE FROM yebaeon_document_search WHERE document_id=? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND policy_revision=? AND search_enabled=0)').bind(id,id,revision));
-  if(data)statements.push(db.prepare('INSERT OR REPLACE INTO yebaeon_document_search(document_id,version,search_text,error) SELECT id,current_version,?,? FROM yebaeon_documents WHERE id=? AND current_version=? AND policy_revision=? AND search_enabled=1').bind(data.text,data.error,id,row.current_version,revision));
+  const revision=row.policy_revision+1,writeId=crypto.randomUUID();
+  const statements=[db.prepare('UPDATE yebaeon_documents SET search_enabled=?,history_enabled=?,history_start=?,policy_revision=?,write_id=? WHERE id=? AND current_version=? AND policy_revision=?').bind(+body.searchEnabled,+body.historyEnabled,body.historyEnabled?null:row.history_enabled?row.current_version+1:row.history_start,revision,writeId,id,row.current_version,row.policy_revision)];
+  if(!body.searchEnabled)statements.push(db.prepare('DELETE FROM yebaeon_document_search WHERE document_id=? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=? AND search_enabled=0)').bind(id,id,writeId));
+  if(data)statements.push(db.prepare('INSERT OR REPLACE INTO yebaeon_document_search(document_id,version,search_text,error) SELECT id,current_version,?,? FROM yebaeon_documents WHERE id=? AND write_id=? AND search_enabled=1').bind(data.text,data.error,id,writeId));
   const result=await db.batch(statements);if(result[0].meta.changes!==1)throw conflict();
   return json({document:document(await find(db,id))});
 }

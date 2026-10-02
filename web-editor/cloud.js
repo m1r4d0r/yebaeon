@@ -91,6 +91,7 @@
     $('libraryMessage').textContent = '검색하고 있습니다…';
     try {
       const params = new URLSearchParams({q:query,sort,includeIndexed:'1'});
+      if($('libraryArchived').checked)params.set('includeArchived','1');
       if(more && listNext) params.set(sort==='name'||sort==='name-desc' ? 'after' : 'cursor',listNext);
       const data=await(await api('/documents?' + params)).json();
       if (sequence !== listSequence) return;
@@ -100,7 +101,7 @@
         const date=doc.lastDateUsed ? new Date(doc.lastDateUsed).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric',timeZone:'Asia/Seoul'})+' 사용' : '사용일 없음';
         small.textContent=doc.available===false?'원본 미업로드 · 편집 불가':doc.matchedBy==='content'?'본문 일치':date;item.classList.toggle('unavailable',doc.available===false);item.append(window.YebaeonSyncLights.dot('document',doc.id,''),name,small);item.title=doc.path+(doc.localPresent===false?' · 마지막 Mac 인덱스에서 없음 · 서버 원본과 이력은 보존됩니다.':'');
         item.addEventListener('click',e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey)openCloud(doc.id,false,doc);});
-        item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id,false,doc)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()},{label:'선택 문서를 찬양용으로 설정',action:()=>applySelectedPolicy(true,false)},{label:'선택 문서를 광고·기도·말씀용으로 설정',action:()=>applySelectedPolicy(false,true)}]);};$('libraryList').append(item);
+        item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id,false,doc)},{label:'문서 복제',disabled:doc.available===false,action:()=>YebaeonLibraryActions.duplicate(doc)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()},{label:'선택 문서를 찬양용으로 설정',action:()=>applySelectedPolicy(true,false)},{label:'선택 문서를 예배순서용으로 설정',action:()=>applySelectedPolicy(true,true)}]);};$('libraryList').append(item);
       }
       select.setKeys(documents.map(d=>d.id));
       if(scroll !== null) $('libraryList').scrollTop = scroll;
@@ -112,6 +113,7 @@
   }
   async function applySelectedPolicy(searchEnabled,historyEnabled){
     const chosen=documents.filter(d=>select.chosen.has(d.id)&&d.available!==false);if(!chosen.length)return;
+    if(chosen.some(d=>d.categoryManaged)){$('libraryMessage').textContent='카테고리로 관리하는 문서는 원본의 분류에 따라 검색·이력이 정해집니다. 미결·미분류 문서만 개별 설정할 수 있습니다.';return;}
     if(!confirm(`${chosen.length}개 문서에 ${searchEnabled?'본문 검색 켬':'본문 검색 끔'} / ${historyEnabled?'이력 보관 켬':'이력 보관 끔'}을 적용할까요? 기존 백업은 유지됩니다.`))return;
     let done=0;try{for(const item of chosen){const doc=(await(await api('/documents/'+item.id)).json()).document;await api('/documents/'+item.id+'/policy',{method:'PUT',headers:{'Content-Type':'application/json','If-Match':`"${doc.version}"`},body:JSON.stringify({searchEnabled,historyEnabled,policyRevision:doc.policyRevision||0})});done++;}$('libraryMessage').textContent=`${done}개 설정 저장됨 · 검색 결과는 다음 검색 때 반영됩니다.`;}catch(error){$('libraryMessage').textContent=`${done}/${chosen.length}개 적용 후 중단 · ${error.message}`;}
   }
@@ -248,10 +250,12 @@
     try{const doc=(await(await api('/documents/'+id)).json()).document;if(linked?.id!==id)return;
       const form=$('documentPolicyDialog');form.dataset.document=id;form.dataset.version=doc.version;form.dataset.revision=doc.policyRevision||0;
       $('policySearch').checked=doc.searchEnabled!==false;$('policyHistory').checked=doc.historyEnabled!==false;$('policyMessage').textContent=doc.name+' · 기존 백업은 유지됩니다.';form.showModal();
+      for(const key of ['policySearch','policyHistory','policySong','policyWeekly','policySave'])$(key).disabled=!!doc.categoryManaged;
+      if(doc.categoryManaged)$('policyMessage').textContent=doc.name+' · '+doc.category+' 카테고리 설정을 따릅니다. 변경하려면 원본 문서의 카테고리를 바꿔 주세요.';
     }catch(error){editor.status(error.message);}
   };
   $('policySong').onclick=()=>{$('policySearch').checked=true;$('policyHistory').checked=false;};
-  $('policyWeekly').onclick=()=>{$('policySearch').checked=false;$('policyHistory').checked=true;};
+  $('policyWeekly').onclick=()=>{$('policySearch').checked=true;$('policyHistory').checked=true;};
   $('policyClose').onclick=()=>$('documentPolicyDialog').close();
   $('policySave').onclick=async()=>{
     const form=$('documentPolicyDialog'),button=$('policySave');button.disabled=true;
@@ -262,6 +266,7 @@
   $('libraryRefresh').onclick = () => list(); $('libraryMore').onclick = () => list(true);
   $('libraryQuery').onkeydown=e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();list();}};
   $('libraryQuery').oninput=()=>{if(!$('libraryQuery').value.trim())list();};
+  $('libraryArchived').onchange=()=>list();
   $('cloudSave').onclick = async () => {
     if (!needUser()) return;
     try {
@@ -298,7 +303,24 @@
   window.addEventListener('yebaeonopen', () => { epoch++; linked = null; draftID=drafts.id(); baseXML=editor.document().xml; update(); });
   window.addEventListener('yebaeonchange', () => queueMicrotask(() => { update(); checkpointDraft().catch(drafts.report); }));
   document.addEventListener('visibilitychange', () => { if(document.hidden)checkpointDraft().catch(drafts.report); });
-  window.YebaeonCloud = { api, authenticated:()=>!!user, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, refresh:list, checkpointDraft, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)),pendingDocuments,saveRecord };
+  window.YebaeonCloud = { api, authenticated:()=>!!user, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, refresh:list, checkpointDraft, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)),pendingDocuments,saveRecord,
+    async documentCopySource(id){
+      const local=editor.cache(id);if(local?.dirty)return {xml:local.xml,local:true};
+      const doc=(await(await api('/documents/'+id)).json()).document;
+      const data=await(await api(`/documents/${id}/content?version=${doc.version}`)).arrayBuffer();
+      const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),n=>n.toString(16).padStart(2,'0')).join('');
+      if(hash!==doc.sha256)throw new Error('복제할 원본 확인에 실패했습니다.');
+      return {xml:new TextDecoder('utf-8',{fatal:true}).decode(data),local:false};
+    },
+    async createDocument(path,xml){
+      if(!needUser()||saving||window.YebaeonSave?.busy())throw new Error('현재 저장이 끝난 뒤 추가해 주세요.');
+      await checkpointDraft();
+      const result=await(await api('/documents?'+new URLSearchParams({path}),{method:'POST',headers:{'Content-Type':'application/xml'},body:xml})).json();
+      const opened=await openCloud(result.document.id,false,result.document);
+      if(!opened)editor.status('문서는 추가됐습니다. 이름으로 검색해 열어 주세요.');
+      return result.document;
+    }
+  };
   update();
   if (online) (async () => {
     try {

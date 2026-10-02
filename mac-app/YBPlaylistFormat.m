@@ -71,3 +71,11 @@ NSData *YBPlaylistReplacing(NSData *data,NSString *identifier,NSString *xml) {
     NSData *result=UTF8(out);YBRequire([[YBPlaylistNode(result,identifier) objectForKey:@"raw"] isEqual:xml],@"재생목록 적용 내용이 다릅니다.");
     for(NSDictionary *previous in YBPlaylistNodes(data))if(![previous[@"id"] isEqual:identifier])YBRequire([YBPlaylistNode(result,previous[@"id"])[@"raw"] isEqual:previous[@"raw"]],@"선택하지 않은 재생목록이 달라졌습니다.");return result;
 }
+NSData *YBPlaylistRemoving(NSData *data,NSString *identifier) {
+    NSDictionary *node=YBPlaylistNode(data,identifier);YBRequire(node!=nil,@"정리할 목록이 없습니다.");
+    NSMutableString *text=[[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] mutableCopy];
+    [text deleteCharactersInRange:[node[@"range"] rangeValue]];NSData *result=UTF8(text);
+    YBRequire(YBPlaylistNode(result,identifier)==nil,@"재생목록 정리를 확인하지 못했습니다.");
+    for(NSDictionary *previous in YBPlaylistNodes(data))if(![previous[@"id"] isEqual:identifier])YBRequire([YBPlaylistNode(result,previous[@"id"])[@"raw"] isEqual:previous[@"raw"]],@"선택하지 않은 목록이 바뀌었습니다.");
+    return result;
+}

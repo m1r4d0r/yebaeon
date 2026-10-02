@@ -57,6 +57,24 @@ function childContainer(node) {
   return arrays[0] || node;
 }
 export function catalog(parsed) { return parsed.playlists.map(p => ({ id: p.id, name: p.name, itemCount: p.items.length })); }
+export function playlistName(value) {
+  if(typeof value!=='string'||!value.trim()||value.trim().length>120||/[\x00-\x1f\x7f]/.test(value))fail('재생목록 이름은 1~120자로 입력해 주세요.');
+  return value.trim().normalize('NFC');
+}
+export function appendPlaylist(parsed, xml) {
+  const body=childContainer(parsed.tree);
+  const next=body.selfClosing
+    ? parsed.xml.slice(0,body.start)+parsed.xml.slice(body.start,body.end).replace(/\/\s*>$/,'>')+'\n'+xml+`\n</${body.name}>`+parsed.xml.slice(body.end)
+    : parsed.xml.slice(0,body.closeStart)+'\n'+xml+'\n'+parsed.xml.slice(body.closeStart);
+  parsePlaylist(next);return next;
+}
+export function newPlaylistNode(name,id) {
+  return `<RVPlaylistNode UUID="${escape(id)}" displayName="${escape(playlistName(name))}" type="3" smartDirectoryURL="" isExpanded="false" hotFolderType="2"><array rvXMLIvarName="children"/></RVPlaylistNode>`;
+}
+export function removePlaylist(parsed,id) {
+  const selected=parsed.playlists.find(p=>p.id===id);if(!selected)fail('재생목록을 찾지 못했습니다.');
+  return parsed.xml.slice(0,selected.node.start)+parsed.xml.slice(selected.node.end);
+}
 function attr(raw, key, value) {
   const end = raw.match(/^<(?:[^>"']|"[^"]*"|'[^']*')*>/)?.[0]; if (!end) fail('순서 항목을 읽지 못했습니다.');
   const re = new RegExp(`\\s${key}\\s*=\\s*(?:"[^"]*"|'[^']*')`);

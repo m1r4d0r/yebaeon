@@ -5,3 +5,4 @@ FOUNDATION_EXPORT NSDictionary *YBPlaylistNode(NSData *data, NSString *identifie
 FOUNDATION_EXPORT NSString *YBPlaylistReference(NSString *source, NSString *root);
 FOUNDATION_EXPORT NSString *YBPlaylistLocalXML(NSDictionary *plan, NSString *root);
 FOUNDATION_EXPORT NSData *YBPlaylistReplacing(NSData *data, NSString *identifier, NSString *xml);
+FOUNDATION_EXPORT NSData *YBPlaylistRemoving(NSData *data, NSString *identifier);

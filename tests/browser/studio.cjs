@@ -1,24 +1,24 @@
 const {chromium}=require('playwright');
 const {createServer}=require('node:http');
 const {readFile,mkdir}=require('node:fs/promises');
-const {resolve,extname}=require('node:path');
+const {resolve,extname,sep}=require('node:path');
 const {createHash}=require('node:crypto');
 const assert=require('node:assert/strict');
 (async()=>{
- const root=resolve('web-editor');const server=createServer(async(req,res)=>{try{const path=resolve(root,'.'+new URL(req.url,'http://localhost').pathname.replace(/\/$/,'/index.html'));if(!path.startsWith(root+'/'))throw Error();res.setHeader('Content-Type',({'.html':'text/html','.js':'application/javascript','.css':'text/css'})[extname(path)]||'application/octet-stream');res.end(await readFile(path));}catch{res.writeHead(404);res.end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const root=resolve('web-editor');const server=createServer(async(req,res)=>{try{const path=resolve(root,'.'+new URL(req.url,'http://localhost').pathname.replace(/\/$/,'/index.html'));if(!path.startsWith(root+sep))throw Error();res.setHeader('Content-Type',({'.html':'text/html','.js':'application/javascript','.css':'text/css'})[extname(path)]||'application/octet-stream');res.end(await readFile(path));}catch{res.writeHead(404);res.end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const browser=await chromium.launch(process.env.CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.CHROMIUM_EXECUTABLE_PATH,args:['--no-sandbox']}:undefined);const page=await browser.newPage({viewport:{width:1440,height:960}});const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
  let documentQueries=0,maintenanceCalls=0,xml='',version=1,playlistVersion=1,order=[],contentReads=0,orderPatches=0,failOrderSave=false;
  const id='11111111-1111-4111-a111-111111111111',libraryID='22222222-2222-4222-a222-222222222222';
- let catalogEnabled=false,policyRevision=0,policyCalls=0,searchEnabled=true,historyEnabled=true;
+ let catalogEnabled=false,policyRevision=0,policyCalls=0,searchEnabled=true,historyEnabled=true,category=null,archiveQuery=null;
  const pendingDoc={id:'33333333-3333-4333-a333-333333333333',name:'아직 안 올라온 찬양.pro6',path:'아직 안 올라온 찬양.pro6',available:false,version:null,slideCount:3};
- const doc=()=>({id,policyRevision,searchEnabled,historyEnabled,path:'시험 문서.pro6',name:'시험 문서.pro6',version,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',lastDateUsed:'2026-10-01T00:00:00Z',useCount:1,sha256:createHash('sha256').update(xml).digest('hex')});
+ const doc=()=>({id,policyRevision,searchEnabled,historyEnabled,category,categoryManaged:!!category,path:'시험 문서.pro6',name:'시험 문서.pro6',version,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',lastDateUsed:'2026-10-01T00:00:00Z',useCount:1,sha256:createHash('sha256').update(xml).digest('hex')});
  const nodeHash=()=>createHash('sha256').update(JSON.stringify(order)).digest('hex');
  const library=()=>({id:libraryID,path:'기본.pro6pl',version:playlistVersion,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',playlists:[{id:'A',name:'금요기도회',itemCount:order.length}]});
  await page.route('**/api/**',async route=>{const u=new URL(route.request().url()),path=u.pathname,method=route.request().method();let data={};
  if(path==='/api/sync-observations')data={items:{['document/'+id+'/']:{state:'pending',observedAt:'2026-10-02T00:00:00Z'},['playlist/'+libraryID+'/A']:{state:'synced',observedAt:'2026-10-02T00:00:00Z'}}};
  else if(path==='/api/search-index'){maintenanceCalls++;data={next:null,processed:0};}
  else if(path==='/api/session')data={ready:true,authenticated:true,name:'시험'};
- else if(path==='/api/documents'){documentQueries++;const q=u.searchParams.get('q')||'';data={documents:xml?(catalogEnabled?(q==='본문만검색'?[{...doc(),matchedBy:'content'}]:[doc(),pendingDoc].filter(d=>q==='문서전체시험'||d.name.includes(q))):[doc()]):[],next:null};}
+ else if(path==='/api/documents'){documentQueries++;archiveQuery=u.searchParams.get('includeArchived');const q=u.searchParams.get('q')||'';data={documents:xml?(catalogEnabled?(q==='본문만검색'?[{...doc(),matchedBy:'content'}]:[doc(),pendingDoc].filter(d=>q==='문서전체시험'||d.name.includes(q))):[doc()]):[],next:null};}
  else if(path==='/api/documents/'+id+'/policy'){const body=JSON.parse(route.request().postData());assert.equal(body.policyRevision,policyRevision);searchEnabled=body.searchEnabled;historyEnabled=body.historyEnabled;policyRevision++;policyCalls++;data={document:doc()};}
  else if(path==='/api/documents/'+id+'/content'){contentReads++;await route.fulfill({body:xml,contentType:'application/xml'});return;}
  else if(path==='/api/documents/'+id){if(method==='PUT'){xml=route.request().postData();version++;}data={document:doc()};}
@@ -43,7 +43,12 @@ const assert=require('node:assert/strict');
  assert.equal(await page.locator('#libraryList .sync-pending').count(),1);assert.equal(await page.locator('#playlistsList .sync-synced').count(),1);assert.match(await page.locator('#libraryList .sync-light').getAttribute('title'),/마지막 Mac 확인/);
  await page.evaluate(async()=>{const api=YebaeonCloud.api;YebaeonCloud.api=(path,...args)=>path.startsWith('/sync-observations')?Promise.reject(new Error('fixture offline')):api(path,...args);await YebaeonSyncLights.refresh();YebaeonCloud.api=api;});assert.equal(await page.locator('#playlistsList .sync-synced').count(),0);assert.match(await page.locator('#playlistsList .sync-light').getAttribute('title'),/조회 실패/);await page.evaluate(()=>YebaeonSyncLights.refresh());
  await page.locator('#documentPolicy').click();await page.locator('#policySong').click();assert.equal(await page.locator('#policySearch').isChecked(),true);assert.equal(await page.locator('#policyHistory').isChecked(),false);await page.locator('#policySave').click();await page.locator('#documentPolicyDialog').waitFor({state:'hidden'});assert.equal(policyCalls,1);assert.equal(historyEnabled,false);
- await page.locator('#documentPolicy').click();await page.locator('#policyWeekly').click();assert.equal(await page.locator('#policySearch').isChecked(),false);assert.equal(await page.locator('#policyHistory').isChecked(),true);await page.locator('#policySave').click();await page.locator('#documentPolicyDialog').waitFor({state:'hidden'});assert.equal(policyCalls,2);
+ await page.locator('#documentPolicy').click();await page.locator('#policyWeekly').click();assert.equal(await page.locator('#policySearch').isChecked(),true);assert.equal(await page.locator('#policyHistory').isChecked(),true);await page.locator('#policySave').click();await page.locator('#documentPolicyDialog').waitFor({state:'hidden'});assert.equal(policyCalls,2);
+ // Reuse the initial search/policy flow as a focused check for this change.
+ assert.equal(archiveQuery,null);await page.locator('#libraryArchived').check();await page.waitForFunction(()=>document.getElementById('libraryMessage').textContent==='');assert.equal(archiveQuery,'1');await page.locator('#libraryArchived').uncheck();await page.waitForFunction(()=>document.getElementById('libraryMessage').textContent==='');assert.equal(archiveQuery,null);
+ category='예배순서';await page.locator('#documentPolicy').click();await page.locator('#documentPolicyDialog').waitFor({state:'visible'});assert.equal(await page.locator('#policySearch').isChecked(),true);assert.equal(await page.locator('#policyHistory').isChecked(),true);for(const control of ['policySearch','policyHistory','policySong','policyWeekly','policySave'])assert.equal(await page.locator('#'+control).isDisabled(),true);assert.match(await page.locator('#policyMessage').textContent(),/예배순서 카테고리/);await page.screenshot({path:'artifacts/studio-category-policy.png'});await page.locator('#policyClose').click();assert.equal(policyCalls,2);
+ category=null;await page.locator('#documentPolicy').click();await page.locator('#documentPolicyDialog').waitFor({state:'visible'});assert.equal(await page.locator('#policySave').isEnabled(),true);await page.locator('#policyClose').click();
+ if(process.env.STUDIO_CHECK_SCOPE==='category-policy'){assert.deepEqual(errors,[]);console.log('Category policy UI passed: empty/typing requests, explicit archived search, managed policy, legacy presets');return;}
  templateXML=await page.evaluate(xml=>new XMLSerializer().serializeToString(PP6.slides(PP6.parse(xml,'template'))[0]),xml);assert.equal(templateReads,0);assert.equal(await page.locator('#playlistItems').getByText(/함께 사용:/).count(),0);
  assert.equal(await page.locator('.slide-card').count(),3);
  await page.locator('#slideColumns').evaluate(e=>{e.value='6';e.dispatchEvent(new Event('input'));});assert.equal(await page.locator('#slideColumnsValue').textContent(),'6개');assert.equal(await page.evaluate(()=>getComputedStyle(document.getElementById('slides')).gridTemplateColumns.split(' ').length),6);
@@ -155,6 +160,7 @@ const assert=require('node:assert/strict');
  // Load original server files in Chromium; synthetic text avoids publishing church originals.
  const fontsPage=await browser.newPage({viewport:{width:1100,height:800},deviceScaleFactor:2});
  await fontsPage.route('**/resources/*.otf',async route=>{const file=new URL(route.request().url()).pathname.split('/').pop();await route.fulfill({contentType:'font/otf',body:await readFile('church-resources/'+file)});});
+ await fontsPage.route('**/font-preview.html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body></body></html>'}));
  await fontsPage.goto(`http://127.0.0.1:${server.address().port}/font-preview.html`);await fontsPage.setContent('<canvas id="scene" width="1920" height="1080" style="width:960px"></canvas>');
  for(const file of ['pp6.js','fonts.js','render.js','sample-demo.js'])await fontsPage.addScriptTag({path:'web-editor/'+file});
  const actualCatalog=JSON.parse(await readFile('church-resources/catalog.json','utf8'));

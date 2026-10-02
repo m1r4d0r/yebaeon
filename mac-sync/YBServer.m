@@ -44,6 +44,9 @@ static NSString *Query(NSString *value) {
     return [self transfer:route method:method body:body headers:headers timeout:60];
 }
 - (YBTransfer *)transfer:(NSString *)route method:(NSString *)method body:(NSData *)body headers:(NSDictionary *)headers timeout:(NSTimeInterval)timeout {
+#ifdef YB_TESTING
+    YBRequire(NO,@"격리 GUI 검사에서는 네트워크 전송을 허용하지 않습니다.");
+#endif
     YBRequire([route hasPrefix:@"/api/"] && ![route containsString:@"\r"] && ![route containsString:@"\n"],@"서버 요청 경로가 올바르지 않습니다.");
     NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:[NSURL URLWithString:[self.origin stringByAppendingString:route]]];
     request.HTTPMethod=method; request.HTTPBody=body; request.timeoutInterval=MIN(45,timeout); request.HTTPShouldHandleCookies=NO;
@@ -122,6 +125,9 @@ static NSString *Query(NSString *value) {
     YBValidateMetadata(doc); YBRequire([doc[@"path"] isEqual:path] && [doc[@"sha256"] isEqual:YBHash(data)] && [doc[@"size"] unsignedIntegerValue]==data.length && (!previous || [previous[@"id"] isEqual:doc[@"id"]]),@"서버 저장 결과와 보낸 문서가 다릅니다. 다시 비교해 주세요."); return doc;
 }
 - (NSMutableDictionary *)keychainQuery {
+#ifdef YB_TESTING
+    YBRequire(NO,@"격리 GUI 검사에서는 운영 키체인에 접근하지 않습니다.");
+#endif
     return [@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:@"org.yebaeon.sync.session",(__bridge id)kSecAttrAccount:self.origin} mutableCopy];
 }
 - (void)loadSession {
@@ -138,5 +144,13 @@ static NSString *Query(NSString *value) {
     YBRequire(status==errSecSuccess,@"키체인에 입장 정보를 저장하지 못했습니다. 이번 실행에서는 사용할 수 있습니다.");
 }
 - (void)forgetSession { OSStatus status=SecItemDelete((__bridge CFDictionaryRef)[self keychainQuery]); YBRequire(status==errSecSuccess || status==errSecItemNotFound,@"키체인 입장 정보를 지우지 못했습니다."); self.cookie=nil; }
+- (NSData *)downloadPlaylist:(NSDictionary *)library {
+    NSString *identifier=library[@"id"],*hash=library[@"sha256"];NSNumber *version=library[@"version"];
+    YBRequire([identifier isKindOfClass:NSString.class] && [identifier rangeOfString:@"^[0-9a-f-]{36}$" options:NSRegularExpressionSearch].location!=NSNotFound && [hash isKindOfClass:NSString.class] && version.integerValue>0,@"재생목록 메타데이터 오류");
+    NSData *data=[self transfer:[NSString stringWithFormat:@"/api/playlists/%@/content?version=%@",identifier,version] method:@"GET" body:nil headers:nil].data;
+    YBRequire([YBHash(data) isEqual:hash],@"서버 재생목록 백업 해시가 다릅니다.");return data;
+}
+
 @end
+
 
