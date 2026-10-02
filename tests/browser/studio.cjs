@@ -74,7 +74,7 @@ const assert=require('node:assert/strict');
  await page.reload();await page.locator('#libraryList .document-item').click();await page.waitForFunction(()=>document.querySelector('#templateSelect option').textContent==='성경 · 본문');
  catalogEnabled=true;await page.evaluate(()=>YebaeonCloud.refresh());
  await page.evaluate(()=>{PP6.setText(PP6.textElements(YebaeonEditor.current())[0],'전환 전에 편집한 초안');YebaeonEditor.markDirty();});
- const pendingRow=page.locator('#libraryList .document-item').filter({hasText:'아직 안 올라온 찬양'});await pendingRow.click();
+ const pendingRow=page.locator('#libraryList .document-item').filter({hasText:'아직 안 올라온 찬양'});await pendingRow.click();await page.waitForFunction(()=>!YebaeonEditor.ready());
  assert.equal(await page.evaluate(()=>YebaeonEditor.ready()),false);assert.equal(await page.locator('#cloudSave').isDisabled(),true);assert.equal(await page.locator('#templateSelect').isDisabled(),true);assert.match(await page.locator('#emptyDocument').textContent(),/원본 미업로드/);assert.equal(await page.locator('.slide-card').count(),0);
  const beforeOrder=order.length;await pendingRow.dragTo(page.locator('#playlistItems .order-item').first());await page.waitForFunction(()=>document.getElementById('playlistsMessage').textContent==='순서 저장됨');assert.equal(order.length,beforeOrder+1);assert.equal(order[0].documentId,pendingDoc.id);
  await page.locator('#playlistItems .order-item').first().click();assert.match(await page.locator('#emptyDocument').textContent(),/텍스트 편집과 미리보기를 사용할 수 없습니다/);
