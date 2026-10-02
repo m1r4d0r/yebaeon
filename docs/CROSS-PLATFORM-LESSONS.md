@@ -208,3 +208,6 @@ P0 [PR #17](https://github.com/m1r4d0r/yebaeon/pull/17)은 `fc7d3c7`로 병합�
 ## 로그인 연결 실패 후 재시도 · 2026-10-02
 
 사용자 화면에서 초기 세션 연결 실패 안내와 입장 버튼 비활성 상태를 확인했다. `cloud.js`의 초기 GET 실패 처리에서 `ready=false`를 유지하고 재시도 경로가 없어 일시적 연결 실패도 새로고침 전까지 입장을 차단했다. 현재 운영의 비인증 GET `/api/session`은 200 / ready=true로 확인됐으며 최초 실패의 서버/네트워크 원인은 미확정이다. 실패 시 로그인 POST를 다시 시도할 수 있게 하고 인증·비밀번호·Origin 검사는 유지한다. 로컬 Node 48개 성공. Chromium에서 초기 연결 실패→잘못된 비밀번호 거부→버튼 재활성→정상 로그인 회귀 검사를 추가했다. 최신 CI·배포는 후속 기록한다.
+
+
+로그인 수정 [PR #18](https://github.com/m1r4d0r/yebaeon/pull/18): 최종 소스 `0caf920`의 [검사 36981927928](https://github.com/m1r4d0r/yebaeon/actions/runs/36981927928)(Node 48개·배포 사전·Chromium) 성공. 초기 연결 실패→잘못된 비밀번호 거부→재시도 성공을 실제 Chromium의 합성 API로 검증했다. `4a248a5` 병합 후 [운영 배포 36982165692](https://github.com/m1r4d0r/yebaeon/actions/runs/36982165692) 성공. Cloud Browser의 운영 새로고침은 플랫폼 URL 보안 정책에 차단되어 배포 후 실사용 로그인 성공으로 표현하지 않는다. 사용자 브라우저는 한 번 새로고침 후 새 코드를 사용한다. 이번 CI/배포 실패는 없으며 최초 연결 실패의 원인은 여전히 미확정이다.
