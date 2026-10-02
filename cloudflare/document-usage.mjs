@@ -7,9 +7,6 @@ export function usageFromXML(xml) {
   const value = attrs?.['@_lastDateUsed'];
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value)) ? value : null;
 }
-export function usageStatement(db, id, version, value, error = null) {
-  return db.prepare('INSERT OR REPLACE INTO yebaeon_document_usage(document_id, version, last_used, error) VALUES (?, ?, ?, ?)').bind(id, version, value ? new Date(value).toISOString() : null, error);
-}
 export async function readStoredUsage(env, id, version, key) {
   const saved = await env.DB.prepare('SELECT last_used, error FROM yebaeon_document_usage WHERE document_id = ? AND version = ?').bind(id, version).first();
   if (saved && !saved.error) return saved;
@@ -20,25 +17,6 @@ export async function readStoredUsage(env, id, version, key) {
     value = usageFromXML(await object.text());
   } catch (_) { error = 'usage_unavailable'; }
   // A read failure stays retryable. Backfill records it separately to avoid an endless loop.
-  if (!error) await usageStatement(env.DB, id, version, value).run();
+  if (!error) await env.DB.prepare('UPDATE yebaeon_documents SET last_used=?,usage_error=NULL,usage_version=? WHERE id=? AND current_version=?').bind(value?new Date(value).toISOString():null,version,id,version).run();
   return { last_used: value ? new Date(value).toISOString() : null, error };
-}
-export async function indexUsage(env, query, batchSize = 12) {
-  const join = 'FROM yebaeon_documents d LEFT JOIN yebaeon_document_usage u ON u.document_id=d.id AND u.version=d.current_version';
-  const rows = (await env.DB.prepare(`SELECT d.id, d.current_version, v.object_key ${join} JOIN yebaeon_versions v ON v.document_id=d.id AND v.version=d.current_version WHERE u.document_id IS NULL AND instr(lower(d.path),lower(?))>0 ORDER BY d.path LIMIT ?`).bind(query, batchSize).all()).results;
-  const statements=[];
-  for (let i=0; i<rows.length; i+=8) {
-    const group=await Promise.all(rows.slice(i,i+8).map(async row => {
-      let value=null,error=null;
-      try {
-        const object=await env.FILES.get(row.object_key,{range:{offset:0,length:65536}});
-        if(!object)throw new Error('file_unavailable');
-        value=usageFromXML(await object.text());
-      } catch (_) { error='usage_unavailable'; }
-      return usageStatement(env.DB,row.id,row.current_version,value,error);
-    }));
-    statements.push(...group);
-  }
-  if(statements.length)await env.DB.batch(statements);
-  return env.DB.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(u.document_id IS NULL),0) AS remaining, COALESCE(SUM(u.error IS NOT NULL),0) AS failed ${join} WHERE instr(lower(d.path),lower(?))>0`).bind(query).first();
 }

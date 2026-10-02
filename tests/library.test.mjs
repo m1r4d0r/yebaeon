@@ -128,7 +128,7 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     await db.exec('DROP TRIGGER test_fail_version;');
   });
   await t.test('library and history pagination do not omit or repeat rows', async () => {
-    const rows = Array.from({ length: 101 }, (_, i) => db.prepare('INSERT INTO yebaeon_documents SELECT ?, ?, created_at, 1, updated_at, updated_by, sha256, size, ? FROM yebaeon_documents WHERE id = ?').bind('fixture-' + i, `pagination/${String(i).padStart(3, '0')}.pro6`, 'fixture-' + i, id));
+    const rows = Array.from({ length: 101 }, (_, i) => db.prepare('INSERT INTO yebaeon_documents(id,path,created_at,current_version,updated_at,updated_by,sha256,size,write_id) SELECT ?, ?, created_at, 1, updated_at, updated_by, sha256, size, ? FROM yebaeon_documents WHERE id = ?').bind('fixture-' + i, `pagination/${String(i).padStart(3, '0')}.pro6`, 'fixture-' + i, id));
     await db.batch(rows);
     const first = await (await call('/documents?q=pagination/', { cookie })).json(); assert.equal(first.documents.length, 100); assert.ok(first.next);
     const last = await (await call('/documents?q=pagination/&after=' + encodeURIComponent(first.next), { cookie })).json(); assert.equal(last.documents.length, 1); assert.equal(last.next, null);
@@ -175,27 +175,28 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
       const fixtureId=randomUUID(), path=`sort-fixture/${String(i).padStart(3,'0')}.pro6`, stamp=i===129 ? '2026-10-01T00:00:00.000Z' : '2026-04-01T00:00:00.000Z';
       ids.push(fixtureId);
       await db.batch([
-        db.prepare('INSERT INTO yebaeon_documents VALUES (?, ?, ?, 1, ?, ?, ?, 1, ?)').bind(fixtureId,path,stamp,stamp,'sort-test','fixture-hash',fixtureId),
+        db.prepare('INSERT INTO yebaeon_documents(id,path,created_at,current_version,updated_at,updated_by,sha256,size,write_id) VALUES (?, ?, ?, 1, ?, ?, ?, 1, ?)').bind(fixtureId,path,stamp,stamp,'sort-test','fixture-hash',fixtureId),
         db.prepare('INSERT INTO yebaeon_versions VALUES (?, 1, ?, ?, 1, ?, ?)').bind(fixtureId,'sort-'+fixtureId,'fixture-hash','sort-test',stamp),
-        db.prepare('INSERT INTO yebaeon_document_usage VALUES (?, 1, ?, NULL)').bind(fixtureId,i===0 ? null : stamp)
+        db.prepare('UPDATE yebaeon_documents SET last_used=?,usage_version=1 WHERE id=?').bind(i===0 ? null : stamp,fixtureId)
       ]);
     }
     // Simulate an already-uploaded document from before the index existed.
-    await db.prepare('DELETE FROM yebaeon_document_usage WHERE document_id=?').bind(ids[128]).run();
+    await db.prepare('UPDATE yebaeon_documents SET usage_version=NULL,last_used=NULL WHERE id=?').bind(ids[128]).run();
     await bucket.put('sort-'+ids[128], '<RVPresentationDocument lastDateUsed="2026-10-01T10:00:00+09:00"></RVPresentationDocument>');
     for(const fixtureId of ids.slice(1,14)) {
-      await db.prepare('DELETE FROM yebaeon_document_usage WHERE document_id=?').bind(fixtureId).run();
+      await db.prepare('UPDATE yebaeon_documents SET usage_version=NULL,last_used=NULL WHERE id=?').bind(fixtureId).run();
       await bucket.put('sort-'+fixtureId,'<RVPresentationDocument lastDateUsed="2026-04-01T00:00:00Z"></RVPresentationDocument>');
     }
     const preparing=await (await call('/documents?q=sort-fixture%2F&sort=used',{cookie})).json();
-    assert.equal(preparing.indexing.remaining,2);assert.equal(preparing.documents.length,100);
+    assert.equal(preparing.indexing,null);assert.equal(preparing.documents.length,100);
     assert.equal(preparing.documents[0].id,ids[129]);
     const collect=async(sort)=>{let result=[],next=null; do {const params=new URLSearchParams({q:'sort-fixture/',sort});if(next)params.set(sort.startsWith('name')?'after':'cursor',next);const page=await (await call('/documents?'+params,{cookie})).json();assert.equal(page.indexing?.remaining||0,0);result.push(...page.documents);next=page.next;}while(next);return result;};
+    let after='sort-fixture/';do{const p=await(await call('/search-index?after='+encodeURIComponent(after),{cookie,method:'POST'})).json();after=p.next;}while(after);
     const used=await collect('used'); assert.equal(used.length,130);assert.equal(new Set(used.map(d=>d.id)).size,130);
     assert.equal(used[0].id,ids[128]);assert.equal(used[1].id,ids[129]);assert.equal(used.at(-1).id,ids[0]);
     const updated=await collect('updated');assert.equal(updated[0].id,ids[129]);assert.equal(updated.length,130);
     const reverse=await collect('name-desc');assert.equal(reverse[0].id,ids[129]);assert.equal(reverse.at(-1).id,ids[0]);
-    const cache=await db.prepare('SELECT last_used FROM yebaeon_document_usage WHERE document_id=?').bind(ids[128]).first();assert.equal(cache.last_used,'2026-10-01T01:00:00.000Z');
+    const cache=await db.prepare('SELECT last_used FROM yebaeon_documents WHERE id=?').bind(ids[128]).first();assert.equal(cache.last_used,'2026-10-01T01:00:00.000Z');
     await code(await call('/documents?sort=bad',{cookie}),400);
     await code(await call('/documents?sort=updated&cursor=broken',{cookie}),400);
   });
@@ -235,4 +236,5 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     const limited = await signIn(); await code(limited, 429, 'too_many_attempts'); assert.ok(Number(limited.headers.get('Retry-After')) > 0);
   });
 });
+
 
