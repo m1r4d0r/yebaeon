@@ -141,3 +141,10 @@ Sync 디자인과 현재 백업 정책의 충돌 및 아이콘 제안은 docs/UX
 운영 Studio의 로그인된 화면에서 재생목록 목록이 비어 있음을 확인했다. PR #10 (`0b1eb59`)의 인증된 초기 자료 복구 페이지 https://yebaeon.grace-jean-p.workers.dev/api/playlist-bootstrap 는 배포되어 표시된다. 기존 목록이 있으면 409로 거부하며 Studio에는 등록 버튼이 없다. 서버 이름 `기본 .pro6pl`로 제공 파일 `기본 (3).pro6pl` 원본을 최초 등록한다. 원본은 19개 재생목록, 74679 bytes, SHA-256 `79e43d8c187a0a1c24cb553a1db71729eea2025f560b86dbedf6f668212aa6e4`이다.
 
 **아직 운영 서버 원본 등록을 완료하지 못했다.** Cloud Browser가 마지막 form 제출을 URL 보안 정책으로 차단했다. 사용자 브라우저에서 제출 후 운영 목록과 자동 선택 확인이 남았다. Studio 36개 Node/배포 사전/Chromium 검사와 Mac CI는 성공했다. 실패와 후속 성공은 CROSS-PLATFORM-LESSONS에 기록했다.
+
+
+## 2026-10-02 운영 재생목록 확인과 Studio 경량화
+
+이 항목이 위 초기 등록 미완료 기록보다 최신이다. 인증된 운영 Studio에서 재생목록 **19개**를 확인했고, 2부 예배와 실제 주일예배말씀 22장을 열었다. 초기 등록은 운영 목록으로 확인됐다.
+
+[PR #11](https://github.com/m1r4d0r/yebaeon/pull/11) `decd494` 배포: '함께 사용'/참조 수 UI와 문서 목록 참조 집계를 제거했다. ZIP 이름 오독으로 깨진 템플릿명을 빌드에서 복원한다. 템플릿 자료는 26,185-byte 색인과 196개 선택 원본으로 나뉘고, 선택한 원본만 읽는다. 입력 중 해당 썸네일만 갱신하고 화면 근처 캔버스만 그리며 RTF 해석을 캐시한다. Node 38개·배포 사전·Chromium 통과, 운영 이름 복원 확인. 상세 근거와 측정 한계는 CROSS-PLATFORM-LESSONS의 최신 항목을 참조한다. 교회 PP6/High Sierra 실기 검증을 의미하지 않는다.
