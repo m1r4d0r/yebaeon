@@ -92,14 +92,14 @@
     try {
       const params = new URLSearchParams({q:query,sort,includeIndexed:'1'});
       if(more && listNext) params.set(sort==='name'||sort==='name-desc' ? 'after' : 'cursor',listNext);
-      const data = await (await api('/documents?' + params)).json();
+      const [data]=await Promise.all([(async()=> (await api('/documents?' + params)).json())(),window.YebaeonSyncLights.refresh()]);
       if(data.searchIndex){searchIndex=data.searchIndex;paintSearchIndex();startSearchIndexing();}
       if (sequence !== listSequence) return;
       for (const doc of data.documents) {
         documents.push(doc);const item=document.createElement('div');item.className='document-item';select.bind(item,doc.id);
         const name=document.createElement('strong');name.textContent=doc.name.replace(/\.pro6$/i,'');const small=document.createElement('small');
         const date=doc.lastDateUsed ? new Date(doc.lastDateUsed).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric',timeZone:'Asia/Seoul'})+' 사용' : '사용일 없음';
-        small.textContent=doc.available===false?'원본 미업로드 · 편집 불가':doc.matchedBy==='content'?'본문 일치':date;item.classList.toggle('unavailable',doc.available===false);item.append(name,small);item.title=doc.path;
+        small.textContent=doc.available===false?'원본 미업로드 · 편집 불가':doc.matchedBy==='content'?'본문 일치':date;item.classList.toggle('unavailable',doc.available===false);item.append(window.YebaeonSyncLights.dot('document',doc.id,''),name,small);item.title=doc.path;
         item.addEventListener('click',e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey)openCloud(doc.id,false,doc);});
         item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id,false,doc)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()}]);};$('libraryList').append(item);
       }
@@ -231,7 +231,7 @@
     const sequence=++activitySequence;if(!needUser())return;if(!$('activityDialog').open)$('activityDialog').showModal();$('accountMenu').hidden=true;
     if(!more){activityNext=null;$('activityList').replaceChildren();}$('activityMessage').textContent='작업 이력을 불러오고 있습니다…';
     try{const params=new URLSearchParams({scope:activityScope});if(more&&activityNext)params.set('cursor',activityNext);const data=await(await api('/activity?'+params)).json();
-      if(sequence!==activitySequence)return;for(const item of data.items){$('activityList').append(row(item.path,`${time(item.createdAt)} · ${item.author} · ${item.kind==='document'?'문서':'재생목록 파일'} v${item.version}`,'열기',async()=>{if(item.kind==='document')await openCloud(item.id);else await window.YebaeonPlaylists.openLibrary(item.id);$('activityDialog').close();}));}
+      if(sequence!==activitySequence)return;for(const item of data.items){$('activityList').append(row(item.path,`${time(item.createdAt)} · ${item.author} · ${item.kind==='document'?'문서':item.node?'예배 순서':'이전 재생목록 파일'} v${item.version}`,'열기',async()=>{if(item.kind==='document')await openCloud(item.id);else if(item.node)await window.YebaeonPlaylists.openNode(item.id,item.node);else await window.YebaeonPlaylists.openLibrary(item.id);$('activityDialog').close();}));}
       activityNext=data.next;$('activityMore').hidden=!data.next;$('activityMessage').textContent=activityScope==='mine'?'현재 작업자 이름으로 저장한 이력입니다.':'모든 작업자의 이력입니다.';
     }catch(error){$('activityMessage').textContent=error.message;}
   }
@@ -250,4 +250,14 @@
       else showEntry();
     } catch (_) { ready = false; showEntry(); $('entryMessage').textContent = '서버에 연결하지 못했습니다. 현재 편집 내용은 브라우저 초안에 보존됩니다.'; }
   })();
+})();
+
+
+(function(){
+ let items={},pending;
+ const labels={synced:'Mac 반영 완료',pending:'서버 변경 있음 · Mac으로 받기 필요',conflict:'서버와 Mac 양쪽 변경 · 충돌 확인 필요',local:'Mac 변경 있음 · 서버로 보내기 필요',unknown:'Mac 상태 확인 전 · 미업로드 포함'};
+ window.YebaeonSyncLights={
+ async refresh(){if(pending)return pending;pending=(async()=>{try{items=(await(await YebaeonCloud.api('/sync-observations')).json()).items;}catch{items={};}finally{pending=null;}})();return pending;},
+ dot(kind,id,node=''){const info=items[kind+'/'+id+'/'+node],state=info?.state||'unknown',span=document.createElement('span');span.className='sync-light sync-'+state;span.setAttribute('role','img');span.setAttribute('aria-label',labels[state]);span.title=labels[state]+(info?' · 마지막 Mac 확인 '+new Date(info.observedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'');return span;}
+ };
 })();

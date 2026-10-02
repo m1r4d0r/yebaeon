@@ -3,3 +3,8 @@
 #documentsPane .pane-heading>strong{white-space:nowrap;flex-shrink:0}#documentsPane .pane-heading input{width:0;flex:1;min-width:35px}#documentsPane .pane-heading select{width:87px;flex-shrink:0;max-width:none}#documentsPane .pane-heading{gap:4px;padding:8px 6px}.bible-card.long.changed canvas{border-color:#c04c12;box-shadow:0 0 0 1px var(--blue)}
 
 .brandmark{width:32px;height:32px;object-fit:contain;display:block;flex:none;padding:0;background:transparent}
+
+
+.sync-light{display:inline-block;width:8px;height:8px;min-width:8px;border-radius:50%;background:#9aa0aa;margin-right:6px;vertical-align:middle;box-shadow:0 0 0 1px #0002}
+.sync-synced{background:#3c9861}.sync-pending{background:#d3a222}.sync-conflict{background:#cd5353}.sync-local{background:#5485c2}
+.document-item>.sync-light,.order-item>.sync-light{grid-row:1;align-self:center}.document-item,.order-item{position:relative}.document-item>.sync-light,.order-item>.sync-light{position:absolute;left:7px;top:14px}.document-item:has(>.sync-light),.order-item:has(>.sync-light){padding-left:23px}
