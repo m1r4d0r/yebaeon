@@ -50,7 +50,8 @@
     const fontStart = raw.indexOf('{\\fonttbl');
     const fontTable = fontStart < 0 ? '' : groupAt(raw, fontStart);
     for (const m of fontTable.matchAll(/\\f(\d+)((?:(?!\\f\d)[\s\S])*?);/g)) {
-      fonts[m[1]] = m[2].replace(/\\[a-z]+-?\d*\s?/gi, '').replace(/[{}\r\n]/g, '').trim();
+      const fontName=m[2].replace(/\\u(-?\d+)\??/g,(_,n)=>String.fromCharCode((Number(n)+65536)%65536)).replace(/(?:\\'[a-f\d]{2})+/gi,bytes=>new TextDecoder(raw.includes('\\ansicpg949')?'euc-kr':'windows-1252').decode(Uint8Array.from([...bytes.matchAll(/\\'([a-f\d]{2})/gi)],x=>parseInt(x[1],16))));
+      fonts[m[1]] = fontName.replace(/\\[a-z]+-?\d*\s?/gi, '').replace(/[{}\r\n]/g, '').trim();
     }
     const colors = ['#ffffff'];
     const colorStart = raw.indexOf('{\\colortbl');

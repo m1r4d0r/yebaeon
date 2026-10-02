@@ -85,6 +85,7 @@ const assert=require('node:assert/strict');
  await page.locator('#libraryList .document-item').filter({hasText:'시험 문서'}).click();await page.waitForFunction(()=>YebaeonEditor.ready());assert.equal(await page.evaluate(()=>YebaeonEditor.state().dirty),true);assert.equal(await page.evaluate(()=>PP6.parseRTF(PP6.textNode(PP6.textElements(YebaeonEditor.current())[0]).textContent).text),'전환 전에 편집한 초안');
  await page.locator('#libraryQuery').fill('본문만검색');await page.waitForFunction(()=>document.querySelectorAll('#libraryList .document-item').length===1);assert.equal(await page.locator('#libraryList small').textContent(),'본문 일치');
  assert.deepEqual(errors,[]);
+ await page.addScriptTag({path:'web-editor/sample-demo.js'});
  await page.evaluate(()=>{YebaeonEditor.open(PP6_SAMPLE.xml,'배치 편집 시험.pro6',true,'layout-test');YebaeonEditor.setView('editor');});
  await page.locator('#layoutStagePane').waitFor({state:'visible'});await page.waitForFunction(()=>window.YebaeonLayout.active());
  const initialBoxes=await page.evaluate(()=>PP6.textElements(YebaeonEditor.current()).length);
