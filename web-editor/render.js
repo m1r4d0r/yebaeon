@@ -1,7 +1,11 @@
 (function () {
   'use strict';
   const P=window.PP6;
-  const cache=new Map();
+  const cache=new Map(),previews=new Map(),drawTokens=new WeakMap();let previewBytes=0,revision=0;
+  function clearPreviews(){revision++;previews.clear();previewBytes=0;}
+  window.addEventListener('pp6fontschange',clearPreviews);
+  window.addEventListener('yebaeonresourcesready',clearPreviews);
+  function rememberPreview(key,canvas,warnings){const bytes=canvas.width*canvas.height*4;if(bytes>4*1024*1024)return;const previous=previews.get(key);if(previous)previewBytes-=previous.bytes;previews.delete(key);const copy=document.createElement('canvas');copy.width=canvas.width;copy.height=canvas.height;copy.getContext('2d').drawImage(canvas,0,0);previews.set(key,{image:copy,warnings,bytes});previewBytes+=bytes;while(previewBytes>32*1024*1024||previews.size>256){const first=previews.keys().next().value;previewBytes-=previews.get(first).bytes;previews.delete(first);}}
   function media(file,kind) {
     if(cache.has(file))return cache.get(file);
     const promise=new Promise(resolve=>{
@@ -17,7 +21,7 @@
         el.onseeked=capture;
       } else el.onload=()=>finish({image:el,width:el.naturalWidth,height:el.naturalHeight});
       el.src=url;
-    });cache.set(file,promise);return promise;
+    });cache.set(file,promise);while(cache.size>24)cache.delete(cache.keys().next().value);return promise;
   }
   function font(style) {return PP6Fonts.css(style);}
   function text(ctx, element, warnings) {
@@ -56,7 +60,7 @@
       y+=row.height;
     }ctx.restore();
   }
-  async function draw(canvas,model,slide,library) {
+  async function drawFresh(canvas,model,slide,library) {
     const warnings=await PP6Fonts.ensure(slide);
     const ctx=canvas.getContext('2d');
     ctx.clearRect(0,0,canvas.width,canvas.height);ctx.save();ctx.scale(canvas.width/model.width,canvas.height/model.height);
@@ -91,5 +95,17 @@
     }
     ctx.restore();return [...new Set(warnings)];
   }
-  window.PP6Render={draw,media,clear:()=>cache.clear()};
+  async function draw(canvas,model,slide,library){
+    const token={};drawTokens.set(canvas,token);const currentRevision=revision;
+    const key=library.size?null:JSON.stringify([revision,model.width,model.height,canvas.width,canvas.height,new XMLSerializer().serializeToString(slide)]);
+    const hit=key&&previews.get(key);
+    if(hit){previews.delete(key);previews.set(key,hit);canvas.getContext('2d').drawImage(hit.image,0,0);return [...hit.warnings];}
+    // Paint atomically, so an older async draw cannot overwrite a newer edit.
+    const buffer=document.createElement('canvas');buffer.width=canvas.width;buffer.height=canvas.height;
+    const warnings=await drawFresh(buffer,model,slide,library);
+    if(drawTokens.get(canvas)!==token||revision!==currentRevision)return warnings;
+    canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);canvas.getContext('2d').drawImage(buffer,0,0);
+    if(key&&key.length<=65536)rememberPreview(key,buffer,warnings);return warnings;
+  }
+  window.PP6Render={draw,media,clear:()=>{cache.clear();clearPreviews();}};
 })();

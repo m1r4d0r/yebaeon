@@ -16,11 +16,11 @@
   const incoming=P.parse(xml,name);
   if(!force&&dirty&&!confirm('현재 변경은 브라우저 초안에 남습니다. 다른 문서를 열까요?'))return false;
   window.dispatchEvent(new Event('yebaeonbeforeopen'));stash();
-  key=identity;model=incoming;selected=0;dirty=false;ready=true;serial++;library.clear();R.clear();
+  key=identity;model=incoming;selected=0;dirty=false;ready=true;serial++;library.clear();
   selection.chosen=new Set(['0']);selection.anchor='0';selection.cursor='0';render();window.dispatchEvent(new Event('yebaeonopen'));return true;
  }
  function color(slide){const group=groupOf(slide),name=P.attr(group,'name').toLowerCase(),raw=P.attr(group,'color');if(raw)return P.color(raw);return /chorus|후렴/.test(name)?'#bf490b':/bridge|브릿지/.test(name)?'#7735d5':/blank|빈/.test(name)?'#737e93':'#3c57c9';}
- const selection=new S.Selection($('slidePane'),{onSelect:k=>{selected=Number(k);renderInspector();},onPaint:()=>updateControls()});
+ const selection=new S.Selection($('slidePane'),{onSelect:k=>{selected=Number(k);renderInspector();},onPaint:()=>{updateControls();window.dispatchEvent(new Event('yebaeonselection'));}});
  selection.options={...selection.options,kind:'slides',columns:()=>Math.max(1,Math.round($('slides').clientWidth/Math.max(1,$('slides').querySelector('.slide-card')?.clientWidth||240))),open:()=>quick(),remove:()=>remove(),copy:cut=>copy(cut),paste:()=>paste(),rename:()=>rename(),undo:redo=>undo(redo),menu:e=>context(e)};
  function updateControls(){const h=S.active()?.options.kind==='order'&&window.YebaeonPlaylists?.historyState?window.YebaeonPlaylists.historyState():H.state(key);$('undo').disabled=!h.undo;$('redo').disabled=!h.redo;$('dirtyState').textContent=dirty?'저장 안 됨':'';$('add').disabled=!ready;$('resourceOpen').disabled=!ready;$('mediaOpen').disabled=!ready;$('templateScope').textContent=selection.chosen.size?`고른 ${selection.chosen.size}장에 적용`:'문서 전체에 적용';}
  const pendingCanvases=new WeakMap();
@@ -36,7 +36,7 @@
  function renderInspector(){if(!ready)return;const slide=current();$('label').value=P.attr(slide,'label');$('slidePosition').textContent=`${selected+1}/${slides().length}`;$('texts').replaceChildren();
   P.textElements(slide).forEach((element,i)=>{const field=document.createElement('label');field.textContent=P.attr(element,'displayName')||`텍스트 ${i+1}`;const input=document.createElement('textarea');input.value=textOf(element);let transaction=false;input.onfocus=()=>transaction=false;input.oninput=guarded(()=>{if(!transaction){snapshot();transaction=true;}else changed();P.setText(element,input.value);refreshThumbnails();});field.append(input);$('texts').append(field);});
   $('group').replaceChildren();P.all(model.doc,'RVSlideGrouping').forEach((group,i)=>{const o=new Option(P.attr(group,'name','그룹'),i);o.selected=group===groupOf(slide);$('group').add(o);});
-  $('fonts').textContent=PP6Fonts.descriptions(slide).join(' · ');if(view==='editor')drawPreview();
+  $('fonts').textContent=PP6Fonts.descriptions(slide).join(' · ');if(view==='editor')drawPreview();window.dispatchEvent(new Event('yebaeonselection'));
  }
  async function drawPreview(){const token=++generation,c=$('preview');c.height=Math.round(c.width*model.height/model.width);const warnings=await R.draw(c,model,current(),library);if(token===generation)$('warnings').textContent=warnings.join(' · ');}
  let redrawTimer;
@@ -69,4 +69,3 @@
  window.YebaeonEditor={open,applyTemplate,addBible,bibleSlide,setBackground,setView,quick,undo,split,merge,redraw:render,status,ready:()=>ready,selection,model:()=>model,current:()=>current(),selected:()=>selected,view:()=>view,cache:id=>id===key?state():cache.get(id),state:()=>({name:model.name,serial,dirty,key}),document:()=>({...state(),name:model.name,serial}),markDirty:changed,markSaved(value){if(serial===value){dirty=false;updateControls();}},hasPackageMedia:()=>P.all(model.doc,'[source]').some(e=>P.attr(e,'source').startsWith('file:///PP6-Package/'))};
  render();
 })();
-
