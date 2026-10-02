@@ -71,6 +71,7 @@
     NSMenuItem *login=[application insertItemWithTitle:@"입장 / 이름 변경…" action:@selector(login:) keyEquivalent:@"" atIndex:0];login.target=self.documents;NSMenuItem *logout=[application insertItemWithTitle:@"로그아웃" action:@selector(logout:) keyEquivalent:@"" atIndex:1];logout.target=self.documents;
     NSMenuItem *publish=[file addItemWithTitle:@"원본 재생목록과 문서 등록…" action:@selector(publish:) keyEquivalent:@""];publish.target=self.serverPlaylists;NSMenuItem *recover=[file addItemWithTitle:@"복구 기록…" action:@selector(restore:) keyEquivalent:@""];recover.target=self.serverPlaylists;
     NSMenuItem *reset=[tools addItemWithTitle:@"이 Mac 기준으로 서버 다시 맞추기…" action:@selector(resetServer:) keyEquivalent:@""];reset.target=self.serverPlaylists;
+    NSMenuItem *archive=[tools addItemWithTitle:@"웹에서 보관·삭제한 목록 반영…" action:@selector(applyManagedRemovals:) keyEquivalent:@""];archive.target=self.serverPlaylists;
     NSMenuItem *legacy=[tools addItemWithTitle:@"로컬 재생목록 비교…" action:@selector(showLocal:) keyEquivalent:@""];legacy.target=self;
     self.connectionBar=[[YBPanel alloc] initWithFrame:NSMakeRect(0,frame.size.height-44,frame.size.width,44)];self.connectionBar.autoresizingMask=NSViewWidthSizable|NSViewMinYMargin;
     self.status=YBLabel(@"서버 연결 확인 중…",NSZeroRect,12,YES);[self.connectionBar addSubview:self.status];

@@ -22,7 +22,7 @@ export default {
         return request.method === 'HEAD' ? new Response(null, { headers }) : json({ ok: true, service: 'yebaeon', mode: 'document-library' });
       }
       const route = /^\/api\/documents(?:\/([^/]+)(?:\/(content|versions|usage|policy))?)?$/.exec(pathname);
-      const playlist = /^\/api\/playlists(?:\/([^/]+)(?:\/(content|versions|plan|nodes|archive|restore))?)?$/.exec(pathname);
+      const playlist = /^\/api\/playlists(?:\/([^/]+)(?:\/(content|versions|plan|nodes|archive|restore|structure))?)?$/.exec(pathname);
       if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && pathname !== '/api/inventory' && !resource && !route && !playlist) throw new HttpError(404, 'not_found', '없는 요청입니다.');
       if (!configured(env)) {
         if (pathname === '/api/session' && request.method === 'GET') return json({ authenticated: false, ready: false });

@@ -160,6 +160,7 @@ const assert=require('node:assert/strict');
  // Load original server files in Chromium; synthetic text avoids publishing church originals.
  const fontsPage=await browser.newPage({viewport:{width:1100,height:800},deviceScaleFactor:2});
  await fontsPage.route('**/resources/*.otf',async route=>{const file=new URL(route.request().url()).pathname.split('/').pop();await route.fulfill({contentType:'font/otf',body:await readFile('church-resources/'+file)});});
+ await fontsPage.route('**/font-preview.html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body></body></html>'}));
  await fontsPage.goto(`http://127.0.0.1:${server.address().port}/font-preview.html`);await fontsPage.setContent('<canvas id="scene" width="1920" height="1080" style="width:960px"></canvas>');
  for(const file of ['pp6.js','fonts.js','render.js','sample-demo.js'])await fontsPage.addScriptTag({path:'web-editor/'+file});
  const actualCatalog=JSON.parse(await readFile('church-resources/catalog.json','utf8'));

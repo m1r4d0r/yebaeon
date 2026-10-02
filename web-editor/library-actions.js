@@ -1,6 +1,6 @@
 (function(){'use strict';
  const $=id=>document.getElementById(id),C=YebaeonCloud,P=PP6;
- let sourceXML=null,prepared=null,creating=false,listId=null;
+ let sourceXML=null,prepared=null,creating=false,listId=null,emptyLibraryXML=null,sourceGeneration=0;
  const names=['가사찬양','악보찬양','예배순서','특별순서','옛날자료','미결'];
  const escape=value=>String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
  const dialog=$('newDocumentDialog');
@@ -8,7 +8,7 @@
  function filename(value){value=value.trim().normalize('NFC').replace(/\.pro6$/i,'');if(!value||/[\\/\x00-\x1f\x7f]/.test(value)||value.length>155)throw new Error('문서 이름은 폴더 구분 없이 1~155자로 입력해 주세요.');return value+'.pro6';}
  function blankDocument(category){
    const rtf=P.textRTF('',{font:'NanumGothicOTF',size:110,bold:true,color:'rgb(255,255,255)',align:'center'});
-   return `<RVPresentationDocument UUID="${P.uuid()}" versionNumber="600" width="1920" height="1080" category="${escape(category)}" lastDateUsed="" usedCount="0"><array rvXMLIvarName="groups"><RVSlideGrouping UUID="${P.uuid()}" name="기본"><array rvXMLIvarName="slides"><RVDisplaySlide UUID="${P.uuid()}" label="" enabled="true" drawingBackgroundColor="true" backgroundColor="0 0 0 1"><array rvXMLIvarName="displayElements"><RVTextElement UUID="${P.uuid()}" opacity="1" verticalAlignment="1" drawingFill="false" drawingShadow="false"><RVRect3D rvXMLIvarName="position">{80 90 0 1760 900}</RVRect3D><NSString rvXMLIvarName="RTFData">${rtf}</NSString></RVTextElement></array><array rvXMLIvarName="cues"/></RVDisplaySlide></array></RVSlideGrouping></array></RVPresentationDocument>`;
+   return `<RVPresentationDocument UUID="${P.uuid()}" versionNumber="600" width="1920" height="1080" category="${escape(category)}" lastDateUsed="" usedCount="0"><array rvXMLIvarName="groups"><RVSlideGrouping UUID="${P.uuid()}" name="기본"><array rvXMLIvarName="slides"><RVDisplaySlide UUID="${P.uuid()}" label="" enabled="true" drawingBackgroundColor="true" backgroundColor="0 0 0 1"><array rvXMLIvarName="displayElements"><RVTextElement UUID="${P.uuid()}" opacity="1" verticalAlignment="0" drawingFill="false" drawingShadow="false"><RVRect3D rvXMLIvarName="position">{80 90 0 1760 900}</RVRect3D><NSString rvXMLIvarName="RTFData">${rtf}</NSString></RVTextElement></array><array rvXMLIvarName="cues"/></RVDisplaySlide></array></RVSlideGrouping></array></RVPresentationDocument>`;
  }
  function copyDocument(xml,category){
    const model=P.parse(xml,'복제.pro6'),root=model.doc.documentElement,map=P.refreshIDs(root);
@@ -21,8 +21,8 @@
  }
  async function newDocument(doc=null){
    if(!C.needUser()||creating)return;
-   sourceXML=null;prepared=null;$('newDocumentTitle').textContent=doc?'문서 복제':'문서 추가';$('newDocumentMessage').textContent='';$('newDocumentName').value=doc?doc.name.replace(/\.pro6$/i,'')+' 복사':'';$('newDocumentCategory').value='예배순서';$('newDocumentSubmit').disabled=!!doc;dialog.showModal();
-   if(doc){try{const value=await C.documentCopySource(doc.id);if(!dialog.open)return;sourceXML=value.xml;const category=P.parse(sourceXML,'source').doc.documentElement.getAttribute('category')||'미결';if(![...$('newDocumentCategory').options].some(o=>o.value===category))$('newDocumentCategory').add(new Option(category,category));$('newDocumentCategory').value=category;$('newDocumentMessage').textContent=value.local?'이 브라우저에서 편집 중인 내용을 복제합니다. 원본의 미저장 변경도 그대로 남습니다.':'서버에 저장된 가사·서식·배경을 복제합니다. 원본은 바뀌지 않습니다.';$('newDocumentSubmit').disabled=false;}catch(error){$('newDocumentMessage').textContent=error.message;}}
+   const generation=++sourceGeneration;sourceXML=null;prepared=null;$('newDocumentTitle').textContent=doc?'문서 복제':'문서 추가';$('newDocumentMessage').textContent='';$('newDocumentName').value=doc?doc.name.replace(/\.pro6$/i,'')+' 복사':'';$('newDocumentCategory').value='예배순서';$('newDocumentSubmit').disabled=!!doc;dialog.showModal();
+   if(doc){try{const value=await C.documentCopySource(doc.id);if(!dialog.open||generation!==sourceGeneration)return;sourceXML=value.xml;const category=P.parse(sourceXML,'source').doc.documentElement.getAttribute('category')||'미결';if(![...$('newDocumentCategory').options].some(o=>o.value===category))$('newDocumentCategory').add(new Option(category,category));$('newDocumentCategory').value=category;$('newDocumentMessage').textContent=value.local?'이 브라우저에서 편집 중인 내용을 복제합니다. 원본의 미저장 변경도 그대로 남습니다.':'서버에 저장된 가사·서식·배경을 복제합니다. 원본은 바뀌지 않습니다.';$('newDocumentSubmit').disabled=false;}catch(error){$('newDocumentMessage').textContent=error.message;}}
    $('newDocumentName').focus();$('newDocumentName').select();
  }
  $('documentNew').onclick=()=>newDocument();$('newDocumentClose').onclick=()=>{if(!creating)dialog.close();};
@@ -34,11 +34,11 @@
    }catch(error){$('newDocumentMessage').textContent=error.message;}finally{creating=false;$('newDocumentSubmit').disabled=false;}
  };
  const lists=()=>YebaeonPlaylists.libraries();
- $('playlistNew').onclick=()=>{if(!C.needUser())return;if(YebaeonPlaylists.state().busy||YebaeonSave?.busy())return;const select=$('newPlaylistLibrary');select.replaceChildren();for(const l of lists())select.add(new Option(l.path,l.id));if(!lists().length)select.add(new Option('기본 재생목록',''));listId=crypto.randomUUID().toUpperCase();$('newPlaylistName').value='';$('newPlaylistMessage').textContent='';$('newPlaylistDialog').showModal();$('newPlaylistName').focus();};
+ $('playlistNew').onclick=()=>{if(!C.needUser())return;if(YebaeonPlaylists.state().busy||YebaeonSave?.busy())return;const select=$('newPlaylistLibrary');select.replaceChildren();for(const l of lists())select.add(new Option(l.path,l.id));if(!lists().length)select.add(new Option('기본 재생목록',''));listId=crypto.randomUUID().toUpperCase();emptyLibraryXML=null;$('newPlaylistName').value='';$('newPlaylistMessage').textContent='';$('newPlaylistDialog').showModal();$('newPlaylistName').focus();};
  $('newPlaylistClose').onclick=()=>$('newPlaylistDialog').close();
  $('newPlaylistForm').onsubmit=async e=>{e.preventDefault();const button=$('newPlaylistSubmit');button.disabled=true;
    try{const name=$('newPlaylistName').value.trim();if(!name)throw new Error('재생목록 이름을 입력해 주세요.');let id=$('newPlaylistLibrary').value;
-     if(!id){const xml=`<RVPlaylistDocument versionNumber="600"><RVPlaylistNode UUID="${crypto.randomUUID().toUpperCase()}" displayName="root" type="0" rvXMLIvarName="rootNode"><array rvXMLIvarName="children"/></RVPlaylistNode></RVPlaylistDocument>`;const made=await(await C.api('/playlists?path='+encodeURIComponent('기본.pro6pl'),{method:'POST',body:xml})).json();id=made.library.id;$('newPlaylistLibrary').add(new Option(made.library.path,id));$('newPlaylistLibrary').value=id;}
+     if(!id){const xml=emptyLibraryXML||(emptyLibraryXML=`<RVPlaylistDocument versionNumber="600"><RVPlaylistNode UUID="${crypto.randomUUID().toUpperCase()}" displayName="root" type="0" rvXMLIvarName="rootNode"><array rvXMLIvarName="children"/></RVPlaylistNode></RVPlaylistDocument>`);const made=await(await C.api('/playlists?path='+encodeURIComponent('기본.pro6pl'),{method:'POST',body:xml})).json();id=made.library.id;$('newPlaylistLibrary').add(new Option(made.library.path,id));$('newPlaylistLibrary').value=id;}
      const latest=(await(await C.api('/playlists/'+id)).json()).library;
      const result=await(await C.api(`/playlists/${id}/nodes`,{method:'POST',headers:{'Content-Type':'application/json','If-Match':`"${latest.version}"`},body:JSON.stringify({name,id:listId})})).json();
      $('newPlaylistDialog').close();await YebaeonPlaylists.acceptLibrary(result.library,result.playlist.id);

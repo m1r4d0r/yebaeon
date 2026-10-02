@@ -33,6 +33,39 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     NSArray *preserved=[state[@"file"][@"libraryID"] isEqual:remote[@"id"]] ? state[@"file"][@"preservedNodes"] : nil;state[@"file"]=@{@"libraryID":remote[@"id"],@"remoteHash":remote[@"sha256"],@"localHash":YBHash(local),@"version":remote[@"version"],@"preservedNodes":preserved ?: @[]};
     [self writeJSON:state path:self.statePath];
 }
+- (NSDictionary *)prepareManagedRemovals {
+    YBSync *sync=self.library.sync;[sync assertReady];YBRequire(!sync.presenterRunning(),@"PP6를 종료한 후 목록 정리를 준비하세요.");
+    NSData *before=YBReadPlaylist(self.target);NSDictionary *remote=nil;
+    for(NSDictionary *candidate in [self libraries])if([candidate[@"path"] isEqual:self.target.lastPathComponent.precomposedStringWithCanonicalMapping])remote=candidate;
+    YBRequire(remote!=nil,@"같은 이름의 서버 재생목록이 없습니다.");
+    NSDictionary *structure=[self.library.server request:[NSString stringWithFormat:@"/api/playlists/%@/structure",Query(remote[@"id"])] method:@"GET" body:nil headers:nil];
+    YBRequire([structure[@"removals"] isKindOfClass:NSArray.class] && [structure[@"fingerprint"] isKindOfClass:NSString.class],@"서버의 보관 목록 정보를 읽지 못했습니다.");
+    NSMutableArray *selected=[NSMutableArray array];NSDictionary *state=self.state;
+    for(NSDictionary *item in structure[@"removals"]){NSDictionary *node=YBPlaylistNode(before,item[@"id"]);if(!node)continue;
+        NSDictionary *base=state[@"entries"][[NSString stringWithFormat:@"%@/%@",remote[@"id"],item[@"id"]]];
+        YBRequire(base && [YBHash(Data(node[@"raw"])) isEqual:base[@"localHash"]],[NSString stringWithFormat:@"‘%@’의 Mac 내용이 바뀌었거나 공통 기준이 없습니다. 현재 파일을 보존합니다. 먼저 원본을 확인하세요.",item[@"name"]]);[selected addObject:item];
+    }
+    return @{@"library":structure[@"library"],@"fingerprint":structure[@"fingerprint"],@"removals":selected,@"beforeHash":YBHash(before),@"target":self.target.path};
+}
+- (NSString *)applyManagedRemovals:(NSDictionary *)prepared {
+    YBSync *sync=self.library.sync;[sync assertReady];NSDictionary *fresh=[self prepareManagedRemovals];
+    YBRequire([prepared isEqual:fresh] && [fresh[@"removals"] count]>0,@"확인 뒤 Mac 또는 서버 목록이 바뀌었습니다. 다시 확인하세요.");
+    NSData *before=YBReadPlaylist(self.target),*after=before;NSMutableDictionary *state=self.state,*previous=[NSMutableDictionary dictionary],*incoming=[NSMutableDictionary dictionary];
+    for(NSDictionary *item in fresh[@"removals"]){NSString *key=[NSString stringWithFormat:@"%@/%@",fresh[@"library"][@"id"],item[@"id"]];previous[key]=Null(state[@"entries"][key]);incoming[key]=@{@"removed":@YES,@"serverState":item[@"state"]};after=YBPlaylistRemoving(after,item[@"id"]);}
+    NSString *identifier=NSUUID.UUID.UUIDString,*folder=[@"playlist-batches/" stringByAppendingString:identifier],*key=[[incoming.allKeys sortedArrayUsingSelector:@selector(compare:)] firstObject];
+    YBWriteSafeFile(sync.profile,[folder stringByAppendingString:@"/before.pro6pl"],before,0600,nil);YBWriteSafeFile(sync.profile,[folder stringByAppendingString:@"/after.pro6pl"],after,0600,nil);
+    NSMutableDictionary *job=[@{@"id":identifier,@"createdAt":@([NSDate.date timeIntervalSince1970]),@"status":@"prepared",@"target":self.target.path,@"root":sync.root,@"origin":self.library.server.origin,@"name":@"웹 보관·삭제 목록 반영",@"key":key,@"previous":previous[key],@"incoming":incoming[key],@"previousEntries":previous,@"incomingEntries":incoming,@"beforeHash":YBHash(before),@"afterHash":YBHash(after),@"rows":@[],@"transactionIDs":@[],@"structureChange":@YES} mutableCopy];
+    [sync beginBackupBatch:@"playlist" playlistJob:identifier];job[@"batchID"]=sync.activeBackupBatch;BOOL completed=NO;
+    @try{
+        [self writeJSON:job path:[self jobPath:identifier]];[self writeJSON:@{@"id":identifier,@"status":@"active"} path:@"playlist-active.json"];sync.playlistOperationActive=YES;if(self.checkpoint)self.checkpoint(@"prepared");
+        NSDictionary *latest=[self.library.server request:[NSString stringWithFormat:@"/api/playlists/%@/structure",Query(fresh[@"library"][@"id"])] method:@"GET" body:nil headers:nil];YBRequire([latest[@"fingerprint"] isEqual:fresh[@"fingerprint"]],@"준비 중 서버 목록이 바뀌었습니다. 복구 기록에서 중단 작업을 복구해 주세요.");
+        YBReplacePlaylist(self.target,before,after,[sync.profile stringByAppendingPathComponent:[folder stringByAppendingPathComponent:@"replacement-backups"]],sync.presenterRunning);if(self.checkpoint)self.checkpoint(@"playlist");
+        job[@"status"]=@"applied";[self writeJSON:job path:[self jobPath:identifier]];
+        state=self.state;NSMutableDictionary *entries=[state[@"entries"] mutableCopy];[entries addEntriesFromDictionary:incoming];state[@"entries"]=entries;[self writeJSON:state path:self.statePath];if(self.checkpoint)self.checkpoint(@"baselines");
+        YBRequire([YBReadPlaylist(self.target) isEqual:after],@"정리 직후 Mac 목록이 변경됐습니다. 복구 기록을 확인하세요.");
+        job[@"status"]=@"committed";[self writeJSON:job path:[self jobPath:identifier]];[self writeJSON:@{@"id":identifier,@"status":@"complete"} path:@"playlist-active.json"];[self rememberFile:fresh[@"library"] local:after];completed=YES;return identifier;
+    }@finally{sync.playlistOperationActive=NO;[sync endBackupBatch:completed];}
+}
 - (NSDictionary *)reconcileFileWithLibraries:(NSArray *)libraries {
     if(!self.target)return @{ @"libraries":libraries, @"status":@"Mac 재생목록 경로를 확인하세요." };
     NSData *local=YBReadPlaylist(self.target);NSString *localHash=YBHash(local);
@@ -69,7 +102,8 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     if(self.library.sync.presenterRunning())return @{ @"libraries":libraries, @"status":@"PP6 실행 중이어서 Mac 재생목록 변경을 서버로 보내지 않았습니다." };
     YBRequire([YBReadPlaylist(self.target) isEqual:local],@"Mac 재생목록이 비교 중 바뀌었습니다. 다시 비교하세요.");
     NSData *serverBytes=local;NSMutableSet *paths=[NSMutableSet set];for(NSDictionary *node in YBPlaylistNodes(local))serverBytes=YBPlaylistReplacing(serverBytes,node[@"id"],[self serverXMLForNode:node root:remote[@"sourceRoot"] ?: @"~/Documents/ProPresenter6" paths:paths]);
-    if([base[@"preservedNodes"] count]){NSData *currentServer=[self.library.server downloadPlaylist:remote];for(NSString *nodeID in base[@"preservedNodes"]){NSDictionary *node=YBPlaylistNode(currentServer,nodeID);if(node && !YBPlaylistNode(serverBytes,nodeID))serverBytes=YBPlaylistReplacing(serverBytes,nodeID,node[@"raw"]);}}
+    NSMutableArray *serverOnly=[NSMutableArray array];for(NSDictionary *node in remote[@"playlists"])if(!YBPlaylistNode(serverBytes,node[@"id"]))[serverOnly addObject:node[@"id"]];
+    if(serverOnly.count){NSData *currentServer=[self.library.server downloadPlaylist:remote];for(NSString *nodeID in serverOnly){NSDictionary *node=YBPlaylistNode(currentServer,nodeID);YBRequire(node!=nil,@"서버 목록 구성이 바뀌었습니다.");serverBytes=YBPlaylistReplacing(serverBytes,nodeID,node[@"raw"]);}}
     NSDictionary *result=[self.library.server request:[NSString stringWithFormat:@"/api/playlists/%@",Query(remote[@"id"])] method:@"PUT" body:serverBytes headers:@{@"Content-Type":@"application/xml; charset=utf-8",@"If-Match":[NSString stringWithFormat:@"\"%@\"",remote[@"version"]]}];
     NSDictionary *saved=result[@"library"];
     YBRequire([saved[@"sha256"] isEqual:YBHash(serverBytes)],@"서버에 저장한 재생목록의 해시가 다릅니다.");
@@ -206,7 +240,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     }@finally{sync.playlistOperationActive=NO;}
     @try {
         NSMutableArray *reports=[NSMutableArray array];for(NSDictionary *row in job[@"rows"]){NSDictionary *remote=row[@"remote"];NSString *hash=YBHash([sync readDocument:row[@"path"]]);[reports addObject:@{@"kind":@"document",@"id":remote[@"id"],@"node":@"",@"serverHash":remote[@"sha256"],@"status":YBDisposition(hash,remote,sync.entries[row[@"path"]])}];}[self.library reportSyncItems:reports];
-        for(NSString *pk in incomingEntries){if(pk.length>37)[self compare:[pk substringToIndex:36] node:[pk substringFromIndex:37]];}
+        if(![job[@"structureChange"] boolValue])for(NSString *pk in incomingEntries){if(pk.length>37)[self compare:[pk substringToIndex:36] node:[pk substringFromIndex:37]];}
     }@catch(NSException *error){NSLog(@"복구 후 상태 확인 실패: %@",error.reason);}
 }
 

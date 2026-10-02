@@ -14,6 +14,7 @@
 - (void)rootChanged;
 @property(nonatomic,copy) void (^showDocuments)(void);
 - (void)resetServer:(id)sender;
+- (void)applyManagedRemovals:(id)sender;
 @end
 
 

@@ -173,6 +173,17 @@
     [self.work run:^id{return [[self engine] receiveChoosingServer:comparison progress:^(NSString *message){dispatch_async(dispatch_get_main_queue(),^{self.status.stringValue=message;});}];} completion:^(id result,NSString *error){if(error){YBAlert(@"해결 작업 미완료",error);self.status.stringValue=@"중단 기록을 확인하고 다시 비교하세요.";}else [self refresh:nil];}];
 }
 - (void)resetServer:(id)sender {if(!self.work.busy)[self prepareMacReset:nil];}
+- (void)applyManagedRemovals:(id)sender {
+    if(self.work.busy)return;
+    [self.work run:^id{return [[self engine] prepareManagedRemovals];} completion:^(NSDictionary *prepared,NSString *error){
+        if(error){YBAlert(@"목록 정리 준비 중단",error);return;}
+        if(![prepared[@"removals"] count]){YBAlert(@"목록 정리",@"이 Mac에서 제외할 보관·삭제 목록이 없습니다.");return;}
+        NSMutableString *summary=[NSMutableString stringWithString:@"웹에서 보관·삭제한 아래 목록을 이 Mac의 사용 중 목록에서 제외합니다. 문서와 미디어는 그대로 남습니다. 원본은 백업하며 복구 기록에서 되돌릴 수 있습니다.\n"];
+        for(NSDictionary *item in prepared[@"removals"])[summary appendFormat:@"\n• %@",item[@"name"]];
+        if(!YBConfirm(@"웹의 목록 정리를 이 Mac에 반영할까요?",summary,@"백업하고 반영"))return;
+        [self.work run:^id{return [[self engine] applyManagedRemovals:prepared];} completion:^(id result,NSString *failure){if(failure){YBAlert(@"목록 정리 미완료",failure);return;}[self refresh:nil];self.status.stringValue=@"보관·삭제 목록 정리 완료 · 문서와 미디어 유지";}];
+    }];
+}
 - (void)prepareMacReset:(NSDictionary *)comparison {
     [self.work runPausable:YES task:^id{return [[self engine] prepareMacReset:comparison progress:^(NSString *message){dispatch_async(dispatch_get_main_queue(),^{self.status.stringValue=message;self.work.message=message;});}];} completion:^(NSDictionary *prepared,NSString *error){
         if(error){YBAlert(@"서버 맞추기 준비 중단",error);return;}

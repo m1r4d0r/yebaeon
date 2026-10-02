@@ -77,6 +77,11 @@ export async function playlistsRoute(request, env, user, id, action) {
     return json({ library: metadata(await row(db,libraryId)) },201);
   }
   const r = await row(db,id);
+  if(action==='structure'){
+    method(request,['GET']);
+    const removals=(await db.prepare("SELECT node_id AS id,name,state,updated_at AS updatedAt FROM yebaeon_playlist_controls WHERE library_id=? AND state IN ('archived','removed') ORDER BY node_id").bind(id).all()).results;
+    return json({library:metadata(r),removals,fingerprint:await sha256(JSON.stringify([r.sha256,removals]))});
+  }
   if(['nodes','archive','restore'].includes(action))return managePlaylist(request,env,user,r,action,{load,save,metadata});
   if (action === 'content') {
     method(request,['GET','HEAD']);

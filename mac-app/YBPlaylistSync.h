@@ -5,6 +5,8 @@
 @property(nonatomic,copy) void (^checkpoint)(NSString *stage);
 - (instancetype)initWithLibrary:(YBLibrary *)library target:(NSURL *)target;
 - (NSArray *)libraries;
+- (NSDictionary *)prepareManagedRemovals;
+- (NSString *)applyManagedRemovals:(NSDictionary *)prepared;
 - (NSDictionary *)reconcileFileWithLibraries:(NSArray *)libraries;
 - (NSDictionary *)manifest:(NSString *)libraryID node:(NSString *)nodeID;
 - (NSDictionary *)registerFileWithSourceRoot:(NSString *)sourceRoot progress:(void (^)(NSString *message))progress;
