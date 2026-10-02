@@ -1,6 +1,8 @@
 #define YB_DIAGNOSTIC_TEST 1
 #import "diagnose-local.m"
 #import <unistd.h>
+#import <stdlib.h>
+#import <limits.h>
 static NSUInteger checks;
 static void Check(BOOL ok,NSString *message){checks++;YBRequire(ok,message);}
 static void Reject(void (^action)(void),NSString *message){BOOL rejected=NO;@try{action();}@catch(NSException *e){rejected=[e.name isEqual:@"YebaeOn"];}Check(rejected,message);}
@@ -10,7 +12,9 @@ static void Put(NSString *path,NSData *data){
 }
 static NSData *JSON(id value){return [NSJSONSerialization dataWithJSONObject:value options:0 error:NULL];}
 int main(void){@autoreleasepool {
-    NSString *area=[[NSTemporaryDirectory() stringByResolvingSymlinksInPath] stringByAppendingPathComponent:[@"yebaeon-diagnostic-test-" stringByAppendingString:NSUUID.UUID.UUIDString]];
+    char resolved[PATH_MAX];
+    if(!realpath(NSTemporaryDirectory().fileSystemRepresentation,resolved)){fprintf(stderr,"Cannot resolve synthetic test directory\n");return 1;}
+    NSString *area=[[@(resolved) stringByAppendingPathComponent:[@"yebaeon-diagnostic-test-" stringByAppendingString:NSUUID.UUID.UUIDString]] copy];
     @try {
         NSString *root=[area stringByAppendingPathComponent:@"문서 폴더"],*settings=[area stringByAppendingPathComponent:@"settings"],*playlist=[area stringByAppendingPathComponent:@"기본 .pro6pl"];
         NSString *relative=[@"찬양/한글 .pro6" decomposedStringWithCanonicalMapping],*document=[root stringByAppendingPathComponent:relative];
