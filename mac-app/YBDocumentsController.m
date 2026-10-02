@@ -108,7 +108,7 @@
     [self.work runBackground:^id(BOOL (^cancelled)(void)){
         void (^check)(void)=^{YBRequire(!cancelled(),@"사용자 작업을 우선하여 점검을 중지했습니다.");};check();YBLibrary *library=[self connectedLibrary];return [library refreshChecking:check];
     } completion:^(NSArray *rows,NSString *error){
-        if(error){self.statusLabel.stringValue=[@"나머지 문서 점검 실패 · 서버와 비교로 재시도: " stringByAppendingString:error];return;}
+        if(error){self.statusLabel.stringValue=[@"나머지 문서 점검 미완료 · " stringByAppendingString:error];return;}
         [self acceptRows:rows];if(self.comparisonFinished)self.comparisonFinished();
     }];
 }

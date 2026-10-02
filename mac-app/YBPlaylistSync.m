@@ -49,12 +49,15 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
         [self rememberFile:remote local:local];
         return @{ @"libraries":[self libraries], @"status":@"Mac 원본 재생목록을 서버에 등록했습니다. 연결 문서는 별도로 비교합니다." };
     }
-    NSMutableArray *reports=[NSMutableArray array];NSMutableDictionary *state=self.state;
-    for(NSDictionary *node in remote[@"playlists"]){if(![node[@"sha256"] isKindOfClass:NSString.class])continue;NSDictionary *localNode=YBPlaylistNode(local,node[@"id"]),*nodeBase=state[@"entries"][[NSString stringWithFormat:@"%@/%@",remote[@"id"],node[@"id"]]];NSString *hash=YBHash(Data(localNode[@"raw"]));NSString *status=@"unknown";
-        if(Equal(hash,node[@"sha256"]) || (nodeBase&&Equal(hash,nodeBase[@"localHash"])&&Equal(node[@"sha256"],nodeBase[@"remoteHash"])))status=@"same";
-        else if(nodeBase){BOOL localChanged=!Equal(hash,nodeBase[@"localHash"]),serverChanged=!Equal(node[@"sha256"],nodeBase[@"remoteHash"]);status=localChanged?(serverChanged?@"conflict":@"upload"):@"download";}
-        [reports addObject:@{@"kind":@"playlist",@"id":remote[@"id"],@"node":node[@"id"],@"serverHash":node[@"sha256"],@"status":status}];
-    }[self.library reportSyncItems:reports];NSDictionary *base=state[@"file"];
+    NSMutableDictionary *state=self.state;NSDictionary *base=state[@"file"];
+    // Repair old auto-registration records only with proof the complete local
+    // file still equals the previously registered server original.
+    if([base[@"libraryID"] isEqual:remote[@"id"]] && Equal(localHash,base[@"localHash"]) && Equal(base[@"localHash"],base[@"remoteHash"])){
+        NSMutableDictionary *entries=[state[@"entries"] mutableCopy];BOOL repaired=NO;
+        for(NSDictionary *node in YBPlaylistNodes(local)){NSString *key=[NSString stringWithFormat:@"%@/%@",remote[@"id"],node[@"id"]];if(!entries[key]){NSString *hash=YBHash(Data(node[@"raw"]));entries[key]=@{@"localHash":hash,@"remoteHash":hash};repaired=YES;}}
+        if(repaired){state[@"entries"]=entries;[self writeJSON:state path:self.statePath];}
+    }
+
     if([localHash isEqual:remote[@"sha256"]]){
         [self rememberFile:remote local:local];
         return @{ @"libraries":libraries, @"status":@"재생목록 파일이 서버와 같습니다." };
@@ -108,6 +111,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     NSDictionary *active=[self readJSON:@"playlist-active.json"];if(active && ![active[@"status"] isEqual:@"complete"])[issues addObject:@"중단된 플레이리스트 작업을 먼저 복구해 주세요."];
     NSString *observedStatus=@"unknown";
     if([p[@"ready"] boolValue]){if(!orderChanged)observedStatus=@"same";else if(base){BOOL lc=!Equal(localHash,base[@"localHash"]),sc=!Equal(p[@"playlist"][@"sha256"],base[@"remoteHash"]);observedStatus=lc?(sc?@"conflict":@"upload"):@"download";}else if(!node || Equal(localHash,p[@"playlist"][@"sha256"]))observedStatus=@"download";}
+    if(active && ![active[@"status"] isEqual:@"complete"])observedStatus=@"unknown";
     [self.library reportSyncItems:@[@{@"kind":@"playlist",@"id":libraryID,@"node":nodeID,@"serverHash":p[@"playlist"][@"sha256"],@"status":observedStatus}]];
     return @{@"localNode":node ?: @{},@"manifest":p,@"rows":rows,@"issues":issues,@"ready":@(issues.count==0 && [p[@"ready"] boolValue]),@"beforeHash":YBHash(before),@"nodeXML":xml ?: @"",@"orderChanged":@(orderChanged),@"target":self.target.path};
 }

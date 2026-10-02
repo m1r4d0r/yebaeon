@@ -7,6 +7,9 @@
 @end
 @implementation YBUploadJob
 @end
+@interface YBLibrary ()
+@property NSMutableDictionary *recentReports;
+@end
 @implementation YBLibrary
 - (instancetype)initWithRoot:(NSString *)root profile:(NSString *)profile server:(YBServer *)server {
     if((self=[super init])) {_server=server;_sync=[[YBSync alloc] initWithRoot:root profile:profile origin:server.origin];}return self;
@@ -37,12 +40,18 @@
     if(check)check();[self reportSyncItems:reports];NSLog(@"Sync compare: documents=%lu reads=%lu cacheHits=%lu seconds=%.3f",(unsigned long)result.count,(unsigned long)(self.sync.summaryReads-readsBefore),(unsigned long)(self.sync.summaryHits-hitsBefore),-started.timeIntervalSinceNow);return result;
 }
 - (void)reportSyncItems:(NSArray *)items {
+    // Coalesce identical observations from the priority and background pass.
+    // This is a bounded local cache, not a timer or an extra server query.
+    if(!self.recentReports)self.recentReports=[NSMutableDictionary dictionary];
+    NSMutableArray *pending=[NSMutableArray array];NSTimeInterval now=NSDate.date.timeIntervalSince1970;
+    for(NSDictionary *item in items){NSString *key=[NSString stringWithFormat:@"%@/%@/%@",item[@"kind"],item[@"id"],item[@"node"]];NSDictionary *old=self.recentReports[key];if(![old[@"item"] isEqual:item] || now-[old[@"at"] doubleValue]>=60)[pending addObject:item];}
+    items=pending;
     // Optional telemetry never changes whether a local transfer succeeded.
     @try {
         NSString *identity=[NSString stringWithFormat:@"%@|%@|%@",self.sync.profile,self.sync.root,self.server.origin];
         NSString *device=YBHash([identity dataUsingEncoding:NSUTF8StringEncoding]);
         for(NSUInteger i=0;i<items.count;i+=400){NSArray *slice=[items subarrayWithRange:NSMakeRange(i,MIN((NSUInteger)400,items.count-i))];NSData *body=[NSJSONSerialization dataWithJSONObject:@{@"deviceId":device,@"items":slice} options:0 error:NULL];
-            [self.server request:@"/api/sync-observations" method:@"POST" body:body headers:@{@"Content-Type":@"application/json"} timeout:10];}
+            [self.server request:@"/api/sync-observations" method:@"POST" body:body headers:@{@"Content-Type":@"application/json"} timeout:10];for(NSDictionary *item in slice){NSString *key=[NSString stringWithFormat:@"%@/%@/%@",item[@"kind"],item[@"id"],item[@"node"]];self.recentReports[key]=@{@"item":item,@"at":@(now)};}}
     }@catch(NSException *error){NSLog(@"Sync 상태 보고 실패: %@",error.reason);}
 }
 

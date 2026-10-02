@@ -63,7 +63,7 @@ NSString *YBProfilePath(NSString *root,NSString *origin) {NSString *identity=[NS
     BOOL (^cancelled)(void)=^BOOL{return self.generation!=generation;};
     dispatch_async(self.queue,^{@autoreleasepool {
         id result=nil;NSString *error=nil;@try{if(!cancelled())result=task(cancelled);}@catch(NSException *e){error=e.reason;}
-        dispatch_async(dispatch_get_main_queue(),^{if(!cancelled())completion(result,error);});
+        dispatch_async(dispatch_get_main_queue(),^{completion(cancelled() ? nil : result,cancelled() ? @"사용자 작업을 우선하여 나머지 점검을 멈췄습니다. 필요하면 서버와 비교를 눌러 주세요." : error);});
     }});
 }
 - (void)run:(id (^)(void))task completion:(void (^)(id,NSString *))completion {
