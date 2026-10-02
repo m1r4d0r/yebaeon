@@ -48,6 +48,7 @@ int main(void){@autoreleasepool {
         Reject(^{[missing verify];},@"new baseline invalidates snapshot");
         YBDiagnosticReader *directory=[YBDiagnosticReader new];[directory names:settings];Put([settings stringByAppendingPathComponent:@"new.json"],JSON(@{}));
         Reject(^{[directory verify];},@"changed directory invalidates snapshot");
+        Reject(^{[[YBDiagnosticReader new] read:[area stringByAppendingString:@"/../escape.json"]];},@"parent traversal rejected before filesystem access");
         NSString *link=[area stringByAppendingPathComponent:@"link.pro6pl"];Check(symlink(playlist.fileSystemRepresentation,link.fileSystemRepresentation)==0,@"symlink fixture");
         Reject(^{[[YBDiagnosticReader new] read:link];},@"leaf symlink rejected");
         NSString *parent=[area stringByAppendingPathComponent:@"linked-documents"];Check(symlink(root.fileSystemRepresentation,parent.fileSystemRepresentation)==0,@"parent symlink fixture");

@@ -28,7 +28,11 @@ static BOOL Match(NSString *value,NSString *pattern) {
 }
 // Do not resolve/rename user paths or follow symlinks, including parent directories.
 static BOOL Exists(NSString *path) {
-    YBRequire(path.isAbsolutePath && [path isEqual:path.stringByStandardizingPath],@"진단 경로는 절대 경로여야 하며 . 또는 .. 를 포함할 수 없습니다.");
+    YBRequire(path.isAbsolutePath,@"진단 경로는 절대 경로여야 합니다.");
+    // Foundation standardization can shorten /private/var to the /var symlink.
+    // Validate components lexically, preserving the exact physical path.
+    NSArray *parts=[path componentsSeparatedByString:@"/"];
+    for(NSUInteger i=1;i<parts.count;i++)YBRequire([parts[i] length] && ![parts[i] isEqual:@"."] && ![parts[i] isEqual:@".."],@"진단 경로에 빈 구성요소 또는 . / .. 가 있습니다.");
     NSString *current=@"/";
     for(NSString *part in path.pathComponents) {
         if([part isEqual:@"/"])continue;
