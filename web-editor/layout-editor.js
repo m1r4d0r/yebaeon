@@ -5,6 +5,7 @@
  const elements=()=>Array.from(P.ivar(E.current(),'array','displayElements')?.children||[]);
  const editable=e=>!!P.ivar(e,'RVRect3D','position');
  const isText=e=>e?.tagName==='RVTextElement';
+ $('layerProperties').before($('texts'));
  function safe(fn){return (...args)=>{try{fn(...args);}catch(e){E.status(e.message);}};}
  function commit(fn,rebuild=true){if(!active||locks.has(active))return;E.beginEdit();fn();E.refreshPreview();if(rebuild)E.refreshInspector();else paint();}
  function name(e,i){return P.attr(e,'displayName')||(isText(e)?'글상자 '+(i+1):e.tagName==='RVImageElement'?'이미지':'영상');}
