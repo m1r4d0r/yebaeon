@@ -95,11 +95,11 @@
 - (void)startupCompare {
     self.statusLabel.stringValue=@"재생목록과 연결 문서를 먼저 확인합니다.";
     [self.work run:^id{
-        [self ensureSessionLoaded];return [self.server request:@"/api/session" method:@"GET" body:nil headers:nil];
+        [self ensureSessionLoaded];NSMutableDictionary *session=[[self.server request:@"/api/session" method:@"GET" body:nil headers:nil] mutableCopy];BOOL directory=NO;session[@"noFolder"]=@(![NSFileManager.defaultManager fileExistsAtPath:self.documentsRoot isDirectory:&directory] || !directory);return session;
     } completion:^(NSDictionary *session,NSString *error){
         if(error || ![session[@"authenticated"] boolValue]){if(self.sessionChanged)self.sessionChanged(@"입장 필요 / 연결 확인");self.statusLabel.stringValue=error ?: @"입장한 뒤 비교할 수 있습니다.";return;}
         self.sessionLabel.stringValue=[NSString stringWithFormat:@"%@ 연결됨",session[@"name"] ?: @""];if(self.sessionChanged)self.sessionChanged(self.sessionLabel.stringValue);
-        if(self.priorityRequested)self.priorityRequested();else [self backgroundCompare];
+        if([session[@"noFolder"] boolValue]){self.statusLabel.stringValue=@"문서 폴더를 선택한 뒤 비교해 주세요.";return;}if(self.priorityRequested)self.priorityRequested();else [self backgroundCompare];
     }];
 }
 - (void)backgroundCompare {

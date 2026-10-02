@@ -336,7 +336,7 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
     NSMutableArray *rows=[NSMutableArray array];
     for(NSString *p in [paths.allObjects sortedArrayUsingSelector:@selector(compare:)]) {
         NSString *status=YBDisposition(local[p],remote[p],baselines[p]);
-        [rows addObject:@{@"path":p,@"status":status,@"localHash":YBNull(local[p]),@"remote":YBNull(remote[p]),@"lastDateUsed":self.summaryCache[p][@"lastDateUsed"] ?: @""}];
+        [rows addObject:@{@"path":p,@"status":status,@"localHash":YBNull(local[p]),@"remote":YBNull(remote[p]),@"lastDateUsed":local[p] ? (self.summaryCache[p][@"lastDateUsed"] ?: @"") : @""}];
     }
     [rows addObjectsFromArray:excluded];
     return [rows sortedArrayUsingDescriptors:@[[NSSortDescriptor sortDescriptorWithKey:@"path" ascending:YES]]];
