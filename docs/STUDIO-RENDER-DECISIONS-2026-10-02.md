@@ -45,3 +45,15 @@ RVRect3D position에 글상자 위치/크기, verticalAlignment에 세로 정렬
 현재 일반 편집의 추가 줄 간격 입력은 n>=0 조건으로 음수 값을 차단한다. 자간 읽기/그리기/편집도 빠져 있다. 표지의 음수 줄 간격/자간은 구현상의 실제 누락을 드러낸다. 특정 RTF 저장 컨트롤과 XML 좌표는 원본 .pro6 없이 확정할 수 없다. 원본 두 문서(.pro6)가 추가로 필요하며 출력 PNG/설정 캡처는 다시 받을 필요 없다. 이번 작업은 자료 확인과 기록만이다.
 
 폰트 탑재 배포36980918496은 원본 14개 해시 일치, Node47개 검사 및 운영 배포 성공을 확인했다. 네이티브 PP6 시각적 일치/아웃라인/조판 구현 완료를 의미하지 않는다.
+
+## 원본 .pro6 대조 · 2026-10-02 17:03 KST
+
+두 원본 모두 문서크기1920×1080. 찬양 글상자 position={-4 90 0 1929 899}. RTF font NanumGothicOTF + b, fs220=크기110, slleading460=추가줄간격23. 원본 Bold 플래그가 실제 존재하므로 Bold 데이터 부재 가설은 배제한다.
+
+찬양의 글자 아웃라인은 XML drawingStroke가 아니라 RTF strokewidth-100/strokec0에 저장된다. XML drawingStroke=false, shape stroke width=0인데도 RTF text stroke가 있으므로 서로 다른 설정이다. 단순 XML flag 검사로 글자 아웃라인 없음이라고 판단하면 안 된다. -100을 그대로 픽셀폭으로 사용하지 않는다. 캡처의 아웃라인5와의 변환 및 Cocoa font-size 비율 의미를 PP6 출력과 대조해야 한다.
+
+말씀 표지 제목: RTF Arita-buri-Medium_OTF + b, fs198=99, slleading-600=-30, expndtw-100=-5. 좌표415,316 / 크기1090,449. 본문: 같은 font+b, fs180=90, slleading200=10, expndtw0=0. 본문좌표113,272 / 크기1693,683. 장절은 별도 상자/별도 서식(크기100, 줄간격20, 자간-1)이므로 전체 일괄 적용 금지. RTF의 Medium 이름만 보고 표시 폰트를 Medium으로 확정하면 안 되며 b와 함께 해석한다.
+
+원본에 그림자 블러/색/오프셋도 저장된다. 말씀 본문은 blur19/검정alpha약0.333/offset0인데 현재 렌더는 고정blur8/alpha0.45/offsetY3으로 근사한다.
+
+현재 RTF 파서/작성기는 expnd/expndtw/kerning/strokewidth/strokec를 서식 모델에 넣지 않는다. setText/setRuns 경로에서 지원 서식으로 RTF를 재작성하면 이런 기존 효과가 유실될 수 있으므로 표시 구현뿐 아니라 편집 후 원본 서식 보존을 함께 수정해야 한다. 이번 작업은 원본 분석/기록만이며 앱 기능 수정·배포를 하지 않았다. 필요한 기준 출력과 원본 자료는 확보되었다.
