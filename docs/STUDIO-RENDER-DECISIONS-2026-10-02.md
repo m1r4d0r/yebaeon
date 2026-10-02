@@ -26,3 +26,9 @@ RVRect3D position에 글상자 위치/크기, verticalAlignment에 세로 정렬
 아웃라인 그리기 누락, 일반 빠른 편집 textarea 경로의 서식/세로 정렬 누락, 고정 400px 버퍼는 코드로 확인했다. 현재 캡처 곡에서 실제 선택된 폰트 face/최종 로드 파일과 줄 간격 변환은 추가 확인이 필요하다. 기능 테스트 성공은 PP6 시각적 일치 검증을 대체하지 않는다.
 
 이번 기록은 문서 변경만이며 앱 기능 수정/배포/새 성능 계측을 수행하지 않았다.
+
+## 2026-10-02 제공 폰트 탑재
+
+사용자 제공 NanumGothic OTF/TTF 14개 원본을 church-resources에 추가한다. 일반 Regular/Bold/ExtraBold/Light와 Eco Regular/Bold/ExtraBold 각각 OTF/TTF를 포함한다. 메타데이터에서 Bold는 600, ExtraBold는 700이다. 등록 이름은 각 파일의 PostScript name으로 설정한다. 파일 확장자를 포함한 FontFace 식별자로 OTF/TTF 충돌을 방지하고 family+Bold 이름을 먼저 조회한다. 사용하지 않은 나눔고딕 WOFF2 파일은 기존 빌드와의 호환을 위해 저장소에 남지만 새 catalog는 제공된 원본 파일을 참조한다.
+
+추가 검증: VM에서 OTF/TTF 식별 분리 및 원본 Bold 파일 선택/굵기600 적용 통과. 최초 WOFF2 변환 검토는 Python Brotli 모듈 부재로 실패했으나 변환을 폐기하고 사용자 원본 14개를 그대로 업로드했다. 대용량 blob 읽기 한 번이 도구 출력 제한에 걸려 작은 청크로 나누어 원본 base64를 결합하는 방식으로 해결했다. 앱 배포 결과는 해당 GitHub Actions에서 확인한다. PP6 실제 조판 일치는 아직 검증되지 않았다.
