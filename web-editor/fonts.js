@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const entries=new Map(), exact=new Map();let catalog=[];
-  function registerCatalog(fonts) { catalog=fonts;exact.clear();for(const f of fonts) { const family="YebaeFont-"+f.file.replace(/[^a-z0-9]/gi,"-"); const face=new FontFace(family,`url(/resources/${f.file})`,{weight:String(f.weight)});document.fonts.add(face);exact.set(f.name.toLowerCase(),{family,label:f.name,weight:f.weight,note:"",key:family+":"+f.weight}); } entries.clear();notify(); }
+  function registerCatalog(fonts) { catalog=fonts;exact.clear();for(const f of fonts) { const family="YebaeFont-"+f.file.replace(/[^a-z0-9]/gi,"-"); const face=new FontFace(family,`url(/resources/${f.file})`,{weight:String(f.weight)});document.fonts.add(face);exact.set(f.name.toLowerCase(),{family,label:f.name,weight:f.weight,metrics:f.metrics,note:"",key:family+":"+f.weight}); } entries.clear();notify(); }
   function resolve(style) {
     const name=String(style.font||''),installed=exact.get(name.toLowerCase());if(!installed)return null;
     if(!style.bold||/bold|heavy|black/i.test(name)||/[a-z](?:EB|B)$/.test(name))return installed;
@@ -55,8 +55,9 @@
     });
     return [...new Set(lines)];
   }
+  function metrics(style){const m=resolve(style)?.metrics;if(!m)return null;const scale=style.size/m.unitsPerEm;return {ascent:m.ascent*scale,descent:m.descent*scale,lineGap:m.lineGap*scale};}
   function state(){return [...entries.values()].map(({family,weight,status})=>({family,weight,status}));}
-  window.PP6Fonts={registerCatalog,resolve,ensure,css,descriptions,state,choices:()=>[...catalog]};
+  window.PP6Fonts={registerCatalog,resolve,ensure,css,descriptions,state,metrics,choices:()=>[...catalog]};
 })();
 
 

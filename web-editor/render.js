@@ -31,8 +31,9 @@
     const key=JSON.stringify([revision,box.w,caps,parsed.runs,parsed.emptyStyle]);
     if(layouts.has(key)){const hit=layouts.get(key);layouts.delete(key);layouts.set(key,hit);return {...hit.result,overflow:hit.result.total>box.h};}
     const lines=[];let line={parts:[],width:0,height:0,ascent:0,descent:0,leading:0,align:'left'};
-    const fontMetrics=new Map();function metrics(style){const key=font(style);if(fontMetrics.has(key))return fontMetrics.get(key);configure(ctx,style);const m=ctx.measureText('한Ag');const value={ascent:m.fontBoundingBoxAscent||style.size*.8,descent:m.fontBoundingBoxDescent||style.size*.2};fontMetrics.set(key,value);return value;}
-    function include(style){const m=metrics(style);line.ascent=Math.max(line.ascent,m.ascent);line.descent=Math.max(line.descent,m.descent);line.leading=style.leading||0;line.height=Math.max(1,line.ascent+line.descent+line.leading);line.align=style.align;}
+    const fontMetrics=new Map();function metrics(style){const key=font(style);if(fontMetrics.has(key))return fontMetrics.get(key);configure(ctx,style);const m=ctx.measureText('한Ag');const value=PP6Fonts.metrics?.(style)||{ascent:m.fontBoundingBoxAscent||style.size*.8,descent:m.fontBoundingBoxDescent||style.size*.2,lineGap:0};fontMetrics.set(key,value);return value;}
+    function include(style){const m=metrics(style);line.ascent=Math.max(line.ascent,m.ascent);line.descent=Math.max(line.descent,m.descent);// Native PP6 reference keeps the natural line fragment when Cocoa spacing is negative.
+      line.leading=Math.max(0,style.leading||0);line.height=Math.max(1,line.ascent+line.descent+line.leading);line.align=style.align;}
     function end(style){if(!line.height)include(style||parsed.emptyStyle);lines.push(line);line={parts:[],width:0,height:0,ascent:0,descent:0,leading:0,align:'left'};}
     for(const run of parsed.runs){const style=run.style,signature=JSON.stringify(style);include(style);
       for(const char of Array.from(caps?run.text.toUpperCase():run.text)){if(char==='\n'){end(style);continue;}const visible=char==='\t'?'    ':char;
