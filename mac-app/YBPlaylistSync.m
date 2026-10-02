@@ -30,7 +30,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     NSMutableDictionary *entries=[state[@"entries"] mutableCopy];
     if([remote[@"sha256"] isEqual:YBHash(local)])for(NSDictionary *node in YBPlaylistNodes(local)){NSString *hash=YBHash(Data(node[@"raw"]));entries[[NSString stringWithFormat:@"%@/%@",remote[@"id"],node[@"id"]]]=@{@"localHash":hash,@"remoteHash":hash};}
     state[@"entries"]=entries;
-    state[@"file"]=@{@"libraryID":remote[@"id"],@"remoteHash":remote[@"sha256"],@"localHash":YBHash(local),@"version":remote[@"version"]};
+    NSArray *preserved=[state[@"file"][@"libraryID"] isEqual:remote[@"id"]] ? state[@"file"][@"preservedNodes"] : nil;state[@"file"]=@{@"libraryID":remote[@"id"],@"remoteHash":remote[@"sha256"],@"localHash":YBHash(local),@"version":remote[@"version"],@"preservedNodes":preserved ?: @[]};
     [self writeJSON:state path:self.statePath];
 }
 - (NSDictionary *)reconcileFileWithLibraries:(NSArray *)libraries {
@@ -69,6 +69,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     if(self.library.sync.presenterRunning())return @{ @"libraries":libraries, @"status":@"PP6 실행 중이어서 Mac 재생목록 변경을 서버로 보내지 않았습니다." };
     YBRequire([YBReadPlaylist(self.target) isEqual:local],@"Mac 재생목록이 비교 중 바뀌었습니다. 다시 비교하세요.");
     NSData *serverBytes=local;NSMutableSet *paths=[NSMutableSet set];for(NSDictionary *node in YBPlaylistNodes(local))serverBytes=YBPlaylistReplacing(serverBytes,node[@"id"],[self serverXMLForNode:node root:remote[@"sourceRoot"] ?: @"~/Documents/ProPresenter6" paths:paths]);
+    if([base[@"preservedNodes"] count]){NSData *currentServer=[self.library.server downloadPlaylist:remote];for(NSString *nodeID in base[@"preservedNodes"]){NSDictionary *node=YBPlaylistNode(currentServer,nodeID);if(node && !YBPlaylistNode(serverBytes,nodeID))serverBytes=YBPlaylistReplacing(serverBytes,nodeID,node[@"raw"]);}}
     NSDictionary *result=[self.library.server request:[NSString stringWithFormat:@"/api/playlists/%@",Query(remote[@"id"])] method:@"PUT" body:serverBytes headers:@{@"Content-Type":@"application/xml; charset=utf-8",@"If-Match":[NSString stringWithFormat:@"\"%@\"",remote[@"version"]]}];
     NSDictionary *saved=result[@"library"];
     YBRequire([saved[@"sha256"] isEqual:YBHash(serverBytes)],@"서버에 저장한 재생목록의 해시가 다릅니다.");
@@ -277,7 +278,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
         for(NSDictionary *doc in completed){NSDictionary *current=finalCatalog ? finalCatalog[doc[@"path"]] : [self.library.server head:doc];YBRequire(Equal(current[@"version"],doc[@"version"]) && Equal(current[@"sha256"],doc[@"sha256"]) && [YBHash([sync readDocument:doc[@"path"]]) isEqual:doc[@"sha256"]],@"검증 중 문서가 다시 변경됐습니다. 재설정 완료로 표시하지 않습니다.");}
         YBRequire([YBReadPlaylist(self.target) isEqual:local],@"검증 중 Mac 순서가 변경됐습니다.");NSMutableDictionary *state=self.state,*entries=[state[@"entries"] mutableCopy];
         for(NSString *nodeID in job[@"nodes"]){NSString *key=[NSString stringWithFormat:@"%@/%@",saved[@"id"],nodeID];entries[key]=@{@"localHash":YBHash(Data(YBPlaylistNode(local,nodeID)[@"raw"])),@"remoteHash":YBHash(Data(YBPlaylistNode(desired,nodeID)[@"raw"]))};}state[@"entries"]=entries;
-        if([job[@"all"] boolValue])state[@"file"]=@{@"libraryID":saved[@"id"],@"remoteHash":saved[@"sha256"],@"localHash":YBHash(local),@"version":saved[@"version"]};else [state removeObjectForKey:@"file"];
+        if([job[@"all"] boolValue])state[@"file"]=@{@"libraryID":saved[@"id"],@"remoteHash":saved[@"sha256"],@"localHash":YBHash(local),@"version":saved[@"version"],@"preservedNodes":[job[@"serverOnlyPlaylists"] valueForKey:@"id"] ?: @[]};else [state removeObjectForKey:@"file"];
         [self writeJSON:state path:self.statePath];job[@"status"]=@"complete";[self writeJSON:job path:jobPath];return job;
     }@catch(NSException *error){job[@"status"]=@"incomplete";job[@"error"]=error.reason ?: @"중단";[self writeJSON:job path:jobPath];YBRequire(NO,[NSString stringWithFormat:@"%lu/%lu개 문서 확인 후 중단했습니다. 완료분과 백업은 보존됩니다. 다시 준비하면 이미 같은 문서는 재업로드하지 않습니다.\n백업: %@\n%@",(unsigned long)completed.count,(unsigned long)rows.count,[sync.profile stringByAppendingPathComponent:folder],error.reason]);return nil;}
 }
