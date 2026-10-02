@@ -84,17 +84,6 @@ const assert=require('node:assert/strict');
  await page.screenshot({path:'artifacts/studio-indexed-document.png'});
  await page.locator('#libraryList .document-item').filter({hasText:'시험 문서'}).click();await page.waitForFunction(()=>YebaeonEditor.ready());assert.equal(await page.evaluate(()=>YebaeonEditor.state().dirty),true);assert.equal(await page.evaluate(()=>PP6.parseRTF(PP6.textNode(PP6.textElements(YebaeonEditor.current())[0]).textContent).text),'전환 전에 편집한 초안');
  await page.locator('#libraryQuery').fill('본문만검색');await page.waitForFunction(()=>document.querySelectorAll('#libraryList .document-item').length===1);assert.equal(await page.locator('#libraryList small').textContent(),'본문 일치');
- // Virtual time verifies idle screens do not keep querying the production DB.
- const beforeIdleLights=await page.evaluate(()=>{window.__idleLights=0;const api=YebaeonCloud.api;YebaeonCloud.api=(path,...args)=>{if(path==='/sync-observations')window.__idleLights++;return api(path,...args);};return window.__idleLights;});
- await page.clock.install();await page.clock.fastForward(65000);assert.equal(await page.evaluate(()=>window.__idleLights),beforeIdleLights);
- const statusPage=await browser.newPage({viewport:{width:1440,height:960}});let statusReads=0,detailReads=0;
- await statusPage.clock.install();
- await statusPage.route('**/api/status*',async route=>{const detailed=new URL(route.request().url()).searchParams.has('details');statusReads++;if(detailed)detailReads++;const storage={currentDocuments:{count:3000,bytes:1024},currentPlaylists:{count:1,bytes:100},documentHistory:{count:2,bytes:200},playlistHistory:{count:0,bytes:0},trackedBytes:1324};await route.fulfill({json:{documents:3000,bytes:1024,playlists:1,catalogDocuments:3107,unavailableDocuments:107,recent:[],sync:[],observedAt:'2026-10-02T07:35:00Z',...(detailed?{storage}:{})}});});
- await statusPage.route('**/resources/catalog.json',r=>r.fulfill({json:{expectedDocuments:3107,fonts:[],media:[],templateFiles:0,templates:0,bible:{name:'개역개정',verses:31103}}}));
- await statusPage.goto(`http://127.0.0.1:${server.address().port}/status.html`);await statusPage.locator('#dashboard').waitFor({state:'visible'});assert.equal(statusReads,1);assert.equal(detailReads,0);
- await statusPage.clock.fastForward(65000);await statusPage.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));assert.equal(statusReads,1);
- await statusPage.locator('#refresh').click();await statusPage.waitForFunction(()=>document.getElementById('message').textContent.includes('확인했습니다'));assert.equal(statusReads,2);
- await statusPage.locator('#storageRefresh').click();await statusPage.locator('#storagePanel').waitFor({state:'visible'});assert.equal(detailReads,1);assert.equal(await statusPage.locator('#storage tr').count(),4);await statusPage.screenshot({path:'artifacts/server-status-manual.png'});await statusPage.close();
  assert.deepEqual(errors,[]);
  await page.addScriptTag({path:'web-editor/sample-demo.js'});
  await page.evaluate(()=>{YebaeonEditor.open(PP6_SAMPLE.xml,'배치 편집 시험.pro6',true,'layout-test');YebaeonEditor.setView('editor');});
