@@ -17,6 +17,8 @@
    if(text){consume(e,()=>{e.target.blur();pane?.element.focus();});return;}
    if(E.view()!=='slides'){consume(e,()=>E.setView('slides'));return;}consume(e,()=>pane?.clear());return;
   }
+  if(e.target.closest('#layoutStage')&&mod&&!e.altKey&&['KeyZ','KeyY'].includes(e.code)){consume(e,()=>E.undo(e.code==='KeyY'||!!e.shiftKey));return;}
+  if(e.target.closest('#layoutStage'))return;
   if(text||dialog||!pane||e.target.closest('#contextMenu')||e.target.closest('#libraryDivider'))return;
   if(mod&&!e.altKey){const actions={KeyA:()=>pane.all(),KeyC:()=>pane.options.copy?.(false),KeyX:()=>pane.options.copy?.(true),KeyV:()=>pane.options.paste?.(),KeyZ:()=>pane.options.undo?.(!!e.shiftKey),KeyY:()=>pane.options.undo?.(true)};if(actions[e.code]){consume(e,actions[e.code]);return;}}
   if(e.code==='ContextMenu'||e.code==='F10'&&e.shiftKey){consume(e,()=>pane.options.menu?.(e));return;}
@@ -32,3 +34,4 @@
  $('contextMenu').addEventListener('keydown',e=>{const items=[...$('contextMenu').querySelectorAll('button:not(:disabled)')],index=items.indexOf(document.activeElement);if(e.code==='ArrowDown'||e.code==='ArrowUp'){e.preventDefault();e.stopPropagation();items[(index+(e.code==='ArrowDown'?1:items.length-1))%items.length]?.focus();}});
  window.YebaeonKeys={leftAlt:()=>altLeft};
 })();
+

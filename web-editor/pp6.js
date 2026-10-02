@@ -139,10 +139,7 @@
     return result;
   }
   function textRTF(text, style) {
-    const s=style || {font:'Arial',size:90,color:'#ffffff',align:'center',bold:false};
-    const rgb=s.color.match(/\d+/g)?.slice(0,3) || [255,255,255];
-    const raw=`{\\rtf1\\ansi\\ansicpg1252\\uc1\n{\\fonttbl\\f0\\fnil ${escapeRTF(s.font)};}\n{\\colortbl;\\red${rgb[0]}\\green${rgb[1]}\\blue${rgb[2]};}\n\\pard\\${({left:'ql',center:'qc',right:'qr'})[s.align] || 'ql'}\\slleading${Math.round((s.leading || 0)*20)}\\f0\\fs${Math.round(s.size*2)}\\cf1\\b${s.bold?1:0}\\i${s.italic?1:0}\\ul${s.underline?1:0} ${escapeRTF(text)}}`;
-    return btoa(raw);
+    return runsRTF([{text,style:style||{font:'Arial',size:90,color:'#ffffff',align:'center',bold:false}}]);
   }
   function textNode(element) { return element.querySelector('NSString[rvXMLIvarName="RTFData"]'); }
   function parse(xml, name) {
@@ -165,8 +162,31 @@
     if(!node)throw new Error('텍스트 데이터가 없는 상자입니다.');
     const original=parseRTF(node.textContent);
     if(original.text===text)return;
-    node.textContent=textRTF(text,original.runs.find(r=>r.text.trim())?.style || original.runs[0]?.style || original.emptyStyle);
+    node.textContent=runsRTF(replaceRuns(original.runs,original.text,text,original.emptyStyle),original.emptyStyle);
   }
+  function sliceRuns(runs,start,end) {
+    let at=0;const result=[];
+    for(const run of runs){const from=Math.max(0,start-at),to=Math.min(run.text.length,end-at);if(to>from)result.push({text:run.text.slice(from,to),style:{...run.style}});at+=run.text.length;}
+    return result;
+  }
+  function replaceRuns(runs,before,after,fallback){
+    let start=0,end=0;while(start<before.length&&start<after.length&&before[start]===after[start])start++;
+    while(end<before.length-start&&end<after.length-start&&before[before.length-1-end]===after[after.length-1-end])end++;
+    // Keep UTF-16 surrogate pairs together when choosing inherited formatting.
+    if(start&&/[\uD800-\uDBFF]/.test(before[start-1]))start--;
+    if(end&&/[\uDC00-\uDFFF]/.test(before[before.length-end]))end--;
+    const inherited=sliceRuns(runs,Math.max(0,start-1),Math.max(1,start))[0]?.style||runs[0]?.style||fallback;
+    return [...sliceRuns(runs,0,start),{text:after.slice(start,after.length-end),style:{...inherited}},...sliceRuns(runs,before.length-end,before.length)].filter(r=>r.text);
+  }
+  function runsRTF(runs,fallback={font:'Arial',size:90,color:'#ffffff',align:'center'}){
+    const values=runs.length?runs:[{text:'',style:fallback}],fonts=[...new Set(values.map(r=>r.style.font))],colors=[...new Set(values.map(r=>r.style.color))];
+    const rgb=value=>{if(/^#[a-f\d]{6}$/i.test(value))return [1,3,5].map(i=>parseInt(value.slice(i,i+2),16));return value.match(/\d+/g)?.slice(0,3).map(Number)||[255,255,255];};
+    const head='{\\rtf1\\ansi\\ansicpg1252\\uc1{\\fonttbl'+fonts.map((f,i)=>`{\\f${i}\\fnil ${escapeRTF(f)};}`).join('')+'}{\\colortbl;'+colors.map(c=>{const [r,g,b]=rgb(c);return `\\red${r}\\green${g}\\blue${b};`;}).join('')+'}';
+    return btoa(head+values.map(({text,style:s})=>`\\pard\\${({left:'ql',center:'qc',right:'qr'})[s.align]||'ql'}\\slleading${Math.round((s.leading||0)*20)}\\f${fonts.indexOf(s.font)}\\fs${Math.round(s.size*2)}\\cf${colors.indexOf(s.color)+1}\\b${s.bold?1:0}\\i${s.italic?1:0}\\ul${s.underline?1:0} ${escapeRTF(text)}`).join('')+'}');
+  }
+  function setRuns(element,runs,fallback){textNode(element).textContent=runsRTF(runs,fallback);}
+  function formatRange(element,start,end,patch){const parsed=parseRTF(textNode(element).textContent);start=Math.max(0,start);end=Math.min(parsed.text.length,end);if(end<=start){start=0;end=parsed.text.length;}const middle=sliceRuns(parsed.runs,start,end).map(r=>({text:r.text,style:{...r.style,...patch}}));setRuns(element,[...sliceRuns(parsed.runs,0,start),...middle,...sliceRuns(parsed.runs,end,parsed.text.length)],{...parsed.emptyStyle,...patch});}
+  function setRect(element,box){const node=ivar(element,'RVRect3D','position');if(!node)throw new Error('위치 정보가 없는 요소입니다.');const numbers=node.textContent.match(/-?\d+(?:\.\d+)?/g)?.map(Number)||[];numbers[0]=box.x;numbers[1]=box.y;numbers[3]=box.w;numbers[4]=box.h;node.textContent='{'+numbers.join(' ')+'}';}
   function refreshIDs(node) {
     const map=new Map();
     for(const e of [node,...all(node,'*')]) for(const key of ['UUID','uuid']) {
@@ -195,5 +215,5 @@
     return JSON.stringify([root.drawingBackgroundColor||'',root.backgroundColor||'',elements.map(e=>[e.type,keys.map(k=>e.attrs[k]||''),e.position.trim().replace(/\s+/g,' '),e.shadow||'',e.rtf===undefined?null:[...new Set((()=>{const p=parseRTF(e.rtf);return (p.runs.length?p.runs.map(r=>r.style):[p.emptyStyle]).map(s=>JSON.stringify(s));})())].sort()])]);
   }
   function templateFormat(slide){return templateFormatData(Object.fromEntries(Array.from(slide.attributes,a=>[a.name,a.value])),all(slide,'RVTextElement,RVImageElement,RVVideoElement').map(e=>({type:e.tagName,attrs:Object.fromEntries(Array.from(e.attributes,a=>[a.name,a.value])),position:ivar(e,'RVRect3D','position')?.textContent||'',shadow:ivar(e,'shadow','shadow')?.textContent||'',...(e.tagName==='RVTextElement'?{rtf:textNode(e)?.textContent||''}:{})})));}
-  window.PP6={all,ivar,attr,nfc,basename,uuid,rect,color,parseRTF,textRTF,textNode,parse,slides,textElements,mediaElements,setText,duplicate,refreshIDs,serialize,templateFormat,templateFormatData};
+  window.PP6={all,ivar,attr,nfc,basename,uuid,rect,color,parseRTF,textRTF,runsRTF,sliceRuns,replaceRuns,setRuns,formatRange,setRect,textNode,parse,slides,textElements,mediaElements,setText,duplicate,refreshIDs,serialize,templateFormat,templateFormatData};
 })();

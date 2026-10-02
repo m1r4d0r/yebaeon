@@ -1,10 +1,10 @@
 /* Preview-only aliases. Never rewrite the source RTF font names. */
 (function () {
   'use strict';
-  const entries=new Map(), exact=new Map();
-  function registerCatalog(fonts) { for(const f of fonts) { const family="YebaeFont-"+f.file.split(".")[0]; const face=new FontFace(family,`url(/resources/${f.file})`,{weight:String(f.weight)});document.fonts.add(face);exact.set(f.name.toLowerCase(),{family,label:f.name,weight:f.weight,note:"",key:family+":"+f.weight}); } entries.clear();notify(); }
+  const entries=new Map(), exact=new Map();let catalog=[];
+  function registerCatalog(fonts) { catalog=fonts;for(const f of fonts) { const family="YebaeFont-"+f.file.split(".")[0]; const face=new FontFace(family,`url(/resources/${f.file})`,{weight:String(f.weight)});document.fonts.add(face);exact.set(f.name.toLowerCase(),{family,label:f.name,weight:f.weight,note:"",key:family+":"+f.weight}); } entries.clear();notify(); }
   function resolve(style) {
-    const name=String(style.font || ''); const installed=exact.get(name.toLowerCase()); if(installed)return {...installed,weight:style.bold?Math.max(700,installed.weight):installed.weight}; const key=name.toLowerCase().replace(/[\s_-]/g,'');
+    const name=String(style.font || ''); const installed=exact.get(name.toLowerCase()); if(installed&&!style.bold)return installed; if(installed&&style.bold){const base=name.replace(/(?:regular|medium|light|book)(?=[_-]|$)/ig,'');const candidates=[base.replace(/([_-]?)(OTF)?$/i,'Bold$2'),name.replace(/(?:regular|medium|light|book)/ig,'Bold')];for(const candidate of candidates){const face=exact.get(candidate.toLowerCase());if(face)return face;}if(!/arita|nanumgothic|nanummyeongjo/i.test(name))return {...installed,weight:Math.max(700,installed.weight)};} const key=name.toLowerCase().replace(/[\s_-]/g,'');
     let family, label, weight=400, note='';
     if(key.startsWith('aritaburi') || key.startsWith('아리따부리')) {
       family='PP6 Arita Buri';label='아리따부리';weight=500;
@@ -22,7 +22,7 @@
       if(/yethangul|옛한글/.test(key))note='옛한글판은 일반 나눔명조로 미리보기';
     } else return null;
     if(family!=='PP6 Arita Buri')weight=/extrabold/.test(key)?800:/bold/.test(key)?700:400;
-    if(style.bold)weight=Math.max(700,weight);
+    if(style.bold&&weight<600)weight=700;
     return {family,label,weight,note,key:family+':'+weight};
   }
   function styles(slide) {
@@ -60,7 +60,7 @@
   function descriptions(slide) {
     const lines=styles(slide).map(style=>{
       const font=resolve(style);
-      if(!font)return `${style.font} · 설치된 글꼴 사용`;
+      if(!font)return `${style.font} · 웹폰트 미등록 · 설치 여부에 따라 대체 표시`;
       const status=entries.get(font.key)?.status || 'loading';
       const label=({loaded:'웹폰트 적용',loading:'웹폰트 불러오는 중',delayed:'연결 지연 · 대체 글꼴 사용',error:'연결 실패 · 대체 글꼴 사용'})[status];
       return `${font.label} ${font.weight} · ${label}${font.note?' · '+font.note:''}`;
@@ -68,5 +68,6 @@
     return [...new Set(lines)];
   }
   function state(){return [...entries.values()].map(({family,weight,status})=>({family,weight,status}));}
-  window.PP6Fonts={registerCatalog,resolve,ensure,css,descriptions,state};
+  window.PP6Fonts={registerCatalog,resolve,ensure,css,descriptions,state,choices:()=>[...catalog,...['HairLine','Light','Medium','SemiBold','Bold'].map(n=>({name:'Arita-buri-'+n+'_OTF'}))]};
 })();
+
