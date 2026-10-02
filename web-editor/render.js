@@ -43,7 +43,7 @@
     }end(parsed.runs.at(-1)?.style);const total=Math.max(0,lines.reduce((n,l)=>n+l.height,0)-(lines.at(-1)?.leading||0));
     const result={lines,total,wrapped:lines.map(l=>l.parts.map(p=>p.text).join('')).join('\n')};
     for(const row of lines){row.parts.forEach(Object.freeze);Object.freeze(row.parts);Object.freeze(row);}Object.freeze(lines);Object.freeze(result);
-    const bytes=key.length*2+parsed.text.length*4+lines.length*256;if(bytes<=262144){layouts.set(key,{result,bytes});layoutBytes+=bytes;while(layoutBytes>4*1024*1024||layouts.size>256){const first=layouts.keys().next().value;layoutBytes-=layouts.get(first).bytes;layouts.delete(first);}}
+    const bytes=key.length*2+parsed.runs.reduce((n,r)=>n+r.text.length,0)*4+lines.length*256;if(bytes<=262144){layouts.set(key,{result,bytes});layoutBytes+=bytes;while(layoutBytes>4*1024*1024||layouts.size>256){const first=layouts.keys().next().value;layoutBytes-=layouts.get(first).bytes;layouts.delete(first);}}
     return {...result,overflow:total>box.h};
   }
   function paintRun(ctx,part,x,y){const s=part.style;configure(ctx,s);ctx.fillStyle=s.color;ctx.strokeStyle=s.strokeColor||'#000000';ctx.lineWidth=Math.abs(s.strokeWidth||0)*s.size/100;ctx.lineJoin='round';

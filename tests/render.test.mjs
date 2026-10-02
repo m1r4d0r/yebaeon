@@ -7,7 +7,7 @@ vm.runInContext(await readFile('web-editor/render.js','utf8'),c);const R=c.windo
 let measures=0;const ctx={font:'',fontKerning:'auto',letterSpacing:'0px',measureText(s){measures++;return {width:Array.from(s).length*10+Math.max(0,Array.from(s).length-1)*parseFloat(this.letterSpacing),fontBoundingBoxAscent:80,fontBoundingBoxDescent:20};}};
 const parsed={text:'ABC\nDEF',runs:[{text:'ABC\nDEF',style:{font:'Test',size:100,leading:-30,tracking:-5,align:'center'}}],emptyStyle:{font:'Test',size:100,leading:-30}};
 test('Tracking, negative leading, trailing gap and overflow use one cached model-space layout',()=>{
- const a=R.layout(ctx,parsed,{w:100,h:200});assert.equal(a.lines[0].width,20);assert.equal(a.total,170);assert.equal(a.overflow,false);const before=measures;
+ const a=R.layout(ctx,{runs:parsed.runs,emptyStyle:parsed.emptyStyle},{w:100,h:200});assert.equal(a.lines[0].width,20);assert.equal(a.total,170);assert.equal(a.overflow,false);const before=measures;
  const b=R.layout(ctx,parsed,{w:100,h:160});assert.equal(b.total,170);assert.equal(b.overflow,true);assert.equal(measures,before,'changing preview/box height must reuse line shaping');assert.throws(()=>a.lines[0].width=999);
  listeners.pp6fontschange();R.layout(ctx,parsed,{w:100,h:200});assert.ok(measures>before,'a loaded font invalidates the old line measurements');
 });
