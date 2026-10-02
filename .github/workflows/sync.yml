@@ -1,25 +1,11 @@
 name: Verify Mac Sync
+# Mac builds consume the limited Actions allowance. Batch changes and run once
+# for a release candidate; reuse its tested app and screenshots after merging.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'mac-sync/**'
-      - 'mac-app/**'
-      - 'cloudflare/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.node-version'
-      - '.github/workflows/sync.yml'
-      - '!**/*.md'
-  pull_request:
-    paths:
-      - 'mac-sync/**'
-      - 'mac-app/**'
-      - 'cloudflare/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/sync.yml'
   workflow_dispatch:
+concurrency:
+  group: mac-sync-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
