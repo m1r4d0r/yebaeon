@@ -11,6 +11,8 @@
 #import "../mac-sync/PP6Core.h"
 #import <sys/stat.h>
 #import <unistd.h>
+#import <signal.h>
+#import <execinfo.h>
 @interface PPSPlaylistController (Tests)
 - (NSArray *)topPlaylists:(NSString *)xml;
 - (void)compareIfReady;
@@ -33,7 +35,8 @@
 - (void)filter;
 @end
 static int checks=0;
-static void Check(BOOL ok,NSString *message) {checks++;YBRequire(ok,message);}
+static void Crash(int code){void *frames[64];int n=backtrace(frames,64);fprintf(stderr,"APP CRASH signal=%d after check=%d\n",code,checks);backtrace_symbols_fd(frames,n,STDERR_FILENO);_exit(128+code);}
+static void Check(BOOL ok,NSString *message) {checks++;fprintf(stderr,"APP CHECK %d: %s\n",checks,message.UTF8String);YBRequire(ok,message);}
 static void Reject(void (^action)(void),NSString *message) {BOOL rejected=NO;@try{action();}@catch(NSException *e){rejected=[e.name isEqual:@"YebaeOn"];}Check(rejected,message);}
 static void Put(NSString *path,NSData *data) {Check([NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:NULL],@"fixture folder");Check([data writeToFile:path atomically:YES],@"fixture data");}
 static NSData *Document(NSArray *sources) {
@@ -65,6 +68,7 @@ static void CheckButtons(NSView *view) {
 }
 static void PumpUntil(BOOL (^condition)(void),NSTimeInterval seconds) {NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:seconds];while(!condition() && deadline.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];Check(condition(),@"async condition completed before deadline");}
 int main(void) {@autoreleasepool {
+    signal(SIGSEGV,Crash);signal(SIGABRT,Crash);setbuf(stderr,NULL);
     NSString *area=[NSTemporaryDirectory() stringByAppendingPathComponent:[@"yebaeon-app-tests-" stringByAppendingString:NSUUID.UUID.UUIDString]];
     @try {
         [NSApplication sharedApplication];YBSetTestPreferencesDirectory([area stringByAppendingPathComponent:@"settings"]);

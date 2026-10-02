@@ -33,6 +33,14 @@ jobs:
         run: bash mac-app/build.command
       - name: Playlist, Core, GUI and app transport checks
         run: bash mac-app/test.command
+      - name: Save failure diagnostics without a new test run
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: YebaeOn-Sync-failure-previews
+          path: mac-app/test-output/*.png
+          retention-days: 3
+          if-no-files-found: ignore
       - name: Package app for church testing
         run: ditto -c -k --keepParent "mac-app/build/예배온 Sync.app" "mac-app/build/YebaeOn-Sync-macOS.zip"
       - name: Save tested app and synthetic UI previews

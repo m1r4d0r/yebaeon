@@ -31,7 +31,7 @@
     if(check)check();
     if(self.phaseChanged)self.phaseChanged([NSString stringWithFormat:@"② 문서 %lu개와 서버 변경 비교 중",(unsigned long)inventory.count]);
     __block NSUInteger compared=0;if(self.comparisonProgress)self.comparisonProgress(0,inventory.count);
-    self.sync.comparisonProgress=^{compared++;if(self.comparisonProgress)self.comparisonProgress(compared,inventory.count);};
+    __weak YBLibrary *weakSelf=self;self.sync.comparisonProgress=^{compared++;if(weakSelf.comparisonProgress)weakSelf.comparisonProgress(compared,inventory.count);};
     NSUInteger readsBefore=self.sync.summaryReads,hitsBefore=self.sync.summaryHits;NSDate *started=NSDate.date;
     NSMutableArray *result=[NSMutableArray array];NSISO8601DateFormatter *dates=[NSISO8601DateFormatter new];
     for(NSDictionary *row in [self.sync plan:[self.server documentsChecking:check]]) {@autoreleasepool {

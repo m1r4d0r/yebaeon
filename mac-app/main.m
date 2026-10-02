@@ -38,6 +38,7 @@
 @property NSTextField *entryLabel;
 @property NSButton *settingsClose;
 @property NSMutableArray *observedControls;
+@property BOOL updatingPresentation;
 @end
 @implementation YBAppDelegate
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
@@ -114,13 +115,15 @@
     NSButton *button=primary ?: self.compareButton;button.keyEquivalent=@"\r";self.window.defaultButtonCell=button.cell;
 }
 - (void)updateConnection {
-    if(!self.compareButton)return;
+    if(!self.compareButton || self.updatingPresentation)return;self.updatingPresentation=YES;
+    @try {
     self.status.stringValue=[NSString stringWithFormat:@"%@ · %@",self.connectionText ?: @"서버 연결 확인",self.lastCompared ? [@"재생목록 비교 " stringByAppendingString:self.lastCompared] : @"재생목록 비교 전"];
     self.checkLabel.stringValue=self.work.paused ? @"일시중단됨 · 재개 가능" : self.work.pauseRequested ? @"현재 처리 후 중단 대기" : self.work.busy ? self.work.message ?: @"작업 중" : self.checkMessage ?: @"전체 문서 비교 전";
     self.status.toolTip=[NSString stringWithFormat:@"%@\n%@\n%@",self.status.stringValue,[self.documents valueForKeyPath:@"statusLabel.stringValue"],[self.serverPlaylists valueForKeyPath:@"status.stringValue"]];self.checkLabel.toolTip=self.checkLabel.stringValue;
     self.pauseButton.enabled=self.work.pausable && (self.work.busy || self.work.backgroundActive);self.pauseButton.title=self.work.paused ? @"재개" : self.work.pauseRequested ? @"중단 요청 취소" : @"일시중단";
     self.window.title=self.work.busy ? [@"예배온 Sync · " stringByAppendingString:self.checkLabel.stringValue] : @"예배온 Sync";
     ((YBPanel *)self.connectionBar).frameLayout(self.connectionBar.bounds.size);[self updateDefaultButton];
+    } @finally {self.updatingPresentation=NO;}
 }
 - (void)updateSettings {
     if(!self.settingsSheet)return;
