@@ -238,3 +238,6 @@ PR #16 최종 소스 `b4136d5`: [검사 36977110171](https://github.com/m1r4d0r/
 P0 최종 소스 `d591f6f`: [Studio 36980221401](https://github.com/m1r4d0r/yebaeon/actions/runs/36980221401)의 Node 47개·배포 사전·Chromium 및 [Mac 연동 36980221461](https://github.com/m1r4d0r/yebaeon/actions/runs/36980221461) 성공. Chromium 가상 65초 유휴와 visibilitychange에서 추가 현황 요청이 없고, Studio 상태등 주기 요청이 없음을 확인했다. 수동 새로고침·상세 용량 버튼과 기존 편집/저장 동작을 검증했다. 합성 현황 캡처 확인. 첫 CI [36980028704](https://github.com/m1r4d0r/yebaeon/actions/runs/36980028704)는 검증 블록 중복 삽입에 따른 변수 중복 선언으로 실패했고 중복 제거·문법 확인 후 성공했다. 로컬 Chromium은 손상 ZIP 다운로드로 실행되지 않아 GitHub Chromium에서 검증했다. 배포는 병합 후 별도 확인한다. 실제 계정 사용량 전후 측정은 미완료다.
 
 현황은 최초/수동 조회, 이전 버전 용량은 상세 버튼 조회다. 서버 매분 cron과 Studio 상태등 30초 폴링을 제거했다. 신규 저장/업로드 즉시 본문·사용일 색인과 기존 Studio 점진 색인은 유지한다. 다른 작업자의 변경 상태등은 다음 목록 갱신/저장 시 조회하므로 자동 실시간 표시가 아니다. P1~P3은 다음 Sync 묶음 작업이다.
+
+
+P0 [PR #17](https://github.com/m1r4d0r/yebaeon/pull/17)은 `fc7d3c7`로 병합했고 [운영 배포 36980619328](https://github.com/m1r4d0r/yebaeon/actions/runs/36980619328) 성공을 확인했다. 0단계 구현·검증·배포를 완료 처리한다. 기존에 열어 둔 Studio/현황 탭은 한 번 새로고침해야 새 JS를 사용한다. 실제 계정의 전체 읽기 절감률은 후속 관측이며 SQL별 비용 분석과 목록/검색 추가 최적화는 운영 관측 항목으로 남긴다. P1~P3은 이후 Sync 묶음으로 진행한다.
