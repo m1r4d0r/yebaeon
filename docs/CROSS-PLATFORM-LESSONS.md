@@ -104,3 +104,10 @@ GitHub Actions의 특정 커밋 검사 실패, 사이트 배포 실패, 사용�
 - [첫 Studio 검사 실패 36956973774](https://github.com/m1r4d0r/yebaeon/actions/runs/36956973774): Miniflare 시험 요청의 FormData 경계 헤더가 없어서 400 응답. 표준 Request로 시험 multipart 본문과 Content-Type을 함께 직렬화했다. [후속 Studio 검사 36957035412](https://github.com/m1r4d0r/yebaeon/actions/runs/36957035412)의 36개 Node 검사, 배포 dry-run, Chromium 검사가 성공했다. [Mac 검사 36957035408](https://github.com/m1r4d0r/yebaeon/actions/runs/36957035408)도 성공했다.
 - 운영 복구 페이지 표시로 배포 반영을 확인했다. 제공 원본 `기본 (3).pro6pl`은 74679 bytes, SHA-256 `79e43d8c187a0a1c24cb553a1db71729eea2025f560b86dbedf6f668212aa6e4`, 재생목록 19개다. 초기 서버 이름은 실제 Mac 경로 기록의 `기본 .pro6pl`로 입력했으며 원본 바이트는 편집하지 않았다.
 - **운영 등록 미완료:** Cloud Browser에서 파일 선택 후 제출할 때 URL 보안 정책이 차단했다(허용 프로토콜 http/https 외의 요청으로 판정). 이는 플랫폼의 제출 차단이며 Worker/PP6 오류로 확정하지 않는다. 우회하지 않았다. 사용자 브라우저에서 원본 제출 후 서버 등록과 Studio 자동 불러오기를 확인해야 한다. 코드 검사·배포 성공을 실제 원본 등록 성공으로 표현하지 않는다.
+
+
+### 初期 등록 폼 출처 오류 수정 · 2026-10-02 KST
+
+- 사용자가 로그인 후에도 외부 링크에서 login_required가 발생한다고 보고했다. SameSite=Strict 탓으로 단정하고 새로고침을 안내했으나 해결되지 않았다. `f630cc9`에서 Studio의 빈 재생목록 목록에 임시 초기등록 버튼을 추가했고 표시를 확인했다. 등록 후에는 표시하지 않는다.
+- 사용자가 사이트 내부 버튼에서 폼 제출 후 origin_required를 보고했다. 초기 HTML 응답에 공통 `Referrer-Policy: no-referrer`가 적용돼 있었다. 브라우저 일반 폼의 non-CORS POST는 이 정책 아래 Origin:null이 될 수 있으며 기존 sameOrigin 검사와 충돌한다. 사용자 요청 헤더를 직접 수집한 것은 아니므로 실제 헤더 값의 관찰과 구분한다.
+- `27006ef`에서 초기 HTML 응답에만 `Referrer-Policy: same-origin`을 적용하고 form action을 `/api/playlist-bootstrap`으로 명시했다. 기존 세션 검사·교차 출처 거부·빈 목록 조건은 유지했다. `07ed400`에서 응답 정책/폼 목적지 회귀 검사를 추가했다. 운영 내부 버튼으로 초기 폼을 열어 새 action 반영을 확인했다. 실제 사용자 원본 제출 성공은 아직 확인되지 않았다.
