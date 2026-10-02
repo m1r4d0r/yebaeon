@@ -22,6 +22,7 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 - (NSDictionary *)request:(NSString *)route method:(NSString *)method body:(NSData *)body headers:(NSDictionary *)headers timeout:(NSTimeInterval)timeout;
 - (NSDictionary *)login:(NSString *)name password:(NSString *)password;
 - (NSArray *)documents;
+- (NSArray *)documentsChecking:(void (^)(void))check;
 - (NSDictionary *)head:(NSDictionary *)document;
 - (NSData *)download:(NSDictionary *)document;
 - (NSDictionary *)upload:(NSData *)data path:(NSString *)path previous:(NSDictionary *)previous;
@@ -40,10 +41,15 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 // Set only by the playlist coordinator while its durable batch journal owns the folder.
 @property(nonatomic) BOOL playlistOperationActive;
 - (instancetype)initWithRoot:(NSString *)root profile:(NSString *)profile origin:(NSString *)origin;
+@property(nonatomic,copy) void (^comparisonCheck)(void);
+- (NSDictionary *)documentSummary:(NSString *)path;
+@property(nonatomic, readonly) NSUInteger summaryReads;
+@property(nonatomic, readonly) NSUInteger summaryHits;
 - (NSArray *)inventory;
 - (NSArray *)plan:(NSArray *)remoteDocuments;
 - (NSData *)readDocument:(NSString *)path;
 - (void)acknowledge:(NSDictionary *)document expectedLocalHash:(NSString *)hash;
+- (void)restoreAcknowledgement:(NSDictionary *)document previous:(NSDictionary *)previous expectedLocalHash:(NSString *)hash;
 - (NSString *)apply:(NSData *)data document:(NSDictionary *)document expectedLocalHash:(NSString *)hash;
 // One receive operation is one retention unit, regardless of document count.
 @property(nonatomic, readonly) NSString *activeBackupBatch;
@@ -61,4 +67,5 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 // Release the folder lock before switching/reopening a profile. Do not reuse afterwards.
 - (void)close;
 @end
+
 

@@ -21,6 +21,9 @@ int main(int argc,const char *argv[]){@autoreleasepool{
         NSURL *target=[NSURL fileURLWithPath:[area stringByAppendingPathComponent:@"playlist/library.pro6pl"]];Put(target.path,D(raw));YBPlaylistSync *engine=[[YBPlaylistSync alloc] initWithLibrary:library target:target];
         Check(YBPlaylistNodes(D(raw)).count==2,@"comments and quoted angle bracket do not create fake playlist nodes");NSString *other=YBPlaylistNode(D(raw),@"B")[@"raw"];
         Check([YBPlaylistReference(@"file:///Users/church/Documents/ProPresenter6/%EC%B0%AC%EC%96%91/test.pro6",@"~/Documents/ProPresenter6") isEqual:@"찬양/test.pro6"],@"file URL and user folder map");Check(!YBPlaylistReference(@"~/Documents/ProPresenter6/../evil.pro6",@"~/Documents/ProPresenter6"),@"traversal rejected");
+        NSDictionary *automatic=[engine reconcileFileWithLibraries:[engine libraries]];NSString *autoID=automatic[@"libraries"][0][@"id"];
+        NSString *stateName=[NSString stringWithFormat:@"playlist-state-%@.json",YBHash(D(target.path.stringByStandardizingPath))];NSDictionary *state=[NSJSONSerialization JSONObjectWithData:YBReadSafeFile(profile,stateName,NULL) options:0 error:NULL];
+        Check([state[@"entries"] count]==2 && state[@"entries"][[autoID stringByAppendingString:@"/A"]]!=nil,@"automatic registration records every node baseline");
         NSDictionary *registration=[engine registerFileWithSourceRoot:@"~/Documents/ProPresenter6" progress:nil];Check([registration[@"count"] isEqual:@2] && [registration[@"issues"] count]==0,@"register library and unique referenced documents, not unrelated local files");NSString *identifier=registration[@"library"][@"id"];
         Check([engine libraries].count==1,@"native server playlist listing");NSDictionary *plan=[engine manifest:identifier node:@"A"];Check([plan[@"ready"] boolValue] && [plan[@"documents"] count]==2 && [plan[@"items"][1][@"sharedWith"] count]==1,@"normalized links and shared song");
         NSDictionary *comparison=[engine compare:identifier node:@"A"];Check([comparison[@"ready"] boolValue] && [comparison[@"rows"] count]==2,@"only selected playlist documents planned");[engine receive:comparison progress:nil];NSData *normalized=YBReadPlaylist(target);
@@ -30,7 +33,7 @@ int main(int argc,const char *argv[]){@autoreleasepool{
         NSDictionary *stale=[engine compare:identifier node:@"A"];NSDictionary *song3=[web upload:Doc(@"concurrent web") path:song previous:song2];Reject(^{[engine receive:stale progress:nil];},@"server changed after comparison is blocked before apply");Check([[library.sync readDocument:song] isEqual:edited],@"stale attempt preserved local file");
         Put([root stringByAppendingPathComponent:sermon],Doc(@"local edit"));comparison=[engine compare:identifier node:@"A"];Check(![comparison[@"ready"] boolValue],@"local edits block batch instead of overwriting");Put([root stringByAppendingPathComponent:sermon],original);
         plan=[engine manifest:identifier node:@"A"];Patch(web,plan,@[@{@"id":@"H"},@{@"id":@"T"},@{@"id":@"S"}]);
-        for(NSString *stage in @[@"prepared",@"document",@"playlist"]){
+        for(NSString *stage in @[@"prepared",@"document",@"playlist",@"baselines"]){
             comparison=[engine compare:identifier node:@"A"];engine.checkpoint=^(NSString *at){if([at isEqual:stage])YBRequire(NO,@"injected interruption");};Reject(^{[engine receive:comparison progress:nil];},[@"interruption " stringByAppendingString:stage]);engine.checkpoint=nil;
             Reject(^{[library.sync assertReady];},@"document tab cannot write while playlist batch is pending");
             NSString *pending=[engine jobs][0][@"id"];[library.sync close];library=[[YBLibrary alloc] initWithRoot:root profile:profile server:server];library.sync.presenterRunning=^BOOL{return NO;};engine=[[YBPlaylistSync alloc] initWithLibrary:library target:target];[engine restoreJob:pending];[library.sync assertReady];
@@ -57,4 +60,5 @@ int main(int argc,const char *argv[]){@autoreleasepool{
         [library.sync close];Check([area hasPrefix:[NSTemporaryDirectory() stringByAppendingPathComponent:@"yebaeon-playlist-tests-"]],@"cleanup scope");[NSFileManager.defaultManager removeItemAtPath:area error:NULL];printf("Playlist Worker checks passed: %d\n",checks);return 0;
     }@catch(NSException *e){fprintf(stderr,"PLAYLIST INTEGRATION FAIL after %d: %s\n",checks,e.reason.UTF8String);return 1;}
 }}
+
 

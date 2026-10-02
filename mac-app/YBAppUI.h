@@ -21,5 +21,11 @@ FOUNDATION_EXPORT NSString *YBProfilePath(NSString *root, NSString *origin);
 @property(nonatomic, copy) NSString *message;
 @property(nonatomic, copy) void (^messageChanged)(void);
 @property(nonatomic, copy) void (^busyChanged)(BOOL busy);
+- (void)runBackground:(id (^)(BOOL (^cancelled)(void)))task completion:(void (^)(id result, NSString *error))completion;
 - (void)run:(id (^)(void))task completion:(void (^)(id result, NSString *error))completion;
 @end
+
+
+@interface YBPanel : NSView
+@end
+FOUNDATION_EXPORT NSString *YBDisplayDate(id value);

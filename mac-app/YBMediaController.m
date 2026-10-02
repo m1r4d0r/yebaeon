@@ -39,7 +39,7 @@ static NSString *MediaStatus(NSString *status) {return @{@"exact-managed":@"연�
     }return self;
 }
 - (void)buildView {
-    NSView *v=[[NSView alloc] initWithFrame:NSMakeRect(0,0,1060,720)];self.view=v;
+    NSView *v=[[YBPanel alloc] initWithFrame:NSMakeRect(0,0,1060,720)];self.view=v;
     [v addSubview:YBLabel(@"미디어 연결 점검",NSMakeRect(24,670,390,28),22,YES)];
     [v addSubview:YBLabel(@"문서에 사용된 배경·영상의 실제 위치를 찾습니다.",NSMakeRect(426,672,610,24),13,NO)];
     self.rootLabel=YBLabel([@"문서 폴더: " stringByAppendingString:self.documentsRoot],NSMakeRect(24,629,1012,26),13,NO);[v addSubview:self.rootLabel];
@@ -94,3 +94,4 @@ static NSString *MediaStatus(NSString *status) {return @{@"exact-managed":@"연�
     NSError *error=nil;NSData *data=[NSJSONSerialization dataWithJSONObject:self.report options:NSJSONWritingPrettyPrinted error:&error];if(!data || ![data writeToURL:panel.URL options:NSDataWritingAtomic error:&error])YBAlert(@"저장하지 못했습니다.",error.localizedDescription);
 }
 @end
+

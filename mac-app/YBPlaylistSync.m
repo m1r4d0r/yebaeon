@@ -27,6 +27,9 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
 }
 - (void)rememberFile:(NSDictionary *)remote local:(NSData *)local {
     NSMutableDictionary *state=self.state;
+    NSMutableDictionary *entries=[state[@"entries"] mutableCopy];
+    if([remote[@"sha256"] isEqual:YBHash(local)])for(NSDictionary *node in YBPlaylistNodes(local)){NSString *hash=YBHash(Data(node[@"raw"]));entries[[NSString stringWithFormat:@"%@/%@",remote[@"id"],node[@"id"]]]=@{@"localHash":hash,@"remoteHash":hash};}
+    state[@"entries"]=entries;
     state[@"file"]=@{@"libraryID":remote[@"id"],@"remoteHash":remote[@"sha256"],@"localHash":YBHash(local),@"version":remote[@"version"]};
     [self writeJSON:state path:self.statePath];
 }
@@ -96,7 +99,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     YBSync *sync=self.library.sync;(void)sync.entries;NSDictionary *p=[self manifest:libraryID node:nodeID];NSData *before=YBReadPlaylist(self.target);
     NSMutableArray *rows=[NSMutableArray array],*issues=[NSMutableArray array];NSMutableSet *paths=[NSMutableSet set];
     for(NSDictionary *item in p[@"items"])if(Value(item[@"issue"]))[issues addObject:[NSString stringWithFormat:@"%@ · %@",item[@"name"],item[@"issue"]]];
-    for(NSDictionary *doc in p[@"documents"]){NSString *path=doc[@"path"];YBRequire(![paths containsObject:path],@"중복 문서 계획");[paths addObject:path];id cached=hashCache[path];if(!cached){cached=Null(YBHash([sync readDocument:path]));hashCache[path]=cached;}NSString *hash=Value(cached),*status=YBDisposition(hash,doc,sync.entries[path]);[rows addObject:@{@"path":path,@"status":status,@"localHash":Null(hash),@"remote":doc}];if(![@[@"download",@"same"] containsObject:status])[issues addObject:[NSString stringWithFormat:@"%@ · Mac 수정/충돌: 문서 탭에서 비교해 주세요.",path]];}
+    for(NSDictionary *doc in p[@"documents"]){NSString *path=doc[@"path"];YBRequire(![paths containsObject:path],@"중복 문서 계획");[paths addObject:path];id cached=hashCache[path];if(!cached){cached=Null([sync documentSummary:path][@"hash"]);hashCache[path]=cached;}NSString *hash=Value(cached),*status=YBDisposition(hash,doc,sync.entries[path]);[rows addObject:@{@"path":path,@"status":status,@"localHash":Null(hash),@"remote":doc}];if(![@[@"download",@"same"] containsObject:status])[issues addObject:[NSString stringWithFormat:@"%@ · Mac 수정/충돌: 문서 탭에서 비교해 주세요.",path]];}
     NSDictionary *node=YBPlaylistNode(before,nodeID),*base=self.state[@"entries"][[self key:p]];NSString *localHash=YBHash(Data(node[@"raw"])),*xml=nil;BOOL orderChanged=NO;
     if([p[@"ready"] boolValue]){xml=YBPlaylistLocalXML(p,sync.root);NSString *desiredHash=YBHash(Data(xml));orderChanged=!Equal(localHash,desiredHash);
         BOOL safe=Equal(localHash,desiredHash) || (base && Equal(localHash,base[@"localHash"])) || (!base && (!node || Equal(localHash,p[@"playlist"][@"sha256"])));
@@ -133,6 +136,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     NSDictionary *incoming=@{@"localHash":YBHash(Data(comparison[@"nodeXML"])),@"remoteHash":p[@"playlist"][@"sha256"],@"fingerprint":p[@"fingerprint"]};
     NSMutableDictionary *job=[@{@"id":identifier,@"createdAt":@([NSDate.date timeIntervalSince1970]),@"status":@"prepared",@"target":self.target.path,@"root":sync.root,@"origin":self.library.server.origin,@"name":p[@"playlist"][@"name"],@"key":key,@"previous":Null(state[@"entries"][key]),@"incoming":incoming,@"beforeHash":YBHash(before),@"afterHash":YBHash(after),@"rows":rows,@"initialTransactions":initial} mutableCopy];
     NSMutableDictionary *previousEntries=[NSMutableDictionary dictionary],*incomingEntries=[NSMutableDictionary dictionary];for(NSDictionary *part in parts){NSDictionary *pp=part[@"manifest"];NSString *pk=[self key:pp];previousEntries[pk]=Null(state[@"entries"][pk]);incomingEntries[pk]=@{@"localHash":YBHash(Data(part[@"nodeXML"])),@"remoteHash":pp[@"playlist"][@"sha256"],@"fingerprint":pp[@"fingerprint"]};}job[@"previousEntries"]=previousEntries;job[@"incomingEntries"]=incomingEntries;
+    NSMutableDictionary *previousDocuments=[NSMutableDictionary dictionary];for(NSDictionary *row in rows)previousDocuments[row[@"path"]]=Null(sync.entries[row[@"path"]]);job[@"previousDocuments"]=previousDocuments;
     [sync beginBackupBatch:@"playlist" playlistJob:identifier];job[@"batchID"]=sync.activeBackupBatch;BOOL completed=NO;
     @try {
         [self writeJSON:job path:[self jobPath:identifier]];[self writeJSON:@{@"id":identifier,@"status":@"active"} path:@"playlist-active.json"];sync.playlistOperationActive=YES;
@@ -148,6 +152,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
         if(self.checkpoint)self.checkpoint(@"playlist");job[@"status"]=@"applied";[self writeJSON:job path:[self jobPath:identifier]];
         for(NSDictionary *r in rows)YBRequire([YBHash([sync readDocument:r[@"path"]]) isEqual:r[@"remote"][@"sha256"]],@"적용 직후 문서가 변경됐습니다.");YBRequire([YBReadPlaylist(self.target) isEqual:after],@"적용 직후 재생목록이 변경됐습니다.");[self guardPlan:p];
         state=self.state;NSMutableDictionary *entries=[state[@"entries"] mutableCopy];for(NSString *pk in incomingEntries)entries[pk]=incomingEntries[pk];state[@"entries"]=entries;[self writeJSON:state path:self.statePath];
+        if(self.checkpoint)self.checkpoint(@"baselines");
         NSMutableArray *transactionIDs=[NSMutableArray array];for(NSDictionary *t in sync.transactions)if(![initial containsObject:t[@"id"]])[transactionIDs addObject:t[@"id"]];job[@"transactionIDs"]=transactionIDs;
         job[@"status"]=@"committed";[self writeJSON:job path:[self jobPath:identifier]];[self writeJSON:@{@"id":identifier,@"status":@"complete"} path:@"playlist-active.json"];[self rememberFile:p[@"library"] local:after];completed=YES;
         NSMutableArray *reports=[NSMutableArray array];for(NSDictionary *part in parts){NSDictionary *pp=part[@"manifest"];[reports addObject:@{@"kind":@"playlist",@"id":pp[@"library"][@"id"],@"node":pp[@"playlist"][@"id"],@"serverHash":pp[@"playlist"][@"sha256"],@"status":@"same"}];}
@@ -162,7 +167,18 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     YBRequire([YBHash(before) isEqual:job[@"beforeHash"]] && [YBHash(after) isEqual:job[@"afterHash"]],@"재생목록 백업이 손상됐습니다.");YBRequire([current isEqual:before] || [current isEqual:after],@"이후 재생목록을 수정했습니다. 현재 파일은 유지하며 자동 복구하지 않습니다.");
     NSMutableDictionary *state=self.state,*entries=[state[@"entries"] mutableCopy];id old=Value(job[@"previous"]),now=entries[job[@"key"]];YBRequire(Equal(now,old) || Equal(now,job[@"incoming"]),@"이후 재생목록을 동기화했습니다. 오래된 기록으로 덮어쓸 수 없습니다.");
     NSDictionary *previousEntries=job[@"previousEntries"] ?: @{job[@"key"]:Null(old)},*incomingEntries=job[@"incomingEntries"] ?: @{job[@"key"]:job[@"incoming"]};for(NSString *pk in incomingEntries){id previous=Value(previousEntries[pk]),current=entries[pk];YBRequire(Equal(current,previous)||Equal(current,incomingEntries[pk]),@"이후 재생목록을 동기화했습니다. 오래된 기록으로 덮어쓸 수 없습니다.");}
-    if(!job[@"transactionIDs"]) {NSMutableArray *owned=[NSMutableArray array];for(NSDictionary *t in sync.transactions)if(![job[@"initialTransactions"] containsObject:t[@"id"]])[owned addObject:t[@"id"]];job[@"transactionIDs"]=owned;}
+    if(!job[@"transactionIDs"]) {NSMutableArray *owned=[NSMutableArray array];for(NSDictionary *t in sync.transactions)if(job[@"batchID"] ? [t[@"batchID"] isEqual:job[@"batchID"]] : ![job[@"initialTransactions"] containsObject:t[@"id"]])[owned addObject:t[@"id"]];job[@"transactionIDs"]=owned;}
+    // Validate the whole set before modifying the first member. A damaged later
+    // backup or a later edit must not leave an otherwise healthy batch half restored.
+    NSSet *ownedIDs=[NSSet setWithArray:job[@"transactionIDs"]];
+    for(NSDictionary *t in sync.transactions)if([ownedIDs containsObject:t[@"id"]] && [@[@"prepared",@"applied",@"committed",@"restoring"] containsObject:t[@"status"]]){
+        NSString *hash=YBHash([sync readDocument:t[@"path"]]);id original=Value(t[@"beforeHash"]);
+        YBRequire(Equal(hash,t[@"incoming"][@"sha256"]) || (![t[@"status"] isEqual:@"committed"] && Equal(hash,original)),@"이후 수정한 문서가 있어 묶음 전체 복구를 중지했습니다.");
+        NSData *backup=YBReadSafeFile(sync.profile,[NSString stringWithFormat:@"transactions/%@/before.pro6",t[@"id"]],NULL);
+        YBRequire(Equal(YBHash(backup),original),@"문서 백업이 손상돼 묶음 전체 복구를 중지했습니다.");
+        if([t[@"status"] isEqual:@"committed"])YBRequire(Equal(sync.entries[t[@"path"]],t[@"incoming"]),@"이후 동기화한 문서가 있어 묶음 전체 복구를 중지했습니다.");
+    }
+    if(job[@"previousDocuments"])for(NSDictionary *row in job[@"rows"])if([row[@"status"] isEqual:@"same"]){id previous=Value(job[@"previousDocuments"][row[@"path"]]),current=sync.entries[row[@"path"]];YBRequire((Equal(current,previous)||Equal(current,row[@"remote"])) && Equal(YBHash([sync readDocument:row[@"path"]]),Value(row[@"localHash"])),@"이후 변경한 문서가 있어 묶음 전체 복구를 중지했습니다.");}
     job[@"status"]=@"restoring";[self writeJSON:job path:path];[self writeJSON:@{@"id":identifier,@"status":@"active"} path:@"playlist-active.json"];sync.playlistOperationActive=YES;
     @try {
         // Recover in-flight per-file journals first, then restore completed members in reverse order.
@@ -174,6 +190,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
             YBRequire([t[@"incoming"] isEqual:row[@"remote"]],@"이후 문서를 동기화했습니다. 오래된 작업으로 되돌릴 수 없습니다.");[sync restore:t[@"id"]];
         }
         if(![current isEqual:before])YBReplacePlaylist(self.target,current,before,[sync.profile stringByAppendingPathComponent:[folder stringByAppendingPathComponent:@"replacement-backups"]],sync.presenterRunning);
+        if(job[@"previousDocuments"])for(NSDictionary *row in job[@"rows"])if([row[@"status"] isEqual:@"same"])[sync restoreAcknowledgement:row[@"remote"] previous:Value(job[@"previousDocuments"][row[@"path"]]) expectedLocalHash:Value(row[@"localHash"])];
         for(NSString *pk in previousEntries){id previous=Value(previousEntries[pk]);if(previous)entries[pk]=previous;else [entries removeObjectForKey:pk];}state[@"entries"]=entries;[state removeObjectForKey:@"file"];[self writeJSON:state path:self.statePath];
         job[@"status"]=@"restored";[self writeJSON:job path:path];[self writeJSON:@{@"id":identifier,@"status":@"complete"} path:@"playlist-active.json"];
     }@finally{sync.playlistOperationActive=NO;}
@@ -183,4 +200,5 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     }@catch(NSException *error){NSLog(@"복구 후 상태 확인 실패: %@",error.reason);}
 }
 @end
+
 

@@ -227,6 +227,9 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
     int _lock;
     NSMutableDictionary *_state;
 }
+@property NSMutableDictionary *summaryCache;
+@property(nonatomic, readwrite) NSUInteger summaryReads;
+@property(nonatomic, readwrite) NSUInteger summaryHits;
 @property(nonatomic, readwrite) NSString *activeBackupBatch;
 @property(nonatomic, readwrite) NSString *backupWarning;
 @property(nonatomic, readwrite) NSString *root;
@@ -272,11 +275,29 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
     }
     YBRequire(self.pendingTransactions.count==0,@"중단된 적용이 있습니다. 먼저 ‘중단 작업 복구’를 실행해 주세요."); }
 - (NSData *)readDocument:(NSString *)path { [self open]; YBPath(path); NSData *data=YBRead(self.root,path,NULL); if(data)YBValidateDocument(data); return data; }
+// Comparison-only cache. Every transfer/acknowledgement still reads actual bytes.
+- (NSDictionary *)documentStamp:(NSString *)path {
+    NSString *leaf;int parent=YBParent(self.root,path,NO,&leaf);if(parent<0)return nil;
+    struct stat st;int ok=fstatat(parent,leaf.fileSystemRepresentation,&st,AT_SYMLINK_NOFOLLOW);int saved=errno;close(parent);
+    if(ok<0 && saved==ENOENT)return nil;
+    YBRequire(ok==0 && S_ISREG(st.st_mode) && st.st_size<=YBMax,@"문서 상태를 확인할 수 없습니다.");
+    return @{@"device":@(st.st_dev),@"inode":@(st.st_ino),@"size":@(st.st_size),@"mtime":@(st.st_mtimespec.tv_sec),@"mtimeNS":@(st.st_mtimespec.tv_nsec),@"ctime":@(st.st_ctimespec.tv_sec),@"ctimeNS":@(st.st_ctimespec.tv_nsec)};
+}
+- (NSDictionary *)documentSummary:(NSString *)path {
+    [self open];if(self.comparisonCheck)self.comparisonCheck();YBPath(path);if(!self.summaryCache)self.summaryCache=[NSMutableDictionary dictionary];
+    NSDictionary *stamp=[self documentStamp:path];if(!stamp){[self.summaryCache removeObjectForKey:path];return @{};}
+    NSDictionary *cached=self.summaryCache[path];if([cached[@"stamp"] isEqual:stamp]){self.summaryHits++;return cached;}
+    NSData *bytes=[self readDocument:path];self.summaryReads++;
+    YBRequire(bytes && [stamp isEqual:[self documentStamp:path]],@"비교 중 문서가 바뀌었습니다. 다시 비교하세요.");
+    NSXMLDocument *xml=[[NSXMLDocument alloc] initWithData:bytes options:NSXMLNodeLoadExternalEntitiesNever error:NULL];
+    NSString *used=[[xml.rootElement attributeForName:@"lastDateUsed"] stringValue];
+    NSDictionary *summary=@{@"stamp":stamp,@"hash":YBHash(bytes),@"lastDateUsed":used ?: @""};self.summaryCache[path]=summary;return summary;
+}
 - (NSArray *)inventory {
     [self open];NSMutableArray *documents=[NSMutableArray array];NSMutableSet *paths=[NSMutableSet set];
     int directory=open(self.root.fileSystemRepresentation,O_RDONLY|O_DIRECTORY|O_NOFOLLOW);YBRequire(directory>=0,YBSystem(@"문서 인덱스 검색"));
     @try {YBScan(directory,@"",^(NSString *relative){@autoreleasepool {
-        NSString *path=YBPath(relative);YBRequire(![paths containsObject:path],@"같은 이름으로 정규화되는 로컬 문서가 있습니다.");[paths addObject:path];
+        if(self.comparisonCheck)self.comparisonCheck();NSString *path=YBPath(relative);YBRequire(![paths containsObject:path],@"같은 이름으로 정규화되는 로컬 문서가 있습니다.");[paths addObject:path];
         NSString *leaf;int parent=YBParent(self.root,relative,NO,&leaf);struct stat st;BOOL valid=parent>=0 && fstatat(parent,leaf.fileSystemRepresentation,&st,AT_SYMLINK_NOFOLLOW)==0 && S_ISREG(st.st_mode);if(parent>=0)close(parent);
         YBRequire(valid,@"인덱스 검색 중 문서가 이동되거나 변경됐습니다. 다시 비교하세요.");
         [documents addObject:@{@"originalPath":relative,@"size":@(st.st_size)}];
@@ -306,18 +327,25 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
                 return;
             }
             YBRequire(!local[p],@"같은 이름으로 정규화되는 로컬 문서가 있습니다.");
-            registerPath(p); NSData *bytes=[self readDocument:p];
-            YBRequire(bytes!=nil,@"목록을 읽는 동안 문서가 이동됐습니다. 다시 비교해 주세요."); local[p]=YBHash(bytes);
+            registerPath(p);NSString *hash=[self documentSummary:p][@"hash"];
+            YBRequire(hash!=nil,@"목록을 읽는 동안 문서가 이동됐습니다. 다시 비교해 주세요.");local[p]=hash;
         }});
     } @finally { close(directory); }
-    NSMutableSet *paths=[NSMutableSet setWithArray:remote.allKeys]; [paths addObjectsFromArray:local.allKeys]; [paths addObjectsFromArray:self.entries.allKeys];
+    NSDictionary *baselines=self.entries;
+    NSMutableSet *paths=[NSMutableSet setWithArray:remote.allKeys]; [paths addObjectsFromArray:local.allKeys]; [paths addObjectsFromArray:baselines.allKeys];
     NSMutableArray *rows=[NSMutableArray array];
     for(NSString *p in [paths.allObjects sortedArrayUsingSelector:@selector(compare:)]) {
-        NSString *status=YBDisposition(local[p],remote[p],self.entries[p]);
-        [rows addObject:@{@"path":p,@"status":status,@"localHash":YBNull(local[p]),@"remote":YBNull(remote[p])}];
+        NSString *status=YBDisposition(local[p],remote[p],baselines[p]);
+        [rows addObject:@{@"path":p,@"status":status,@"localHash":YBNull(local[p]),@"remote":YBNull(remote[p]),@"lastDateUsed":self.summaryCache[p][@"lastDateUsed"] ?: @""}];
     }
     [rows addObjectsFromArray:excluded];
     return [rows sortedArrayUsingDescriptors:@[[NSSortDescriptor sortDescriptorWithKey:@"path" ascending:YES]]];
+}
+- (void)restoreAcknowledgement:(NSDictionary *)document previous:(NSDictionary *)previous expectedLocalHash:(NSString *)hash {
+    [self closed];YBValidateMetadata(document);NSString *path=document[@"path"];if(previous){YBValidateMetadata(previous);YBRequire([previous[@"path"] isEqual:path],@"복구 기준 경로가 다릅니다.");}
+    id current=self.entries[path];YBRequire(YBEqual(current,document)||YBEqual(current,previous),@"이후 문서 기준이 변경됐습니다.");
+    YBRequire(YBEqual(YBHash([self readDocument:path]),hash),@"복구 이후 문서가 변경됐습니다.");
+    if(previous)_state[@"entries"][path]=previous;else [_state[@"entries"] removeObjectForKey:path];[self saveState];
 }
 - (void)acknowledge:(NSDictionary *)doc expectedLocalHash:(NSString *)hash {
     [self assertReady]; YBValidateMetadata(doc);
@@ -489,3 +517,4 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
 - (void)recover:(NSString *)identifier { [self undo:identifier restore:NO]; }
 - (void)restore:(NSString *)identifier { [self undo:identifier restore:YES]; }
 @end
+

@@ -1,3 +1,6 @@
+#define main YBApplicationMain
+#import "main.m"
+#undef main
 #import "PPSPlaylistController.h"
 #import "YBDocumentsController.h"
 #import "YBMediaController.h"
@@ -130,6 +133,21 @@ int main(void) {@autoreleasepool {
         NSDictionary *uiComparison=[serverUI valueForKey:@"comparison"];[serverUI setValue:[@{@"lib/order":uiComparison} mutableCopy] forKey:@"comparisons"];[serverUI acceptLibraries:@[@{@"id":@"lib",@"path":@"기본 .pro6pl",@"updatedAt":@"2026-10-01",@"playlists":@[@{@"id":@"order",@"name":@"주일 1부 예배"}]}]];[serverUI acceptComparison:uiComparison];
         [[serverUI valueForKey:@"table"] reloadData];Check([[serverUI valueForKey:@"table"] numberOfRows]==1,@"server playlist UI row binding");Render(serverUI.view,@"server-playlists");
         YBSync *recoverySync=[[YBSync alloc] initWithRoot:[area stringByAppendingPathComponent:@"recovery-docs"] profile:[area stringByAppendingPathComponent:@"recovery-profile"] origin:@"https://example.test"];recoverySync.presenterRunning=^BOOL{return NO;};[recoverySync beginBackupBatch:@"documents" playlistJob:nil];for(NSString *path in @[@"찬양.pro6",@"말씀.pro6"])[recoverySync apply:doc document:@{@"id":NSUUID.UUID.UUIDString.lowercaseString,@"path":path,@"version":@1,@"sha256":YBHash(doc),@"size":@(doc.length),@"updatedBy":@"테스트",@"updatedAt":@"2026-10-01"} expectedLocalHash:nil];[recoverySync endBackupBatch:YES];NSArray *records=[serverUI recoveryRecordsForSync:recoverySync jobs:@[]];Check(records.count==1 && [records[0][@"members"] count]==2,@"recovery list groups documents by operation without duplicate rows");[serverUI setValue:records forKey:@"recoveryRecords"];NSView *recovery=[serverUI recoveryView];[[serverUI valueForKey:@"recoveryTable"] selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];NSTableView *recoveryTable=[serverUI valueForKey:@"recoveryTable"];NSTextField *targetCell=(NSTextField *)[recoveryTable viewAtColumn:1 row:0 makeIfNecessary:YES];Check([targetCell.stringValue isEqual:@"문서 받기"],@"recovery cells render the selected batch, not playlist preview data");Render(recovery,@"recovery");[recoverySync close];
+        // Exercise actual connection bar + NSTabView, not isolated fixed-size controllers.
+        YBAppDelegate *app=[YBAppDelegate new];[app applicationDidFinishLaunching:nil];
+        for(NSValue *size in @[[NSValue valueWithSize:NSMakeSize(1060,800)],[NSValue valueWithSize:NSMakeSize(880,620)],[NSValue valueWithSize:NSMakeSize(960,680)]]){
+            [app.window setContentSize:size.sizeValue];[app.window.contentView layoutSubtreeIfNeeded];
+            for(NSTabViewItem *tab in app.tabs.tabViewItems){[app.tabs selectTabViewItem:tab];[app.window.contentView layoutSubtreeIfNeeded];NSView *panel=tab.view;
+                Check(panel.bounds.size.width<1060 && panel.bounds.size.height<720,@"tab uses actual top-level viewport");
+                for(NSView *control in panel.subviews)if(!control.hidden){Check(NSContainsRect(NSInsetRect(panel.bounds,-1,-1),control.frame),[@"visible control within viewport: " stringByAppendingString:[control isKindOfClass:NSButton.class] ? [(NSButton *)control title] : control.className]);if([control isKindOfClass:NSScrollView.class])Check(control.frame.size.height>=80,@"table retains usable height");}
+                Render(app.window.contentView,[NSString stringWithFormat:@"window-%@-%d",tab.label,(int)size.sizeValue.width]);
+            }
+            Check(!NSIntersectsRect(app.documentPath.frame,app.playlistPath.frame),@"long paths occupy separate rows");
+        }
+        Check([YBDisplayDate(@"2026-10-01T23:43:12.456Z") containsString:@"8:43"],@"server date is converted to Seoul without milliseconds");
+        [app.window orderOut:nil];
+        [serverUI setValue:@{@"localNode":@{@"items":@[@{@"attrs":@{@"UUID":@"old",@"displayName":@"기존"}}]},@"manifest":@{@"items":@[@{@"id":@"new",@"name":@"추가"},@{@"id":@"old",@"name":@"기존"}]}} forKey:@"comparison"];
+        NSArray *preview=[serverUI performSelector:@selector(previewItems)];Check([preview[0][@"composition"] isEqual:@"순서에 추가"] && [preview[1][@"composition"] isEqual:@""],@"adding a cue is independent of content, insertion alone does not mark old cue as moved");
         __block BOOL finished=NO;__block NSString *failure=nil;
         [work run:^id {YBRequire(!NSThread.isMainThread,@"background worker");dispatch_async(dispatch_get_main_queue(),^{work.message=@"전송 완료 · 상태 확인 마무리";});return @42;} completion:^(id result,NSString *error){Check(NSThread.isMainThread && [result isEqual:@42] && !error && !work.busy && !work.message,@"UI completion releases busy and phase on main thread");finished=YES;}];
         NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:3];while(!finished && deadline.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];Check(finished && !work.busy,@"async UI work completes");
@@ -137,3 +155,4 @@ int main(void) {@autoreleasepool {
         printf("Integrated app checks passed: %d\n",checks);Check([area hasPrefix:[NSTemporaryDirectory() stringByAppendingPathComponent:@"yebaeon-app-tests-"]],@"cleanup scope");[NSFileManager.defaultManager removeItemAtPath:area error:NULL];return 0;
     }@catch(NSException *e){fprintf(stderr,"APP FAIL after %d: %s\n",checks,e.reason.UTF8String);return 1;}
 }}
+

@@ -89,11 +89,12 @@ static NSString *Query(NSString *value) {
     self.cookie=cookie;
     id value=[NSJSONSerialization JSONObjectWithData:result.data options:0 error:NULL]; YBRequire([value isKindOfClass:NSDictionary.class],@"입장 응답이 올바르지 않습니다."); return value;
 }
-- (NSArray *)documents {
+- (NSArray *)documents {return [self documentsChecking:nil];}
+- (NSArray *)documentsChecking:(void (^)(void))check {
     NSMutableArray *all=[NSMutableArray array]; NSMutableSet *seen=[NSMutableSet set]; NSString *after=nil;
     for(;;) {
-        NSString *route=after ? [@"/api/documents?after=" stringByAppendingString:Query(after)] : @"/api/documents";
-        NSDictionary *page=[self request:route method:@"GET" body:nil headers:nil];
+        if(check)check();NSString *route=after ? [@"/api/documents?after=" stringByAppendingString:Query(after)] : @"/api/documents";
+        NSDictionary *page=[self request:route method:@"GET" body:nil headers:nil timeout:10];
         YBRequire([page[@"documents"] isKindOfClass:NSArray.class],@"문서 목록이 올바르지 않습니다.");
         for(NSDictionary *doc in page[@"documents"]) { YBValidateMetadata(doc); YBRequire(![seen containsObject:doc[@"path"]],@"서버 목록에 중복 문서가 있습니다."); [seen addObject:doc[@"path"]]; [all addObject:doc]; }
         id next=page[@"next"]; if(!next || next==NSNull.null)break;
@@ -138,3 +139,4 @@ static NSString *Query(NSString *value) {
 }
 - (void)forgetSession { OSStatus status=SecItemDelete((__bridge CFDictionaryRef)[self keychainQuery]); YBRequire(status==errSecSuccess || status==errSecItemNotFound,@"키체인 입장 정보를 지우지 못했습니다."); self.cookie=nil; }
 @end
+

@@ -13,9 +13,12 @@
 - (YBLibrary *)connectedLibrary;
 - (void)ensureSessionLoaded;
 - (void)startupCompare;
+- (void)backgroundCompare;
+@property(nonatomic,copy) void (^priorityRequested)(void);
 - (void)login:(id)sender;
 - (void)chooseRoot:(id)sender;
 - (void)testRoot:(id)sender;
 - (instancetype)initWithWork:(YBWork *)work;
 @end
+
 
