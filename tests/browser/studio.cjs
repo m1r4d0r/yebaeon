@@ -91,6 +91,7 @@ const assert=require('node:assert/strict');
  const initialBoxes=await page.evaluate(()=>PP6.textElements(YebaeonEditor.current()).length);
  await page.locator('#layerAdd').click();assert.equal(await page.evaluate(()=>PP6.textElements(YebaeonEditor.current()).length),initialBoxes+1);
  const input=page.locator('#texts label:visible textarea');await input.fill('부분 서식 시험');await input.evaluate(e=>{e.setSelectionRange(0,2);e.dispatchEvent(new Event('select'));});
+ await page.waitForFunction(()=>document.querySelector('#layerProperties .help').textContent.includes('선택한 글자'));
  await page.locator('#layerProperties label').filter({hasText:'글자 크기'}).locator('input').fill('120');await page.locator('#layerProperties label').filter({hasText:'글자 크기'}).locator('input').press('Tab');
  const formatted=await page.evaluate(()=>PP6.parseRTF(PP6.textNode(YebaeonLayout.active()).textContent));assert.equal(formatted.runs[0].text,'부분');assert.equal(formatted.runs[0].style.size,120);assert.notEqual(formatted.runs[1].style.size,120);
  const stage=page.locator('#layoutStage');const before=await page.evaluate(()=>PP6.rect(YebaeonLayout.active()));await stage.focus();await page.keyboard.press('Shift+ArrowRight');assert.equal(await page.evaluate(()=>PP6.rect(YebaeonLayout.active()).x),before.x+10);
