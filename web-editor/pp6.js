@@ -33,7 +33,17 @@
     }
     return '';
   }
+  // RTF results are immutable; repeated font/layout/title reads share a bounded cache.
+  const rtfCache=new Map();let rtfCacheBytes=0;
   function parseRTF(b64) {
+    if(rtfCache.has(b64)){const cached=rtfCache.get(b64);rtfCache.delete(b64);rtfCache.set(b64,cached);return cached;}
+    const result=parseRTFUncached(b64);
+    for(const run of result.runs){Object.freeze(run.style);Object.freeze(run);}
+    Object.freeze(result.runs);Object.freeze(result.emptyStyle);Object.freeze(result.fonts);Object.freeze(result.warnings);Object.freeze(result);
+    if(b64.length<=131072){rtfCache.set(b64,result);rtfCacheBytes+=b64.length;while(rtfCache.size>512||rtfCacheBytes>4194304){const first=rtfCache.keys().next().value;rtfCacheBytes-=first.length;rtfCache.delete(first);}}
+    return result;
+  }
+  function parseRTFUncached(b64) {
     let raw;
     try { raw = atob(b64.trim()); } catch (_) { throw new Error('읽을 수 없는 RTF 텍스트가 있습니다.'); }
     const fonts = {};
@@ -181,3 +191,4 @@
   }
   window.PP6={all,ivar,attr,nfc,basename,uuid,rect,color,parseRTF,textRTF,textNode,parse,slides,textElements,mediaElements,setText,duplicate,refreshIDs,serialize};
 })();
+
