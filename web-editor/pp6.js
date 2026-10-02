@@ -189,6 +189,11 @@
   function serialize(model) {
     return '<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(model.doc.documentElement);
   }
-  window.PP6={all,ivar,attr,nfc,basename,uuid,rect,color,parseRTF,textRTF,textNode,parse,slides,textElements,mediaElements,setText,duplicate,refreshIDs,serialize};
+  // A text-independent visual fingerprint shared by the asset build and Studio.
+  function templateFormatData(root,elements){
+    const keys=['rotation','opacity','verticalAlignment','useAllCaps','drawingFill','fillColor','drawingShadow','drawingStroke','scaleBehavior','flippedHorizontally','flippedVertically','source'];
+    return JSON.stringify([root.drawingBackgroundColor||'',root.backgroundColor||'',elements.map(e=>[e.type,keys.map(k=>e.attrs[k]||''),e.position.trim().replace(/\s+/g,' '),e.shadow||'',e.rtf===undefined?null:[...new Set((()=>{const p=parseRTF(e.rtf);return (p.runs.length?p.runs.map(r=>r.style):[p.emptyStyle]).map(s=>JSON.stringify(s));})())].sort()])]);
+  }
+  function templateFormat(slide){return templateFormatData(Object.fromEntries(Array.from(slide.attributes,a=>[a.name,a.value])),all(slide,'RVTextElement,RVImageElement,RVVideoElement').map(e=>({type:e.tagName,attrs:Object.fromEntries(Array.from(e.attributes,a=>[a.name,a.value])),position:ivar(e,'RVRect3D','position')?.textContent||'',shadow:ivar(e,'shadow','shadow')?.textContent||'',...(e.tagName==='RVTextElement'?{rtf:textNode(e)?.textContent||''}:{})})));}
+  window.PP6={all,ivar,attr,nfc,basename,uuid,rect,color,parseRTF,textRTF,textNode,parse,slides,textElements,mediaElements,setText,duplicate,refreshIDs,serialize,templateFormat,templateFormatData};
 })();
-

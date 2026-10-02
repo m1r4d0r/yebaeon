@@ -14,5 +14,6 @@ test('template index omits XML while selected assets preserve exact original byt
   assert.equal(index.length,2);assert.equal(index[0].name,'성경');assert.equal(index[0].xml,undefined);
   assert.equal(index[0].file,index[1].file);assert.equal(assets.length,2);
   assert.equal(JSON.parse(assets.find(([name])=>name===index[0].file)[1]).xml,xml);
-  assert.deepEqual({...index[0],name:original[0].name,file:undefined,xml},{...original[0],file:undefined});
+  assert.match(index[0].format,/^[a-f0-9]{64}$/);
+  assert.deepEqual({...index[0],name:original[0].name,file:undefined,format:undefined,xml},{...original[0],file:undefined,format:undefined});
 });

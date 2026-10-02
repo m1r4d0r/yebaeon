@@ -6,6 +6,9 @@
   const drafts = window.YebaeonDrafts;
   let draftID = drafts.id(), baseXML = editor.document().xml;
   const contexts=new Map(); let openSequence=0, documents=[], activityNext=null, activityScope='mine';
+  // Verified originals only. Recheck metadata on every open; never cache authorization.
+  const originals=new Map();let originalBytes=0;
+  function rememberOriginal(doc,xml){const old=originals.get(doc.id);if(old)originalBytes-=old.xml.length*2;originals.delete(doc.id);if(xml.length*2<=16*1024*1024){originals.set(doc.id,{version:doc.version,sha256:doc.sha256,xml});originalBytes+=xml.length*2;}while(originalBytes>24*1024*1024||originals.size>24){const first=originals.keys().next().value;originalBytes-=originals.get(first).xml.length*2;originals.delete(first);}}
   const select=new YebaeonSelection.Selection($('documentsPane'),{kind:'documents',undo:redo=>editor.undo(redo),open:()=>openCloud(select.cursor),copy:()=>YebaeonSelection.copy({kind:'documents',documents:documents.filter(d=>select.chosen.has(d.id))})});
   let activitySequence=0;
   let listNext = null, listSequence = 0, indexTimer = null, historyDoc = null, historyNext = null;
@@ -25,6 +28,7 @@
     $('cloudContext').textContent = linked ? `서버 v${linked.version} · ${linked.updatedBy} · ${time(linked.updatedAt)}` : '';
   }
   function checkpointDraft() {
+    if(!editor.state().dirty)return Promise.resolve();
     const current = editor.document();
     if (!current.dirty) return Promise.resolve();
     const record = { id:draftID, kind:'document', name:current.name, author:user?.name || recalledName(), base:linked ? {...linked} : null, baseXML, xml:current.xml, serial:current.serial };
@@ -107,13 +111,16 @@
     try {
       await checkpointDraft();
       const {document:doc}=await(await api('/documents/'+id)).json();
-      const bytes=await(await api(`/documents/${id}/content?version=${doc.version}`)).arrayBuffer();
-      const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
-      if(hash!==doc.sha256)throw new Error('받은 문서의 내용 확인에 실패했습니다.');
+      const original=originals.get(id);let serverXML;
+      if(original?.version===doc.version&&original.sha256===doc.sha256){serverXML=original.xml;rememberOriginal(doc,serverXML);}
+      else{const bytes=await(await api(`/documents/${id}/content?version=${doc.version}`)).arrayBuffer();
+        const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
+        if(hash!==doc.sha256)throw new Error('받은 문서의 내용 확인에 실패했습니다.');
+        serverXML=new TextDecoder('utf-8',{fatal:true}).decode(bytes);rememberOriginal(doc,serverXML);}
       if(token!==openSequence)return false;
       if(linked)contexts.set(linked.id,{linked:{...linked},baseXML,draftID});
       const previous=contexts.get(id),cached=editor.cache?.(id),local=previous&&cached?.dirty;
-      const xml=local?cached.xml:new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+      const xml=local?cached.xml:serverXML;
       if(!editor.open(xml,doc.name,true,id))return false;
       if(local){linked={...previous.linked,serial:-1};baseXML=previous.baseXML;draftID=previous.draftID;editor.markDirty();}
       else {linked={...doc,serial:editor.state().serial};baseXML=xml;}
@@ -238,4 +245,3 @@
     } catch (_) { ready = false; showEntry(); $('entryMessage').textContent = '서버에 연결하지 못했습니다. 현재 편집 내용은 브라우저 초안에 보존됩니다.'; }
   })();
 })();
-

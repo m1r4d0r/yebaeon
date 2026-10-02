@@ -3,6 +3,19 @@ import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import { XMLParser } from 'fast-xml-parser';
+
+const formatContext={window:{},TextDecoder,Uint8Array,atob};
+runInNewContext(readFileSync(new URL('../web-editor/pp6.js',import.meta.url),'utf8'),formatContext);
+const templateParser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'',preserveOrder:true,trimValues:false,parseTagValue:false});
+export function templateFormatHash(xml){
+  const tree=templateParser.parse(xml),elements=[];let root={};
+  const content=(nodes,tag)=>{const node=nodes.find(n=>n[tag]&&n[':@']?.rvXMLIvarName===({RVRect3D:'position',NSString:'RTFData',shadow:'shadow'})[tag]);return node?.[tag]?.map(x=>x['#text']||'').join('')||'';};
+  function visit(nodes){for(const node of nodes){const type=Object.keys(node).find(k=>k!==':@');if(type==='RVDisplaySlide')root=node[':@']||{};if(['RVTextElement','RVImageElement','RVVideoElement'].includes(type))elements.push({type,attrs:node[':@']||{},position:content(node[type],'RVRect3D'),shadow:content(node[type],'shadow'),...(type==='RVTextElement'?{rtf:content(node[type],'NSString')}:{})});if(Array.isArray(node[type]))visit(node[type]);}}
+  visit(tree);return createHash('sha256').update(formatContext.window.PP6.templateFormatData(root,elements)).digest('hex');
+}
 
 // ZIP tools may interpret UTF-8 filename bytes as CP437. Only accept a strict
 // UTF-8 round-trip producing Hangul; leave already-correct names untouched.
@@ -21,7 +34,7 @@ export function splitTemplates(bytes) {
     if(typeof xml!=='string')throw new Error('Template XML is missing');
     const file='template-'+createHash('sha256').update(xml).digest('hex').slice(0,24)+'.json';
     assets.set(file,Buffer.from(JSON.stringify({xml})));
-    return {...metadata,name:resourceName(metadata.name),label:resourceName(metadata.label),file};
+    return {...metadata,name:resourceName(metadata.name),label:resourceName(metadata.label),file,format:templateFormatHash(xml)};
   });
   return [['templates.json',Buffer.from(JSON.stringify(index))],...assets];
 }
@@ -92,4 +105,3 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const files = await build();
   console.log(`Built ${files.length - 1} public app files and response headers in dist/.`);
 }
-

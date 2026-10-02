@@ -7,14 +7,14 @@ const assert=require('node:assert/strict');
 (async()=>{
  const root=resolve('web-editor');const server=createServer(async(req,res)=>{try{const path=resolve(root,'.'+new URL(req.url,'http://localhost').pathname.replace(/\/$/,'/index.html'));if(!path.startsWith(root+'/'))throw Error();res.setHeader('Content-Type',({'.html':'text/html','.js':'application/javascript','.css':'text/css'})[extname(path)]||'application/octet-stream');res.end(await readFile(path));}catch{res.writeHead(404);res.end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:960}});const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
- let xml='',version=1,playlistVersion=1,order=[];
+ let xml='',version=1,playlistVersion=1,order=[],contentReads=0;
  const id='11111111-1111-4111-a111-111111111111',libraryID='22222222-2222-4222-a222-222222222222';
  const doc=()=>({id,path:'시험 문서.pro6',name:'시험 문서.pro6',version,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',lastDateUsed:'2026-10-01T00:00:00Z',useCount:1,sha256:createHash('sha256').update(xml).digest('hex')});
  const library=()=>({id:libraryID,path:'기본.pro6pl',version:playlistVersion,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',playlists:[{id:'A',name:'금요기도회',itemCount:order.length}]});
  await page.route('**/api/**',async route=>{const u=new URL(route.request().url()),path=u.pathname,method=route.request().method();let data={};
  if(path==='/api/session')data={ready:true,authenticated:true,name:'시험'};
  else if(path==='/api/documents')data={documents:xml?[doc()]:[],next:null};
- else if(path==='/api/documents/'+id+'/content'){await route.fulfill({body:xml,contentType:'application/xml'});return;}
+ else if(path==='/api/documents/'+id+'/content'){contentReads++;await route.fulfill({body:xml,contentType:'application/xml'});return;}
  else if(path==='/api/documents/'+id){if(method==='PUT'){xml=route.request().postData();version++;}data={document:doc()};}
  else if(path==='/api/playlists')data={libraries:xml?[library()]:[],next:null};
  else if(path.endsWith('/plan'))data={library:library(),playlist:{id:'A',name:'금요기도회',editable:true},ready:true,items:order.map((x,i)=>({kind:'document',id:x.id||'cue'+i,name:doc().name,document:doc(),sharedWith:['수요예배','금요예배']}))};
@@ -34,11 +34,17 @@ const assert=require('node:assert/strict');
  order=[{id:'cue0'},{id:'cue1'}];await page.evaluate(()=>YebaeonCloud.refresh());await page.locator('#libraryList .document-item').click();await page.waitForFunction(()=>YebaeonEditor.ready());await page.evaluate(()=>YebaeonPlaylists.show());
  templateXML=await page.evaluate(xml=>new XMLSerializer().serializeToString(PP6.slides(PP6.parse(xml,'template'))[0]),xml);assert.equal(templateReads,0);assert.equal(await page.locator('#playlistItems').getByText(/함께 사용:/).count(),0);
  assert.equal(await page.locator('.slide-card').count(),3);
+ const firstReads=contentReads;
+ await page.evaluate(()=>YebaeonEditor.open(PP6_SAMPLE.xml,'other.pro6',true,'other'));
+ await page.evaluate(id=>YebaeonCloud.openDocument(id),id);assert.equal(contentReads,firstReads,'unchanged original should not download again');
+ version++;await page.evaluate(id=>YebaeonCloud.openDocument(id),id);assert.equal(contentReads,firstReads+1,'new server version must download');
+ const previewCheck=await page.evaluate(async()=>{const model=YebaeonEditor.model(),slide=YebaeonEditor.current(),canvas=()=>{const c=document.createElement('canvas');c.width=400;c.height=225;return c;};await PP6Fonts.ensure(slide);PP6Render.clear();let calls=0;const ensure=PP6Fonts.ensure;PP6Fonts.ensure=(...args)=>{calls++;return ensure(...args);};try{const a=canvas();await PP6Render.draw(a,model,slide,new Map());const first=calls,b=canvas();await PP6Render.draw(b,model,slide,new Map());const reused=calls===first&&a.toDataURL()===b.toDataURL();const changed=slide.cloneNode(true);PP6.setText(PP6.textElements(changed)[0],'새로운 본문');await PP6Render.draw(canvas(),model,changed,new Map());const edited=calls>first,after=calls;window.dispatchEvent(new Event('pp6fontschange'));await PP6Render.draw(canvas(),model,slide,new Map());return {reused,edited,fontInvalidated:calls>after};}finally{PP6Fonts.ensure=ensure;}});
+ assert.deepEqual(previewCheck,{reused:true,edited:true,fontInvalidated:true});
  await page.locator('.slide-card').first().click();await page.locator('.slide-card').nth(2).click({modifiers:['Shift']});assert.equal(await page.locator('.slide-card.selected').count(),3);await page.locator('.slide-card').nth(1).click({modifiers:['Control']});assert.equal(await page.locator('.slide-card.selected').count(),2);
  await page.locator('#libraryList .document-item').dragTo(page.locator('#playlistItems .order-item').first());await page.waitForFunction(()=>document.getElementById('playlistsMessage').textContent==='순서 저장됨');assert.equal(order.length,3);
  await page.locator('.slide-card').first().click();await page.keyboard.press('Enter');await page.locator('#quickInputs textarea').first().waitFor();await page.evaluate(()=>window.fixtureCanvas=document.querySelector('.slide-card canvas'));await page.locator('#quickInputs textarea').first().fill('빠른 편집 시험');await page.waitForTimeout(180);assert.equal(await page.evaluate(()=>window.fixtureCanvas===document.querySelector('.slide-card canvas')),true);await page.keyboard.press('Escape');await page.locator('#quickDialog').waitFor({state:'hidden'});
  await page.locator('#slidePane').focus();await page.keyboard.press('Control+z');assert.notEqual(await page.evaluate(()=>PP6.parseRTF(PP6.textNode(PP6.textElements(YebaeonEditor.current())[0]).textContent).text),'빠른 편집 시험');await page.keyboard.press('Control+Shift+z');
- await page.keyboard.press('Control+s');await page.waitForFunction(()=>!YebaeonEditor.state().dirty);assert.equal(version,2);
+ await page.keyboard.press('Control+s');await page.waitForFunction(()=>!YebaeonEditor.state().dirty);assert.equal(version,3);
  await page.keyboard.press('Control+c');await page.keyboard.press('Control+v');assert.equal(await page.locator('.slide-card').count(),4);await page.keyboard.press('Delete');assert.equal(await page.locator('.slide-card').count(),3);
  await page.keyboard.down('AltLeft');await page.keyboard.press('KeyR');await page.keyboard.up('AltLeft');await page.locator('#reflowRows textarea').first().fill('앞부분 뒷부분');await page.locator('#reflowRows textarea').first().evaluate(e=>e.setSelectionRange(3,3));await page.keyboard.down('AltLeft');await page.keyboard.press('Enter');await page.keyboard.up('AltLeft');assert.equal(await page.locator('#reflowRows textarea').count(),4);await page.keyboard.press('Backspace');assert.equal(await page.locator('#reflowRows textarea').count(),3);
  await page.locator('#reflowClose').click();await page.locator('.slide-card').first().click({button:'right'});const chosen=await page.evaluate(()=>YebaeonEditor.selected());await page.keyboard.press('ArrowDown');assert.equal(await page.evaluate(()=>YebaeonEditor.selected()),chosen);await page.keyboard.press('Escape');
@@ -51,7 +57,18 @@ const assert=require('node:assert/strict');
  await page.evaluate(()=>{const model=PP6.parse(PP6_SAMPLE.xml,'large.pro6'),first=PP6.slides(model)[0],container=first.parentNode;PP6.slides(model).forEach(s=>s.remove());for(let i=0;i<200;i++){const copy=first.cloneNode(true);PP6.refreshIDs(copy);container.append(copy);}window.fixtureDraws=0;const draw=PP6Render.draw;PP6Render.draw=(...args)=>{window.fixtureDraws++;return draw(...args);};YebaeonEditor.open(PP6.serialize(model),'large.pro6',true,'large');YebaeonEditor.setView('slides');});
  await page.waitForTimeout(300);const initialDraws=await page.evaluate(()=>window.fixtureDraws);assert.ok(initialDraws>0&&initialDraws<100,'offscreen slides should not all render');
  await page.locator('.slide-card').last().scrollIntoViewIfNeeded();await page.waitForTimeout(200);assert.ok(await page.evaluate(()=>window.fixtureDraws)>initialDraws,'scrolling should render newly visible slides');
- console.log('Studio browser flows passed: editing, save, undo, clipboard, reflow, IME, menu, Bible, order autosave and activity');
+ await page.locator('.slide-card').first().scrollIntoViewIfNeeded();await page.locator('.slide-card').first().click();
+ await page.locator('#templateSelect').selectOption(template.id);await page.waitForFunction(()=>document.querySelector('#templateSelect option').textContent==='성경 · 본문');
+ assert.equal(await page.locator('#bibleTemplate option').first().textContent(),'현재: 성경 · 본문');
+ const applied=await page.evaluate(()=>YebaeonEditor.document().xml);await page.evaluate(()=>YebaeonEditor.open(PP6_SAMPLE.xml,'other.pro6',true,'other'));await page.evaluate(xml=>YebaeonEditor.open(xml,'applied.pro6',true,'applied'),applied);
+ await page.waitForFunction(()=>document.querySelector('#templateSelect option').textContent==='성경 · 본문');
+ await page.screenshot({path:'artifacts/studio-template-name.png'});
+ const {templateFormatHash}=await import('../../scripts/build.mjs');
+ const browserFormat=await page.evaluate(async xml=>{const slide=new DOMParser().parseFromString(xml,'application/xml').documentElement;return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(PP6.templateFormat(slide)))),n=>n.toString(16).padStart(2,'0')).join('');},templateXML);
+ assert.equal(browserFormat,templateFormatHash(templateXML),'build and browser must agree on the template format');
+ template.format=templateFormatHash(templateXML);xml='<?xml version="1.0"?><RVPresentationDocument width="1920" height="1080"><array rvXMLIvarName="groups"><RVSlideGrouping name="본문"><array rvXMLIvarName="slides">'+templateXML+'</array></RVSlideGrouping></array></RVPresentationDocument>';version++;
+ await page.reload();await page.locator('#libraryList .document-item').click();await page.waitForFunction(()=>document.querySelector('#templateSelect option').textContent==='성경 · 본문');
+ assert.deepEqual(errors,[]);
+ console.log('Studio browser flows passed: original/preview reuse, version/edit/font invalidation, template names after apply/reopen/reload, editing, save, undo, clipboard, reflow, IME, menu, Bible, order autosave and activity');
  }finally{await page.screenshot({path:'artifacts/studio-final.png'}).catch(()=>{});await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
-
