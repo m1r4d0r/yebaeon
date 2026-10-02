@@ -11,6 +11,8 @@
 #import "../mac-sync/PP6Core.h"
 #import <sys/stat.h>
 #import <unistd.h>
+#import <signal.h>
+#import <execinfo.h>
 @interface PPSPlaylistController (Tests)
 - (NSArray *)topPlaylists:(NSString *)xml;
 - (void)compareIfReady;
@@ -26,14 +28,35 @@
 @interface YBServerPlaylistsController (Tests)
 - (void)acceptLibraries:(NSArray *)libraries;
 - (void)acceptComparison:(NSDictionary *)comparison;
+- (void)updateReceiveAll;
 - (NSArray *)recoveryRecordsForSync:(YBSync *)sync jobs:(NSArray *)jobs;
 - (NSView *)recoveryView;
 @end
 @interface YBMediaController (Tests)
 - (void)filter;
 @end
+
+@interface YBProgressLibrary : YBLibrary
+@property NSUInteger calls;
+@property(nonatomic,strong) dispatch_semaphore_t gate;
+@property NSArray *syntheticRows;
+@end
+@implementation YBProgressLibrary
+- (NSArray *)refreshChecking:(void (^)(void))check {
+    self.calls++;if(self.rowsCompared)self.rowsCompared(@[self.syntheticRows[0]]);
+    if(self.calls==1){dispatch_semaphore_wait(self.gate,dispatch_time(DISPATCH_TIME_NOW,3*NSEC_PER_SEC));if(check)check();}
+    return self.syntheticRows;
+}
+@end
+@interface YBProgressController : YBDocumentsController
+@property YBProgressLibrary *fake;
+@end
+@implementation YBProgressController
+- (YBLibrary *)connectedLibrary {return self.fake;}
+@end
 static int checks=0;
-static void Check(BOOL ok,NSString *message) {checks++;YBRequire(ok,message);}
+static void Crash(int code){void *frames[64];int n=backtrace(frames,64);fprintf(stderr,"APP CRASH signal=%d after check=%d\n",code,checks);backtrace_symbols_fd(frames,n,STDERR_FILENO);_exit(128+code);}
+static void Check(BOOL ok,NSString *message) {checks++;fprintf(stderr,"APP CHECK %d: %s\n",checks,message.UTF8String);YBRequire(ok,message);}
 static void Reject(void (^action)(void),NSString *message) {BOOL rejected=NO;@try{action();}@catch(NSException *e){rejected=[e.name isEqual:@"YebaeOn"];}Check(rejected,message);}
 static void Put(NSString *path,NSData *data) {Check([NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:NULL],@"fixture folder");Check([data writeToFile:path atomically:YES],@"fixture data");}
 static NSData *Document(NSArray *sources) {
@@ -60,10 +83,23 @@ static void CaptureWindow(NSWindow *window,NSString *name) {
     NSView *view=window.contentView;NSBitmapImageRep *bitmap=[view bitmapImageRepForCachingDisplayInRect:view.bounds];[view cacheDisplayInRect:view.bounds toBitmapImageRep:bitmap];NSData *png=[bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
     Check(png.length>1000,@"actual window pixels");Put([@"mac-app/test-output" stringByAppendingPathComponent:[name stringByAppendingString:@".png"]],png);
 }
+static void CheckButtons(NSView *view) {
+    for(NSView *v in view.subviews){if(v.hidden)continue;if([v isKindOfClass:NSButton.class]){NSButton *b=(id)v;if(b.title.length)Check(b.cell.cellSize.width<=b.frame.size.width+2,[@"button title fits: " stringByAppendingString:b.title]);else {NSRect imageRect=[b.cell imageRectForBounds:b.bounds];Check(b.image && imageRect.size.width>0 && imageRect.size.height>0 && NSContainsRect(b.bounds,imageRect),@"icon button image fits");}}if(![v isKindOfClass:NSScrollView.class])[v layoutSubtreeIfNeeded];}
+}
+static void PumpUntil(BOOL (^condition)(void),NSTimeInterval seconds) {NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:seconds];while(!condition() && deadline.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]];Check(condition(),@"async condition completed before deadline");}
 int main(void) {@autoreleasepool {
+    signal(SIGSEGV,Crash);signal(SIGABRT,Crash);setbuf(stderr,NULL);
     NSString *area=[NSTemporaryDirectory() stringByAppendingPathComponent:[@"yebaeon-app-tests-" stringByAppendingString:NSUUID.UUID.UUIDString]];
     @try {
         [NSApplication sharedApplication];YBSetTestPreferencesDirectory([area stringByAppendingPathComponent:@"settings"]);
+        YBSavePreferences(@"documents-settings.json",@{@"root":[area stringByAppendingPathComponent:@"ui-documents"]});
+        YBSavePreferences(@"media-settings.json",@{@"roots":@[[area stringByAppendingPathComponent:@"ui-media"]]});
+        YBServer *offline=[[YBServer alloc] initWithOrigin:@"https://example.test" allowLocalTestServer:NO];
+        Reject(^{[offline request:@"/api/session" method:@"GET" body:nil headers:nil];},@"GUI network guard");
+        Reject(^{[offline loadSession];},@"GUI keychain read guard");
+        offline.cookie=@"synthetic";
+        Reject(^{[offline saveSession];},@"GUI keychain write guard");
+        Reject(^{[offline forgetSession];},@"GUI keychain delete guard");
         NSString *old=[NSString stringWithContentsOfFile:@"mac-app/fixtures/dummy_old.xml" encoding:NSUTF8StringEncoding error:NULL],*new=[NSString stringWithContentsOfFile:@"mac-app/fixtures/dummy_new.xml" encoding:NSUTF8StringEncoding error:NULL];Check(old && new,@"original prototype fixtures");
         NSString *legacyDocument=[area stringByAppendingPathComponent:@"legacy-library.pro6pl"];
         Put(legacyDocument,[old dataUsingEncoding:NSUTF8StringEncoding]);
@@ -137,21 +173,63 @@ int main(void) {@autoreleasepool {
         YBServerPlaylistsController *serverUI=[[YBServerPlaylistsController alloc] initWithWork:work documents:controller];
         [serverUI setValue:@{@"ready":@YES,@"orderChanged":@YES,@"rows":@[@{@"path":@"찬양/공유 찬양.pro6",@"status":@"download"}],@"manifest":@{@"playlist":@{@"name":@"주일 1부 예배"},@"items":@[@{@"name":@"공유 찬양",@"kind":@"document",@"path":@"찬양/공유 찬양.pro6",@"sharedWith":@[@"주일 2부 예배"]}]}} forKey:@"comparison"];
         NSDictionary *uiComparison=[serverUI valueForKey:@"comparison"];[serverUI setValue:[@{@"lib/order":uiComparison} mutableCopy] forKey:@"comparisons"];[serverUI acceptLibraries:@[@{@"id":@"lib",@"path":@"기본 .pro6pl",@"updatedAt":@"2026-10-01",@"playlists":@[@{@"id":@"order",@"name":@"주일 1부 예배"}]}]];[serverUI acceptComparison:uiComparison];
+        Check([[serverUI valueForKey:@"receiveAllButton"] isEnabled],@"ready changed playlist enables receive all without recursion");
+        [serverUI setValue:[NSMutableDictionary dictionary] forKey:@"comparisons"];[serverUI acceptComparison:uiComparison];
+        Check(![[serverUI valueForKey:@"receiveAllButton"] isEnabled],@"acceptComparison refreshes receive all after results cleared");
+        [serverUI setValue:[@{@"blocked":@{@"ready":@NO,@"orderChanged":@YES},@"same":@{@"ready":@YES,@"rows":@[],@"orderChanged":@NO}} mutableCopy] forKey:@"comparisons"];[serverUI updateReceiveAll];
+        Check(![[serverUI valueForKey:@"receiveAllButton"] isEnabled],@"blocked and unchanged playlists cannot enable receive all");
+        [serverUI setValue:[@{@"lib/order":uiComparison} mutableCopy] forKey:@"comparisons"];[serverUI acceptComparison:uiComparison];
+        NSArray *twoLists=@[@{@"id":@"lib",@"path":@"기본 .pro6pl",@"playlists":@[@{@"id":@"one",@"name":@"첫 예배"},@{@"id":@"order",@"name":@"선택 예배"}]}];
+        [serverUI acceptLibraries:twoLists];NSTableView *choices=[serverUI valueForKey:@"listTable"];[choices selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];[serverUI acceptLibraries:twoLists];Check(choices.selectedRow==1,@"selected playlist ID survives list refresh");
+        NSTextField *choiceText=(id)[choices viewAtColumn:0 row:1 makeIfNecessary:YES];Check(!choiceText.selectable,@"playlist text cannot steal row selection clicks");
+        NSMutableDictionary *blocked=[uiComparison mutableCopy];blocked[@"ready"]=@NO;blocked[@"issues"]=@[@"Mac도 바뀜"];[serverUI acceptComparison:blocked];Check([[serverUI valueForKey:@"receiveButton"] isEnabled] && [[[serverUI valueForKey:@"receiveButton"] title] containsString:@"해결"],@"conflict offers an enabled resolution action");[serverUI acceptComparison:uiComparison];
+        [controller acceptRows:@[]];[controller acceptPriorityComparisons:@[@{@"rows":rows}]];Check([[controller valueForKey:@"rows"] count]==4,@"priority documents are available before full comparison");[controller selectAllUploads:nil];[controller mergeComparedRows:@[@{@"path":@"later.pro6",@"status":@"same",@"localHash":NSNull.null,@"remote":NSNull.null}]];Check([[controller valueForKey:@"rows"] count]==5 && [[controller valueForKey:@"checked"] containsObject:paths[1]],@"incremental results preserve checked upload");
         [[serverUI valueForKey:@"table"] reloadData];Check([[serverUI valueForKey:@"table"] numberOfRows]==1,@"server playlist UI row binding");Render(serverUI.view,@"server-playlists");
         YBSync *recoverySync=[[YBSync alloc] initWithRoot:[area stringByAppendingPathComponent:@"recovery-docs"] profile:[area stringByAppendingPathComponent:@"recovery-profile"] origin:@"https://example.test"];recoverySync.presenterRunning=^BOOL{return NO;};[recoverySync beginBackupBatch:@"documents" playlistJob:nil];for(NSString *path in @[@"찬양.pro6",@"말씀.pro6"])[recoverySync apply:doc document:@{@"id":NSUUID.UUID.UUIDString.lowercaseString,@"path":path,@"version":@1,@"sha256":YBHash(doc),@"size":@(doc.length),@"updatedBy":@"테스트",@"updatedAt":@"2026-10-01"} expectedLocalHash:nil];[recoverySync endBackupBatch:YES];NSArray *records=[serverUI recoveryRecordsForSync:recoverySync jobs:@[]];Check(records.count==1 && [records[0][@"members"] count]==2,@"recovery list groups documents by operation without duplicate rows");[serverUI setValue:records forKey:@"recoveryRecords"];NSView *recovery=[serverUI recoveryView];[[serverUI valueForKey:@"recoveryTable"] selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];NSTableView *recoveryTable=[serverUI valueForKey:@"recoveryTable"];NSTextField *targetCell=(NSTextField *)[recoveryTable viewAtColumn:1 row:0 makeIfNecessary:YES];Check([targetCell.stringValue isEqual:@"문서 받기"],@"recovery cells render the selected batch, not playlist preview data");Render(recovery,@"recovery");[recoverySync close];
-        // Exercise actual connection bar + NSTabView, not isolated fixed-size controllers.
-        YBAppDelegate *app=[YBAppDelegate new];[app applicationDidFinishLaunching:[NSNotification notificationWithName:NSApplicationDidFinishLaunchingNotification object:NSApp]];app.window.appearance=[NSAppearance appearanceNamed:NSAppearanceNameAqua];
-        [app.documents acceptRows:rows];[app.serverPlaylists setValue:[@{@"lib/order":uiComparison} mutableCopy] forKey:@"comparisons"];[app.serverPlaylists acceptLibraries:@[@{@"id":@"lib",@"path":@"기본 .pro6pl",@"playlists":@[@{@"id":@"order",@"name":@"주일 1부 예배 아주 긴 이름"}]}]];[app.serverPlaylists acceptComparison:uiComparison];app.documentPath.stringValue=@"/Users/교회/아주 긴 문서 폴더/ProPresenter6/찬양과 말씀";app.playlistPath.stringValue=@"/Users/교회/아주 긴 재생목록 폴더/기본 .pro6pl";
-        for(NSValue *size in @[[NSValue valueWithSize:NSMakeSize(1060,800)],[NSValue valueWithSize:NSMakeSize(880,620)],[NSValue valueWithSize:NSMakeSize(960,680)]]){
+        // Actual window: compare before / playlist / document / settings, including minimum size.
+        YBAppDelegate *app=[YBAppDelegate new];[app applicationDidFinishLaunching:[NSNotification notificationWithName:NSApplicationDidFinishLaunchingNotification object:NSApp]];app.window.appearance=[NSAppearance appearanceNamed:NSAppearanceNameAqua];app.connectionText=@"지은 연결됨";[app updateConnection];
+        Check([app.navigation isKindOfClass:NSSegmentedControl.class] && app.navigation.segmentCount==3 && app.navigation.trackingMode==NSSegmentSwitchTrackingSelectOne,@"navigation is one native segmented control");
+        Check([app.compareButton.keyEquivalent isEqual:@"\r"],@"compare is the default before comparison");
+        Check(![[app.serverPlaylists valueForKey:@"receiveButton"] isEnabled] && ![[app.serverPlaylists valueForKey:@"receiveAllButton"] isEnabled],@"receiving disabled before comparison");CaptureWindow(app.window,@"03-before-comparison");
+        NSMutableDictionary *rich=[uiComparison mutableCopy];rich[@"manifest"]=@{@"playlist":@{@"name":@"금요예배",@"version":@8,@"updatedBy":@"지은",@"updatedAt":@"2026-10-02T12:40:00Z"},@"library":@{@"updatedAt":@"2026-10-02T12:40:00Z"},@"items":@[@{@"id":@"header",@"name":@"찬양",@"kind":@"header"},@{@"id":@"song",@"name":@"공유 찬양",@"kind":@"document",@"path":@"찬양/공유 찬양.pro6",@"sharedWith":@[@"주일 2부 예배"]},@{@"id":@"header2",@"name":@"말씀",@"kind":@"header"}]};
+        rich[@"rows"]=@[@{@"path":@"찬양/공유 찬양.pro6",@"status":@"download",@"localHash":@"old",@"remote":@{@"updatedAt":@"2026-10-02T12:32:00Z",@"updatedBy":@"지은"}}];
+        [app.serverPlaylists setValue:[@{@"lib/order":rich} mutableCopy] forKey:@"comparisons"];[app.serverPlaylists acceptLibraries:@[@{@"id":@"lib",@"path":@"기본 .pro6pl",@"playlists":@[@{@"id":@"order",@"name":@"금요예배",@"updatedAt":@"2026-10-02T12:40:00Z"}]}]];[app.serverPlaylists acceptComparison:rich];app.lastCompared=@"21:52";app.documents.checkStateChanged(@"전체 문서 점검",1204,3107,YES);
+        Check([[[app.serverPlaylists valueForKey:@"receiveButton"] keyEquivalent] isEqual:@"\r"] && !app.compareButton.keyEquivalent.length,@"ready playlist moves default to receive");
+        [app.documents acceptRows:rows];[app.documents selectAllUploads:nil];
+        for(NSValue *size in @[[NSValue valueWithSize:NSMakeSize(1440,900)],[NSValue valueWithSize:NSMakeSize(1060,800)],[NSValue valueWithSize:NSMakeSize(880,620)]]){
             [app.window setFrame:NSMakeRect(app.window.frame.origin.x,app.window.frame.origin.y,size.sizeValue.width,size.sizeValue.height) display:YES];[app.window.contentView layoutSubtreeIfNeeded];
-            for(NSTabViewItem *tab in app.tabs.tabViewItems){[app selectTab:(NSButton *)app.tabBar.subviews[[app.tabs.tabViewItems indexOfObject:tab]]];[app.window.contentView layoutSubtreeIfNeeded];NSView *panel=tab.view;
-                Check(panel.bounds.size.width<1060 && panel.bounds.size.height<720,@"tab uses actual top-level viewport");
+            for(NSTabViewItem *tab in app.tabs.tabViewItems){app.navigation.selectedSegment=[app.tabs.tabViewItems indexOfObject:tab];[app selectTab:app.navigation];[app.window.contentView layoutSubtreeIfNeeded];NSView *panel=tab.view;
                 for(NSView *control in panel.subviews)if(!control.hidden){Check(NSContainsRect(NSInsetRect(panel.bounds,-1,-1),control.frame),[@"visible control within viewport: " stringByAppendingString:[control isKindOfClass:NSButton.class] ? [(NSButton *)control title] : control.className]);if([control isKindOfClass:NSScrollView.class])Check(control.frame.size.height>=80,@"table retains usable height");}
+                CheckButtons(panel);CheckButtons(app.tabBar);CheckButtons(app.connectionBar);
+                NSMutableArray *bottom=[NSMutableArray array];for(NSView *v in panel.subviews)if(!v.hidden && v.frame.origin.y<50 && [v isKindOfClass:NSButton.class])[bottom addObject:v];for(NSUInteger i=0;i<bottom.count;i++)for(NSUInteger j=i+1;j<bottom.count;j++)Check(!NSIntersectsRect([bottom[i] frame],[bottom[j] frame]),@"bottom decisions do not overlap");
+                if([tab.label isEqual:@"재생목록"]){NSTableView *list=[app.serverPlaylists valueForKey:@"listTable"];CGFloat columns=0;for(NSTableColumn *col in list.tableColumns)columns+=col.width+list.intercellSpacing.width;Check(columns<=list.enclosingScrollView.contentSize.width+1,@"playlist changed-date column fits without horizontal clipping");}
+                if([tab.label isEqual:@"문서"]){NSArray *filters=@[[app.documents valueForKey:@"direction"],[app.documents valueForKey:@"usedOnly"],[app.documents valueForKey:@"search"],[app.documents valueForKey:@"order"]];for(NSUInteger i=0;i<filters.count;i++)for(NSUInteger j=i+1;j<filters.count;j++)Check(!NSIntersectsRect([filters[i] frame],[filters[j] frame]),@"document filters do not overlap");Check([[[app.documents valueForKey:@"applyButton"] keyEquivalent] isEqual:@"\r"] && !app.compareButton.keyEquivalent.length,@"document selection owns default");}
                 CaptureWindow(app.window,[NSString stringWithFormat:@"window-%@-%d",tab.label,(int)size.sizeValue.width]);
+                if(size.sizeValue.width==1440 && [tab.label isEqual:@"재생목록"])CaptureWindow(app.window,@"01-playlists");
+                if(size.sizeValue.width==1440 && [tab.label isEqual:@"문서"])CaptureWindow(app.window,@"02-documents");
             }
-            Check(!NSIntersectsRect(app.documentPath.frame,app.playlistPath.frame),@"long paths occupy separate rows");
         }
+        [app.documents setValue:@0 forKeyPath:@"direction.selectedSegment"];[app.documents performSelector:@selector(directionChanged:) withObject:nil];app.navigation.selectedSegment=1;[app selectTab:app.navigation];
+        Check([app.compareButton.keyEquivalent isEqual:@"\r"] && ![[app.documents valueForKey:@"applyButton"] isEnabled],@"all filter keeps transfer disabled and compare default");
+        [app showSettings:nil];Check(app.settingsSheet.sheetParent==app.window,@"settings is attached sheet");Check(app.window.defaultButtonCell==nil,@"parent has no default while sheet is open");Check(app.settingsSheet.defaultButtonCell==app.settingsClose.cell,@"sheet default cell is close");Check([app.settingsClose.keyEquivalent isEqual:@"\r"],[NSString stringWithFormat:@"sheet close owns Return (key=%@)",app.settingsClose.keyEquivalent]);CheckButtons(app.settingsSheet.contentView);
+        Check([app.documentPath.stringValue isEqual:app.documents.documentsRoot],@"settings path is actual current path");
+        BOOL sawPlaylist=NO,sawRoot=NO,sawLogin=NO,sawLogout=NO,sawMedia=NO,sawBackup=NO;
+        for(NSView *v in app.settingsSheet.contentView.subviews)if([v isKindOfClass:NSButton.class]){NSButton *button=(id)v;if(button.action==@selector(chooseFile:))sawPlaylist=button.target==app.serverPlaylists;if(button.action==@selector(chooseRoot:))sawRoot=button.target==app.documents;if(button.action==@selector(login:))sawLogin=button.target==app.documents;if(button.action==@selector(logout:))sawLogout=button.target==app.documents;if(button.action==@selector(addRoot:))sawMedia=button.target==app.media;if(button.action==@selector(openBackupFolder:))sawBackup=button.target==app.serverPlaylists;}
+        Check(sawPlaylist && sawRoot && sawLogin && sawLogout && sawMedia && sawBackup,@"settings calls existing actions");CaptureWindow(app.settingsSheet,@"04-settings");
+        __block BOOL heldDone=NO;dispatch_semaphore_t held=dispatch_semaphore_create(0);
+        [app.work runPausable:YES task:^id{dispatch_semaphore_wait(held,dispatch_time(DISPATCH_TIME_NOW,4*NSEC_PER_SEC));[app.work checkpoint];return @YES;} completion:^(id result,NSString *error){heldDone=YES;}];
+        Check(!app.settingsButton.enabled && !app.compareButton.enabled && app.pauseButton.enabled,@"busy locks relocated settings/compare while pause stays usable");
+        for(NSView *v in app.settingsSheet.contentView.subviews)if([v isKindOfClass:NSButton.class] && v!=app.settingsClose)Check(![(NSButton *)v isEnabled],@"busy locks all setting mutations");
+        [app.work togglePause:nil];dispatch_semaphore_signal(held);PumpUntil(^BOOL{return app.work.paused;},3);[app updateConnection];Check(!heldDone && [app.pauseButton.title isEqual:@"재개"],@"pause waits at safe boundary and offers resume");
+        [app.work togglePause:nil];PumpUntil(^BOOL{return heldDone;},3);Check(app.settingsButton.enabled && !app.work.pauseRequested,@"resume completes and restores controls");[app closeSettings:nil];PumpUntil(^BOOL{return !app.settingsSheet.sheetParent;},3);[app updateDefaultButton];
+        Check(!app.settingsSheet.sheetParent && [app.compareButton.keyEquivalent isEqual:@"\r"],@"closing sheet restores correct default");
         Check([YBDisplayDate(@"2026-10-01T23:43:12.456Z") containsString:@"8:43"],@"server date is converted to Seoul without milliseconds");
+
+        YBWork *progressWork=[YBWork new];YBProgressController *progressUI=[[YBProgressController alloc] initWithWork:progressWork];YBProgressLibrary *fake=[YBProgressLibrary new];fake.gate=dispatch_semaphore_create(0);fake.syntheticRows=rows;progressUI.fake=fake;
+        __weak YBProgressController *weakProgress=progressUI;progressWork.idle=^{[weakProgress resumeBackgroundIfNeeded];};[progressUI backgroundCompare];
+        PumpUntil(^BOOL{return [[progressUI valueForKey:@"rows"] count]>0;},3);Check([[progressUI valueForKey:@"rows"] count]==1,@"background publishes usable partial results");
+        __block BOOL foregroundFinished=NO;[progressWork run:^id{return @YES;} completion:^(id value,NSString *error){foregroundFinished=YES;}];dispatch_semaphore_signal(fake.gate);
+        PumpUntil(^BOOL{return foregroundFinished && fake.calls==2 && !progressWork.backgroundActive;},3);Check([[progressUI valueForKey:@"rows"] count]==rows.count,@"foreground completion automatically resumes remaining comparison without button press");
         [app.window orderOut:nil];
         [serverUI setValue:@{@"localNode":@{@"items":@[@{@"attrs":@{@"UUID":@"old",@"displayName":@"기존"}}]},@"manifest":@{@"items":@[@{@"id":@"new",@"name":@"추가"},@{@"id":@"old",@"name":@"기존"}]}} forKey:@"comparison"];
         NSArray *preview=[serverUI performSelector:@selector(previewItems)];Check([preview[0][@"composition"] isEqual:@"순서에 추가"] && [preview[1][@"composition"] isEqual:@""],@"adding a cue is independent of content, insertion alone does not mark old cue as moved");
@@ -161,6 +239,11 @@ int main(void) {@autoreleasepool {
         [work run:^id{Check(backgroundExited,@"foreground transfer waits for comparison checkpoint");return @YES;} completion:^(id result,NSString *error){foregroundDone=YES;}];dispatch_semaphore_signal(resume);
         NSDate *priorityDeadline=[NSDate dateWithTimeIntervalSinceNow:3];while(!foregroundDone && priorityDeadline.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
         Check(foregroundDone && cancelNotified && !work.busy,@"user work cancels background and releases busy without stale result");
+        __block BOOL pausedBackgroundEnded=NO,replacementDone=NO;
+        dispatch_semaphore_t backgroundGate=dispatch_semaphore_create(0);
+        [work runBackground:^id(BOOL (^cancelled)(void)){dispatch_semaphore_wait(backgroundGate,dispatch_time(DISPATCH_TIME_NOW,3*NSEC_PER_SEC));[work checkpoint];return @(cancelled());} completion:^(id result,NSString *error){pausedBackgroundEnded=error.length>0;}];
+        [work togglePause:nil];dispatch_semaphore_signal(backgroundGate);PumpUntil(^BOOL{return work.paused;},3);
+        [work run:^id{return @YES;} completion:^(id result,NSString *error){replacementDone=YES;}];PumpUntil(^BOOL{return replacementDone && pausedBackgroundEnded;},3);Check(!work.paused && !work.pauseRequested && !work.busy,@"foreground action wakes cancelled paused background without deadlock");
         __block BOOL finished=NO;__block NSString *failure=nil;
         [work run:^id {YBRequire(!NSThread.isMainThread,@"background worker");dispatch_async(dispatch_get_main_queue(),^{work.message=@"전송 완료 · 상태 확인 마무리";});return @42;} completion:^(id result,NSString *error){Check(NSThread.isMainThread && [result isEqual:@42] && !error && !work.busy && !work.message,@"UI completion releases busy and phase on main thread");finished=YES;}];
         NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:3];while(!finished && deadline.timeIntervalSinceNow>0)[NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];Check(finished && !work.busy,@"async UI work completes");

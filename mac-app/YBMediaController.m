@@ -39,22 +39,24 @@ static NSString *MediaStatus(NSString *status) {return @{@"exact-managed":@"연�
     }return self;
 }
 - (void)buildView {
-    NSView *v=[[YBPanel alloc] initWithFrame:NSMakeRect(0,0,1060,720)];self.view=v;
-    [v addSubview:YBLabel(@"미디어 연결 점검",NSMakeRect(24,670,390,28),22,YES)];
-    [v addSubview:YBLabel(@"문서에 사용된 배경·영상의 실제 위치를 찾습니다.",NSMakeRect(426,672,610,24),13,NO)];
-    self.rootLabel=YBLabel([@"문서 폴더: " stringByAppendingString:self.documentsRoot],NSMakeRect(24,629,1012,26),13,NO);[v addSubview:self.rootLabel];
-    self.mediaLabel=YBLabel([self.roots componentsJoinedByString:@"  ·  "],NSMakeRect(24,591,696,26),12,NO);[v addSubview:self.mediaLabel];
-    [v addSubview:YBButton(@"검색 폴더 추가",NSMakeRect(727,585,149,34),self,@selector(addRoot:))];
-    [v addSubview:YBButton(@"기본 폴더",NSMakeRect(884,585,152,34),self,@selector(defaultRoots:))];
+    YBPanel *v=[[YBPanel alloc] initWithFrame:NSMakeRect(0,0,1060,720)];self.view=v;
+    self.rootLabel=YBLabel([@"문서 폴더: " stringByAppendingString:self.documentsRoot],NSZeroRect,13,NO);
+    self.mediaLabel=YBLabel([self.roots componentsJoinedByString:@"  ·  "],NSZeroRect,12,NO);
     self.search=[[NSSearchField alloc] initWithFrame:NSMakeRect(24,542,414,28)];self.search.placeholderString=@"배경 파일명 또는 문서 검색";self.search.delegate=self;[v addSubview:self.search];
     self.problemsOnly=[[NSButton alloc] initWithFrame:NSMakeRect(455,542,247,28)];self.problemsOnly.buttonType=NSSwitchButton;self.problemsOnly.title=@"연결 확인이 필요한 항목만";self.problemsOnly.target=self;self.problemsOnly.action=@selector(filterAction:);[v addSubview:self.problemsOnly];
-    [v addSubview:YBButton(@"미디어 점검 시작",NSMakeRect(810,537,226,36),self,@selector(scan:))];
+    NSButton *scan=YBButton(@"미디어 점검 시작",NSZeroRect,self,@selector(scan:));[v addSubview:scan];
     self.table=YBTable(v,NSMakeRect(24,143,1012,383),@[@[@"status",@"연결 상태",@172],@[@"basename",@"사용한 미디어",@315],@[@"document",@"문서",@331],@[@"slide",@"슬라이드",@90],@[@"background",@"배경",@60]],self);self.table.allowsMultipleSelection=NO;
     self.statusLabel=YBLabel(@"문서 탭과 같은 문서 폴더를 점검합니다.",NSMakeRect(24,108,1012,25),13,NO);[v addSubview:self.statusLabel];
     NSTextField *note=YBLabel(@"현재는 연결 점검 기능입니다. 미디어 업로드·복사·문서의 경로 변경은 다음 단계입니다.",NSMakeRect(24,78,1012,24),12,NO);note.textColor=NSColor.secondaryLabelColor;[v addSubview:note];
-    [v addSubview:YBButton(@"선택 항목 자세히",NSMakeRect(24,25,188,38),self,@selector(details:))];
-    [v addSubview:YBButton(@"Finder에서 보기",NSMakeRect(224,25,166,38),self,@selector(reveal:))];
-    [v addSubview:YBButton(@"점검 결과 저장",NSMakeRect(860,25,176,38),self,@selector(exportReport:))];
+    NSButton *details=YBButton(@"선택 항목 자세히",NSZeroRect,self,@selector(details:));[v addSubview:details];
+    NSButton *reveal=YBButton(@"Finder에서 보기",NSZeroRect,self,@selector(reveal:));[v addSubview:reveal];
+    NSButton *export=YBButton(@"점검 결과 저장",NSZeroRect,self,@selector(exportReport:));[v addSubview:export];
+    __weak YBMediaController *weakSelf=self;
+    v.frameLayout=^(NSSize size){YBMediaController *c=weakSelf;CGFloat w=size.width,h=size.height,m=14;
+        c.search.frame=NSMakeRect(m,h-36,w-500,26);c.problemsOnly.frame=NSMakeRect(w-474,h-38,260,28);scan.frame=NSMakeRect(w-204,h-40,190,32);
+        c.table.enclosingScrollView.frame=NSMakeRect(m,112,w-2*m,MAX(80,h-160));c.statusLabel.frame=NSMakeRect(m,82,w-2*m,24);note.frame=NSMakeRect(m,55,w-2*m,24);
+        details.frame=NSMakeRect(m,14,166,32);reveal.frame=NSMakeRect(m+176,14,150,32);export.frame=NSMakeRect(w-m-170,14,170,32);
+    };v.frameLayout(v.bounds.size);
 }
 - (void)setDocumentsRoot:(NSString *)root {_documentsRoot=root;self.rootLabel.stringValue=[@"문서 폴더: " stringByAppendingString:root];self.report=nil;[self filter];self.statusLabel.stringValue=@"문서 폴더가 바뀌었습니다. 다시 점검하세요.";}
 - (void)changedRoots {self.mediaLabel.stringValue=[self.roots componentsJoinedByString:@"  ·  "];self.report=nil;[self filter];self.statusLabel.stringValue=@"검색 폴더가 바뀌었습니다. 다시 점검하세요.";YBSavePreferences(@"media-settings.json",@{@"roots":self.roots});}

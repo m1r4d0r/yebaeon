@@ -3,6 +3,8 @@ name: Verify Mac Sync
 # for a release candidate; reuse its tested app and screenshots after merging.
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/sync-layout-pause]
 concurrency:
   group: mac-sync-${{ github.ref }}
   cancel-in-progress: true
@@ -10,12 +12,15 @@ permissions:
   contents: read
 jobs:
   native-sync:
+    if: github.event.repository.private == false && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[verify-mac]'))
     runs-on: macos-15-intel
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Read-only diagnostic build and synthetic tests
+        run: bash mac-app/diagnose-local.command --self-test
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: '.node-version'
@@ -29,6 +34,14 @@ jobs:
         run: bash mac-app/build.command
       - name: Playlist, Core, GUI and app transport checks
         run: bash mac-app/test.command
+      - name: Save failure diagnostics without a new test run
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: YebaeOn-Sync-failure-previews
+          path: mac-app/test-output/*.png
+          retention-days: 3
+          if-no-files-found: ignore
       - name: Package app for church testing
         run: ditto -c -k --keepParent "mac-app/build/예배온 Sync.app" "mac-app/build/YebaeOn-Sync-macOS.zip"
       - name: Save tested app and synthetic UI previews

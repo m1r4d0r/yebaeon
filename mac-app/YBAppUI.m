@@ -54,24 +54,46 @@ NSString *YBProfilePath(NSString *root,NSString *origin) {NSString *identity=[NS
 @property(nonatomic,readwrite) BOOL busy;
 @property(nonatomic,strong) dispatch_queue_t queue;
 @property(atomic) NSUInteger generation;
+@property(atomic, readwrite) BOOL backgroundActive;
+@property(atomic, readwrite) BOOL pauseRequested;
+@property(atomic, readwrite) BOOL paused;
+@property(atomic, readwrite) BOOL pausable;
+@property NSCondition *pauseCondition;
 @end
 @implementation YBWork
 - (void)setMessage:(NSString *)message {_message=[message copy];if(self.messageChanged)self.messageChanged();}
-- (instancetype)init {if((self=[super init]))self.queue=dispatch_queue_create("org.yebaeon.sync.work",DISPATCH_QUEUE_SERIAL);return self;}
+- (instancetype)init {if((self=[super init])){self.queue=dispatch_queue_create("org.yebaeon.sync.work",DISPATCH_QUEUE_SERIAL);self.pauseCondition=[NSCondition new];}return self;}
+- (void)notifyPause {dispatch_async(dispatch_get_main_queue(),^{if(self.pauseChanged)self.pauseChanged();});}
+- (void)togglePause:(id)sender {
+    [self.pauseCondition lock];
+    if(self.pausable && (self.busy || self.backgroundActive)) {self.pauseRequested=!self.pauseRequested;[self.pauseCondition broadcast];}
+    [self.pauseCondition unlock];if(self.pauseChanged)self.pauseChanged();
+}
+- (void)checkpoint {
+    // Called only between safe units, never between server commit and local acknowledgement.
+    [self.pauseCondition lock];
+    if(self.pauseRequested && self.pausable){self.paused=YES;[self notifyPause];}
+    while(self.pauseRequested && self.pausable)[self.pauseCondition wait];
+    BOOL changed=self.paused;self.paused=NO;[self.pauseCondition unlock];if(changed)[self notifyPause];
+}
+- (void)resumeForNextOperation:(BOOL)pausable {
+    [self.pauseCondition lock];self.pauseRequested=NO;self.paused=NO;self.pausable=pausable;[self.pauseCondition broadcast];[self.pauseCondition unlock];[self notifyPause];
+}
 - (void)runBackground:(id (^)(BOOL (^)(void)))task completion:(void (^)(id,NSString *))completion {
-    if(self.busy)return;NSUInteger generation=++self.generation;
+    if(self.busy)return;NSUInteger generation=++self.generation;self.backgroundActive=YES;[self resumeForNextOperation:YES];
     BOOL (^cancelled)(void)=^BOOL{return self.generation!=generation;};
     dispatch_async(self.queue,^{@autoreleasepool {
-        id result=nil;NSString *error=nil;@try{if(!cancelled())result=task(cancelled);}@catch(NSException *e){error=e.reason;}
-        dispatch_async(dispatch_get_main_queue(),^{completion(cancelled() ? nil : result,cancelled() ? @"사용자 작업을 우선하여 나머지 점검을 멈췄습니다. 필요하면 서버와 비교를 눌러 주세요." : error);});
+        id result=nil;NSString *error=nil;@try{if(!cancelled()){[self checkpoint];if(!cancelled())result=task(cancelled);}}@catch(NSException *e){error=e.reason;}
+        dispatch_async(dispatch_get_main_queue(),^{if(self.generation==generation){self.backgroundActive=NO;[self resumeForNextOperation:NO];}completion(cancelled() ? nil : result,cancelled() ? @"사용자 작업을 우선합니다. 끝나면 나머지 점검을 자동으로 이어갑니다." : error);});
     }});
 }
-- (void)run:(id (^)(void))task completion:(void (^)(id,NSString *))completion {
+- (void)run:(id (^)(void))task completion:(void (^)(id,NSString *))completion {[self runPausable:NO task:task completion:completion];}
+- (void)runPausable:(BOOL)pausable task:(id (^)(void))task completion:(void (^)(id,NSString *))completion {
     if(self.busy) {YBAlert(@"작업 중입니다.",@"현재 작업이 끝난 후 다시 시도해 주세요.");return;}
-    self.generation++;self.message=@"작업 준비 중";self.busy=YES;if(self.busyChanged)self.busyChanged(YES);
+    self.generation++;self.backgroundActive=NO;[self resumeForNextOperation:pausable];self.message=@"작업 준비 중";self.busy=YES;if(self.busyChanged)self.busyChanged(YES);
     dispatch_async(self.queue,^{@autoreleasepool {
-        id result=nil;NSString *error=nil;@try {result=task();}@catch(NSException *e){error=e.reason ?: @"작업을 완료하지 못했습니다.";}
-        dispatch_async(dispatch_get_main_queue(),^{self.busy=NO;self.message=nil;if(self.busyChanged)self.busyChanged(NO);completion(result,error);});
+        id result=nil;NSString *error=nil;@try {[self checkpoint];result=task();}@catch(NSException *e){error=e.reason ?: @"작업을 완료하지 못했습니다.";}
+        dispatch_async(dispatch_get_main_queue(),^{self.busy=NO;[self resumeForNextOperation:NO];self.message=nil;if(self.busyChanged)self.busyChanged(NO);completion(result,error);if(!self.busy && self.idle)self.idle();});
     }});
 }
 @end
@@ -83,6 +105,7 @@ NSString *YBProfilePath(NSString *root,NSString *origin) {NSString *identity=[NS
 @end
 @implementation YBPanel
 - (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
+    if(self.frameLayout){self.frameLayout(self.bounds.size);return;}
     if(!self.originalFrames){self.originalFrames=[NSMutableDictionary dictionary];for(NSView *v in self.subviews)self.originalFrames[[NSValue valueWithNonretainedObject:v]]=[NSValue valueWithRect:v.frame];}
     CGFloat w=self.bounds.size.width,h=self.bounds.size.height,scale=(w-48)/1012.0;
     for(NSView *v in self.subviews){NSRect f=[self.originalFrames[[NSValue valueWithNonretainedObject:v]] rectValue];
@@ -106,3 +129,4 @@ NSString *YBDisplayDate(id value) {
     NSString *prefix=[cal isDate:date inSameDayAsDate:today] ? @"오늘 " : [cal isDate:date inSameDayAsDate:yesterday] ? @"어제 " : @"";
     f.dateFormat=prefix.length ? @"a h:mm" : @"yyyy.MM.dd a h:mm";return [prefix stringByAppendingString:[f stringFromDate:date]];
 }
+
