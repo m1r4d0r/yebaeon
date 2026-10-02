@@ -1,7 +1,30 @@
 import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+// ZIP tools may interpret UTF-8 filename bytes as CP437. Only accept a strict
+// UTF-8 round-trip producing Hangul; leave already-correct names untouched.
+const cp437High = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ";
+export function resourceName(value) {
+  if(typeof value !== 'string')return value;
+  const bytes=[];
+  for(const char of value){const code=char.codePointAt(0),index=cp437High.indexOf(char);if(code<128)bytes.push(code);else if(index>=0)bytes.push(index+128);else return value.normalize('NFC');}
+  try{const decoded=new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(bytes));if(/\p{Script=Hangul}/u.test(decoded))return decoded.normalize('NFC');}catch{}
+  return value.normalize('NFC');
+}
+export function splitTemplates(bytes) {
+  const assets=new Map();
+  const index=JSON.parse(bytes).map(template=>{
+    const {xml,...metadata}=template;
+    if(typeof xml!=='string')throw new Error('Template XML is missing');
+    const file='template-'+createHash('sha256').update(xml).digest('hex').slice(0,24)+'.json';
+    assets.set(file,Buffer.from(JSON.stringify({xml})));
+    return {...metadata,name:resourceName(metadata.name),label:resourceName(metadata.label),file};
+  });
+  return [['templates.json',Buffer.from(JSON.stringify(index))],...assets];
+}
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const publicFiles = Object.freeze([
@@ -40,6 +63,8 @@ export async function build({ sourceRoot = root, outputDir = join(root, 'dist') 
     }));
   }
   if (resources.length) {
+    const templates=resources.find(([name])=>name==='templates.json');
+    if(templates)resources=[...resources.filter(([name])=>name!=='templates.json'),...splitTemplates(templates[1])];
     const sizes=new Map(resources.map(([name,bytes])=>[name,bytes.length]));
     const index=resources.findIndex(([name])=>name==='catalog.json');
     const catalog=JSON.parse(resources[index][1]);
@@ -67,3 +92,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const files = await build();
   console.log(`Built ${files.length - 1} public app files and response headers in dist/.`);
 }
+
