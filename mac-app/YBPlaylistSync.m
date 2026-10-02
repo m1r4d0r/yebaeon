@@ -177,6 +177,10 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
         for(NSString *pk in previousEntries){id previous=Value(previousEntries[pk]);if(previous)entries[pk]=previous;else [entries removeObjectForKey:pk];}state[@"entries"]=entries;[state removeObjectForKey:@"file"];[self writeJSON:state path:self.statePath];
         job[@"status"]=@"restored";[self writeJSON:job path:path];[self writeJSON:@{@"id":identifier,@"status":@"complete"} path:@"playlist-active.json"];
     }@finally{sync.playlistOperationActive=NO;}
+    @try {
+        NSMutableArray *reports=[NSMutableArray array];for(NSDictionary *row in job[@"rows"]){NSDictionary *remote=row[@"remote"];NSString *hash=YBHash([sync readDocument:row[@"path"]]);[reports addObject:@{@"kind":@"document",@"id":remote[@"id"],@"node":@"",@"serverHash":remote[@"sha256"],@"status":YBDisposition(hash,remote,sync.entries[row[@"path"]])}];}[self.library reportSyncItems:reports];
+        for(NSString *pk in incomingEntries){if(pk.length>37)[self compare:[pk substringToIndex:36] node:[pk substringFromIndex:37]];}
+    }@catch(NSException *error){NSLog(@"복구 후 상태 확인 실패: %@",error.reason);}
 }
 @end
 

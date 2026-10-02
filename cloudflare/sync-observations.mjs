@@ -1,7 +1,7 @@
 import {HttpError,json,method,sameOrigin,bytes,sha256} from './http.mjs';
 import {referencePath,parsePlaylist} from './playlist-format.mjs';
 export function observationState(observation,hash){
-  if(!observation)return 'unknown';
+  if(!observation||observation.status==='unknown')return 'unknown';
   if(observation.status==='conflict')return 'conflict';
   if(hash!==observation.server_hash)return observation.status==='upload'?'conflict':'pending';
   return ({same:'synced',download:'pending',upload:'local',unknown:'unknown'})[observation.status]||'unknown';

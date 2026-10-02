@@ -241,7 +241,7 @@
   window.addEventListener('yebaeonopen', () => { epoch++; linked = null; draftID=drafts.id(); baseXML=editor.document().xml; update(); });
   window.addEventListener('yebaeonchange', () => queueMicrotask(() => { update(); checkpointDraft().catch(drafts.report); }));
   document.addEventListener('visibilitychange', () => { if(document.hidden)checkpointDraft().catch(drafts.report); });
-  window.YebaeonCloud = { api, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, refresh:list, checkpointDraft, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)) };
+  window.YebaeonCloud = { api, authenticated:()=>!!user, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, refresh:list, checkpointDraft, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)) };
   update();
   if (online) (async () => {
     try {
@@ -257,7 +257,8 @@
  let items={},pending;
  const labels={synced:'Mac 반영 완료',pending:'서버 변경 있음 · Mac으로 받기 필요',conflict:'서버와 Mac 양쪽 변경 · 충돌 확인 필요',local:'Mac 변경 있음 · 서버로 보내기 필요',unknown:'Mac 상태 확인 전 · 미업로드 포함'};
  window.YebaeonSyncLights={
- async refresh(){if(pending)return pending;pending=(async()=>{try{items=(await(await YebaeonCloud.api('/sync-observations')).json()).items;}catch{items={};}finally{pending=null;}})();return pending;},
- dot(kind,id,node=''){const info=items[kind+'/'+id+'/'+node],state=info?.state||'unknown',span=document.createElement('span');span.className='sync-light sync-'+state;span.setAttribute('role','img');span.setAttribute('aria-label',labels[state]);span.title=labels[state]+(info?' · 마지막 Mac 확인 '+new Date(info.observedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'');return span;}
+ async refresh(){if(pending)return pending;pending=(async()=>{try{items=(await(await YebaeonCloud.api('/sync-observations')).json()).items;}catch{items={};}finally{pending=null;}for(const old of document.querySelectorAll('.sync-light[data-sync-kind]'))old.replaceWith(window.YebaeonSyncLights.dot(old.dataset.syncKind,old.dataset.syncId,old.dataset.syncNode));})();return pending;},
+ dot(kind,id,node=''){const info=items[kind+'/'+id+'/'+node],state=info?.state||'unknown',span=document.createElement('span');span.dataset.syncKind=kind;span.dataset.syncId=id;span.dataset.syncNode=node;span.className='sync-light sync-'+state;span.setAttribute('role','img');span.setAttribute('aria-label',labels[state]);span.title=labels[state]+' · 마지막 확인 기준'+(info?' · 마지막 Mac 확인 '+new Date(info.observedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'');return span;}
  };
+ setInterval(()=>{if(!document.hidden&&YebaeonCloud.authenticated())window.YebaeonSyncLights.refresh();},30000);
 })();

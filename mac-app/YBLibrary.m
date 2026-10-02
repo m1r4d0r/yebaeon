@@ -42,12 +42,12 @@
     @try {
         for(NSUInteger offset=0;offset<rows.count;offset+=4) {@autoreleasepool {
             [self.sync assertReady];YBRequire(!self.sync.presenterRunning(),@"ProPresenter가 실행됐습니다. 작업을 중단했습니다.");
-            NSMutableArray *jobs=[NSMutableArray array];
+            NSMutableArray *jobs=[NSMutableArray array],*reports=[NSMutableArray array];
             for(NSUInteger i=offset;i<MIN(offset+4,rows.count);i++) {
                 NSDictionary *row=rows[i];NSString *status=row[@"status"],*path=row[@"path"];
                 YBRequire([status isEqual:@"same"] || [status isEqual:@"upload"],@"선택에 충돌 문서 또는 다른 방향의 문서가 있습니다. 다시 비교해 주세요.");
                 NSString *hash=row[@"localHash"]==NSNull.null ? nil : row[@"localHash"];
-                if([status isEqual:@"same"]) {NSDictionary *remote=row[@"remote"];NSDictionary *head=[self.server head:remote];YBRequire([head[@"version"] isEqual:remote[@"version"]] && [head[@"sha256"] isEqual:remote[@"sha256"]],@"서버 문서가 변경됐습니다. 다시 비교해 주세요.");[self.sync acknowledge:remote expectedLocalHash:hash];[self reportSyncItems:@[@{@"kind":@"document",@"id":remote[@"id"],@"node":@"",@"serverHash":remote[@"sha256"],@"status":@"same"}]];count++;if(progress)progress(path,count);continue;}
+                if([status isEqual:@"same"]) {NSDictionary *remote=row[@"remote"];NSDictionary *head=[self.server head:remote];YBRequire([head[@"version"] isEqual:remote[@"version"]] && [head[@"sha256"] isEqual:remote[@"sha256"]],@"서버 문서가 변경됐습니다. 다시 비교해 주세요.");[self.sync acknowledge:remote expectedLocalHash:hash];[reports addObject:@{@"kind":@"document",@"id":remote[@"id"],@"node":@"",@"serverHash":remote[@"sha256"],@"status":@"same"}];count++;if(progress)progress(path,count);continue;}
                 NSData *data=[self.sync readDocument:path];YBRequire(hash && [YBHash(data) isEqual:hash],@"선택 후 로컬 문서가 바뀌었습니다. 다시 비교해 주세요.");
                 NSDictionary *remote=row[@"remote"]==NSNull.null ? nil : row[@"remote"];
                 YBRequire([YBDisposition(hash,remote,self.sync.entries[path]) isEqual:@"upload"],@"문서의 동기화 기준이 달라졌습니다. 다시 비교해 주세요.");
@@ -62,10 +62,10 @@
             [queue waitUntilAllOperationsAreFinished];NSMutableArray *failures=[NSMutableArray array];
             for(YBUploadJob *job in jobs) {
                 if(job.failure){[failures addObject:[NSString stringWithFormat:@"%@: %@",job.row[@"path"],job.failure]];continue;}
-                @try {[self.sync acknowledge:job.saved expectedLocalHash:job.row[@"localHash"]];[self reportSyncItems:@[@{@"kind":@"document",@"id":job.saved[@"id"],@"node":@"",@"serverHash":job.saved[@"sha256"],@"status":@"same"}]];count++;if(progress)progress(job.row[@"path"],count);}
+                @try {[self.sync acknowledge:job.saved expectedLocalHash:job.row[@"localHash"]];[reports addObject:@{@"kind":@"document",@"id":job.saved[@"id"],@"node":@"",@"serverHash":job.saved[@"sha256"],@"status":@"same"}];count++;if(progress)progress(job.row[@"path"],count);}
                 @catch(NSException *error){[failures addObject:[NSString stringWithFormat:@"%@: 서버 저장 후 로컬 기록 실패. 다시 비교하세요. %@",job.row[@"path"],error.reason]];}
             }
-            YBRequire(failures.count==0,[failures componentsJoinedByString:@"\n"]);
+            [self reportSyncItems:reports];YBRequire(failures.count==0,[failures componentsJoinedByString:@"\n"]);
         }}
     } @catch(NSException *error){YBRequire(NO,[NSString stringWithFormat:@"%lu/%lu개 완료 후 중단했습니다. 완료된 서버 문서는 유지합니다. 다시 비교해 남은 문서를 선택하세요.\n%@",(unsigned long)count,(unsigned long)rows.count,error.reason]);}
     @finally {[queue waitUntilAllOperationsAreFinished];[NSProcessInfo.processInfo endActivity:activity];}
@@ -74,7 +74,7 @@
 - (NSUInteger)transfer:(NSArray *)rows receiving:(BOOL)receiving progress:(void (^)(NSString *,NSUInteger))progress {
     [self.sync assertReady];YBRequire(!self.sync.presenterRunning(),@"ProPresenter를 종료한 후 송수신해 주세요.");
     if(!receiving)return [self uploadParallel:rows progress:progress];
-    NSUInteger count=0;BOOL completed=NO;[self.sync beginBackupBatch:@"documents" playlistJob:nil];
+    NSMutableArray *reports=[NSMutableArray array];NSUInteger count=0;BOOL completed=NO;[self.sync beginBackupBatch:@"documents" playlistJob:nil];
     @try {
         for(NSDictionary *row in rows) {
             NSString *status=row[@"status"], *path=row[@"path"];
@@ -92,11 +92,11 @@
                 YBRequire([YBDisposition(hash,remote,self.sync.entries[path]) isEqual:@"upload"],@"문서의 동기화 기준이 달라졌습니다. 다시 비교해 주세요.");
                 NSDictionary *saved=[self.server upload:data path:path previous:remote];[self.sync acknowledge:saved expectedLocalHash:hash];
             }
-            [self reportSyncItems:@[@{@"kind":@"document",@"id":remote[@"id"],@"node":@"",@"serverHash":remote[@"sha256"],@"status":@"same"}]];count++;if(progress)progress(path,count);
+            [reports addObject:@{@"kind":@"document",@"id":remote[@"id"],@"node":@"",@"serverHash":remote[@"sha256"],@"status":@"same"}];count++;if(progress)progress(path,count);
         }
         completed=YES;
     } @catch(NSException *error) {YBRequire(NO,[NSString stringWithFormat:@"%lu/%lu개 완료 후 중단했습니다. 완료된 문서는 유지합니다.\n%@",(unsigned long)count,(unsigned long)rows.count,error.reason]);}
-    @finally {[self.sync endBackupBatch:completed];}
+    @finally {[self.sync endBackupBatch:completed];[self reportSyncItems:reports];}
     return count;
 }
 @end
