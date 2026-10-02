@@ -25,8 +25,8 @@ function indexedDBFixture() {
 function element(){return {textContent:'',value:'name',children:[],append(...els){this.children.push(...els);},replaceChildren(){this.children=[];},addEventListener(){},setAttribute(){},showModal(){this.open=true;},close(){this.open=false;}};}
 async function setup(){
   const fixture=indexedDBFixture(),elements=new Map();
-  const document={getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},createElement:element,addEventListener(){}};
-  const window=new EventTarget();const context=vm.createContext({window,document,indexedDB:fixture.api,crypto:webcrypto,structuredClone,Date,Promise,Error,console,setTimeout,Blob,URL,confirm:()=>true});
+  const document={getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},createElement:element,querySelectorAll:()=>[],addEventListener(){}};
+  const window=new EventTarget();const context=vm.createContext({window,document,indexedDB:fixture.api,crypto:webcrypto,structuredClone,Date,Promise,Error,console,setTimeout,setInterval:()=>0,Blob,URL,confirm:()=>true});
   vm.runInContext(await readFile('web-editor/drafts.js','utf8'),context);
   return {fixture,context,window,document,drafts:window.YebaeonDrafts};
 }
@@ -52,6 +52,7 @@ async function cloudSetup(){
   app.window.YebaeonPlaylists={async show(){},currentName:()=>''};
   app.context.YebaeonSelection={Selection:class{constructor(){this.chosen=new Set();}setKeys(){} bind(){}}};
   Object.assign(app.context,{location:{protocol:'https:'},localStorage:{getItem(){return null;},setItem(){}},queueMicrotask,Event,CustomEvent,TextDecoder,URLSearchParams,fetch:async(path,options={})=>{
+    if(path==='/api/sync-observations')return Response.json({items:{}});
     if(path==='/api/session')return Response.json({ready:true,authenticated:true,name:'tester'});
     if(options.method==='PUT')return new Promise(resolve=>pending.push({options,resolve}));
     if(path.includes('/content'))return new Response('base');
@@ -81,3 +82,4 @@ test('changing worker session leaves the previous worker draft under a separate 
   await new Promise(setImmediate);
   const records=await app.drafts.all();assert.equal(records.length,2);assert.ok(records.some(x=>x.xml==='before logout' && x.author==='tester'));assert.ok(records.some(x=>x.xml==='after logout'));
 });
+

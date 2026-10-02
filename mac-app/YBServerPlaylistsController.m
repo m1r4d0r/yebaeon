@@ -43,7 +43,7 @@
     self.summary=YBLabel(@"수정·새 문서를 먼저 적용한 뒤 선택한 예배의 순서만 교체합니다.",NSMakeRect(24,127,1012,26),12,NO);[v addSubview:self.summary];
     self.status=YBLabel(@"서버 연결 후 자동으로 순서와 연결 문서를 비교합니다.",NSMakeRect(24,94,1012,25),12,NO);[v addSubview:self.status];
     [v addSubview:YBButton(@"복구 기록…",NSMakeRect(24,35,150,36),self,@selector(restore:))];[v addSubview:YBButton(@"Studio 열기",NSMakeRect(187,35,145,36),self,@selector(openStudio:))];
-    [v addSubview:YBLabel(@"PP6 종료 후 원본 백업 · Mac도 바뀌면 적용 차단",NSMakeRect(360,41,440,24),12,NO)];
+    [v addSubview:YBLabel(@"PP6 종료 후 백업하며 받기",NSMakeRect(360,41,185,24),12,NO)];
     self.receiveAllButton=YBButton(@"변경 예배 모두 받기",NSMakeRect(556,35,240,36),self,@selector(receiveAll:));[v addSubview:self.receiveAllButton];
     self.receiveButton=YBButton(@"선택한 예배 받기",NSMakeRect(806,35,230,36),self,@selector(receive:));self.receiveButton.keyEquivalent=@"\r";self.receiveButton.enabled=NO;[v addSubview:self.receiveButton];[self.documents setPlaylistFile:self.target];
 }
