@@ -1,4 +1,6 @@
 import { referenceCounts } from './references.mjs';
+import { catalogList } from './library-catalog.mjs';
+import { searchData,searchStatement } from './document-search.mjs';
 import { usageFromXML, usageStatement, readStoredUsage, indexUsage } from './document-usage.mjs';
 import { XMLValidator } from 'fast-xml-parser';
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
@@ -22,7 +24,7 @@ export async function readDocument(request) {
     throw new HttpError(400, 'invalid_document', '올바른 PP6 .pro6 문서가 아닙니다.');
   }
   if (/file:\/\/\/PP6-Package\//i.test(xml)) throw new HttpError(422, 'package_media', '새로 교체한 미디어가 포함된 문서는 아직 서버에 저장할 수 없습니다. ZIP으로 보관해 주세요.');
-  return { data, hash: await sha256(data), size: data.length, lastDateUsed: usageFromXML(xml) };
+  return { data, hash: await sha256(data), size: data.length, lastDateUsed: usageFromXML(xml), search:searchData(xml) };
 }
 function document(row) {
   return { id: row.id, path: row.path, name: row.path.split('/').pop(), version: row.current_version, updatedAt: row.updated_at, updatedBy: row.updated_by, sha256: row.sha256, size: row.size, ...(row.usage_indexed ? {lastDateUsed: row.last_used, usageError: row.usage_error} : {}) };
@@ -38,6 +40,7 @@ export async function documentsRoute(request, env, user, id, action) {
   if (!id) {
     method(request, ['GET', 'POST']);
     if (request.method === 'GET') {
+      if(url.searchParams.get('includeIndexed')==='1')return catalogList(request,env);
       const query = url.searchParams.get('q') || '', after = url.searchParams.get('after') || '';
       if (query.length > 120 || after.length > 600) throw new HttpError(400, 'invalid_query', '검색어가 너무 깁니다.');
       const sort = url.searchParams.get('sort') || 'name';
@@ -72,7 +75,8 @@ export async function documentsRoute(request, env, user, id, action) {
       await db.batch([
         db.prepare('INSERT INTO yebaeon_documents(id, path, created_at, current_version, updated_at, updated_by, sha256, size, write_id) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)').bind(newId, path, now, now, user.author, content.hash, content.size, writeId),
         db.prepare('INSERT INTO yebaeon_versions(document_id, version, object_key, sha256, size, author, created_at) VALUES (?, 1, ?, ?, ?, ?, ?)').bind(newId, key, content.hash, content.size, user.author, now),
-        usageStatement(db,newId,1,content.lastDateUsed)
+        usageStatement(db,newId,1,content.lastDateUsed),
+        searchStatement(db,newId,1,content.search)
       ]);
     } catch (error) {
       const winner = await db.prepare('SELECT * FROM yebaeon_documents WHERE path = ?').bind(path).first();
@@ -133,6 +137,7 @@ export async function documentsRoute(request, env, user, id, action) {
   ]);
   if (results[0].meta.changes !== 1) { await env.FILES.delete(key); throw conflict(); }
   await usageStatement(db,id,next,content.lastDateUsed).run().catch(() => {});
+  await searchStatement(db,id,next,content.search).run().catch(() => {});
   // Return this exact commit, even if another writer saved a later version immediately after it.
   return json({ document: { ...document(row), version: next, updatedAt: now, updatedBy: user.author, sha256: content.hash, size: content.size } });
 }
