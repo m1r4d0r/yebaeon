@@ -24,26 +24,23 @@
     });cache.set(file,promise);while(cache.size>24)cache.delete(cache.keys().next().value);return promise;
   }
   function font(style) {return PP6Fonts.css(style);}
+  // All previews and overflow checks share this layout, including mixed fonts.
+  function layout(ctx,parsed,box,caps=false){
+    const lines=[];let line={parts:[],width:0,height:0,ascent:0,descent:0,align:'left'};
+    function end(){if(!line.height){const style=parsed.runs[0]?.style||parsed.emptyStyle;ctx.font=font(style);const m=ctx.measureText('한Ag');line.ascent=m.fontBoundingBoxAscent||style.size*.8;line.descent=m.fontBoundingBoxDescent||style.size*.2;line.height=Math.max(style.size*1.2,line.ascent+line.descent)+(style.leading||0);}lines.push(line);line={parts:[],width:0,height:0,ascent:0,descent:0,align:'left'};}
+    for(const run of parsed.runs){const style=run.style;ctx.font=font(style);const metric=ctx.measureText('한Ag'),ascent=metric.fontBoundingBoxAscent||style.size*.8,descent=metric.fontBoundingBoxDescent||style.size*.2;
+      for(const char of Array.from(caps?run.text.toUpperCase():run.text)){if(char==='\n'){end();continue;}const visible=char==='\t'?'    ':char;ctx.font=font(style);let part=line.parts.at(-1),same=part&&JSON.stringify(part.style)===JSON.stringify(style),width=ctx.measureText((same?part.text:'')+visible).width,increment=width-(same?part.width:0);
+        if(line.width+increment>box.w&&line.parts.length){end();part=null;same=false;width=ctx.measureText(visible).width;increment=width;}
+        if(same){part.text+=visible;part.width=width;}else line.parts.push({text:visible,width,style});line.width+=increment;line.align=style.align;line.ascent=Math.max(line.ascent,ascent);line.descent=Math.max(line.descent,descent);line.height=Math.max(line.height,Math.max(style.size*1.2,ascent+descent)+(style.leading||0));
+      }
+    }end();const total=lines.reduce((n,l)=>n+l.height,0),last=lines.at(-1)?.parts.at(-1)?.style||parsed.emptyStyle;return {lines,total,overflow:total-(last.leading||0)>box.h,wrapped:lines.map(l=>l.parts.map(p=>p.text).join('')).join('\n')};
+  }
   function text(ctx, element, warnings) {
     const parsed=P.parseRTF(P.textNode(element)?.textContent || ''), box=P.rect(element);
     warnings.push(...parsed.warnings);
     if(!box.w || !box.h)return;
-    const lines=[];let line={chars:[],width:0,height:0,align:'left'};
-    function end(){if(!line.height)line.height=(parsed.runs[0]?.style.size || 48)*1.2;lines.push(line);line={chars:[],width:0,height:0,align:'left'};}
-    for(const run of parsed.runs) {
-      const value=P.attr(element,'useAllCaps')==='true'?run.text.toUpperCase():run.text;
-      for(const char of Array.from(value)) {
-        if(char==='\n'){end();continue;}
-        ctx.font=font(run.style);const visible=char==='\t'?'    ':char,w=ctx.measureText(visible).width;
-        if(line.width+w>box.w && line.chars.length)end();
-        line.align=run.style.align;line.chars.push({text:visible,width:w,style:run.style});line.width+=w;
-        line.height=Math.max(line.height,run.style.size*1.2+run.style.leading);
-      }
-    }end();
-    const total=lines.reduce((s,l)=>s+l.height,0);
-    const finalStyle=lines[lines.length-1]?.chars.at(-1)?.style;
-    const inkHeight=total-(finalStyle?.leading || 0);
-    if(inkHeight>box.h)warnings.push('텍스트가 상자 높이를 넘습니다');
+    const result=layout(ctx,parsed,box,P.attr(element,'useAllCaps')==='true'),{lines,total}=result;
+    if(result.overflow)warnings.push('텍스트가 상자 높이를 넘습니다');
     ctx.save();ctx.translate(box.x+box.w/2,box.y+box.h/2);ctx.rotate(Number(P.attr(element,'rotation','0'))*Math.PI/180);ctx.translate(-box.w/2,-box.h/2);
     ctx.beginPath();ctx.rect(0,0,box.w,box.h);ctx.clip();
     ctx.globalAlpha=Math.max(0,Math.min(1,Number(P.attr(element,'opacity','1'))));
@@ -53,10 +50,11 @@
     let y=vertical==='1'?0:vertical==='2'?box.h-total:(box.h-total)/2;
     y=Math.max(0,y);
     if(P.attr(element,'drawingShadow')==='true'){ctx.shadowColor='rgba(0,0,0,.45)';ctx.shadowBlur=8;ctx.shadowOffsetY=3;}
-    ctx.textBaseline='middle';
+    ctx.textBaseline='alphabetic';
     for(const row of lines) {
       let x=row.align==='center'?(box.w-row.width)/2:row.align==='right'?box.w-row.width:0;
-      for(const c of row.chars) {ctx.font=font(c.style);ctx.fillStyle=c.style.color;ctx.fillText(c.text,x,y+row.height/2);if(c.style.underline){ctx.fillRect(x,y+row.height*.8,c.width,Math.max(1,c.style.size/30));}x+=c.width;}
+      const baseline=y+(row.height-row.ascent-row.descent)/2+row.ascent;
+      for(const c of row.parts) {ctx.font=font(c.style);ctx.fillStyle=c.style.color;ctx.fillText(c.text,x,baseline);if(c.style.underline)ctx.fillRect(x,baseline+Math.max(1,c.style.size*.08),c.width,Math.max(1,c.style.size/30));x+=c.width;}
       y+=row.height;
     }ctx.restore();
   }
@@ -107,5 +105,6 @@
     canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);canvas.getContext('2d').drawImage(buffer,0,0);
     if(key&&key.length<=65536)rememberPreview(key,buffer,warnings);return warnings;
   }
-  window.PP6Render={draw,media,clear:()=>{cache.clear();clearPreviews();}};
+  window.PP6Render={draw,media,layout,clear:()=>{cache.clear();clearPreviews();}};
 })();
+

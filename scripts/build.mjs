@@ -42,7 +42,7 @@ export function splitTemplates(bytes) {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const publicFiles = Object.freeze([
   'index.html', 'favicon.svg', 'favicon.ico', 'style.css', 'fonts.css', 'pp6.js',
-  'fonts.js', 'render.js', 'selection.js', 'editor-history.js', 'bible-format.js', 'shortcuts.js', 'app.js', 'drafts.js', 'cloud.js', 'usage.js', 'playlists.js', 'resources.js', 'status.html', 'status.js', 'status.css', '_headers'
+  'fonts.js', 'layout-editor.js', 'render.js', 'selection.js', 'editor-history.js', 'bible-format.js', 'shortcuts.js', 'app.js', 'drafts.js', 'cloud.js', 'usage.js', 'playlists.js', 'resources.js', 'status.html', 'status.js', 'status.css', '_headers'
 ]);
 
 export async function build({ sourceRoot = root, outputDir = join(root, 'dist') } = {}) {
@@ -105,3 +105,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const files = await build();
   console.log(`Built ${files.length - 1} public app files and response headers in dist/.`);
 }
+
