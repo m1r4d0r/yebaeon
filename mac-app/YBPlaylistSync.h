@@ -5,6 +5,7 @@
 @property(nonatomic,copy) void (^checkpoint)(NSString *stage);
 - (instancetype)initWithLibrary:(YBLibrary *)library target:(NSURL *)target;
 - (NSArray *)libraries;
+- (NSDictionary *)reconcileFileWithLibraries:(NSArray *)libraries;
 - (NSDictionary *)manifest:(NSString *)libraryID node:(NSString *)nodeID;
 - (NSDictionary *)registerFileWithSourceRoot:(NSString *)sourceRoot progress:(void (^)(NSString *message))progress;
 - (NSDictionary *)compare:(NSString *)libraryID node:(NSString *)nodeID;
@@ -13,4 +14,3 @@
 - (NSArray *)jobs;
 - (void)restoreJob:(NSString *)identifier;
 @end
-
