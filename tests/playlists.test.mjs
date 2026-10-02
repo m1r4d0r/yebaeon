@@ -92,7 +92,7 @@ test('authenticated initial playlist repair stores original and never replaces a
   assert.equal((await call('/playlist-bootstrap')).status,401);
   const login=await call('/session','POST',JSON.stringify({name:'초기 등록 시험',password:'bootstrap-tests-only'}),{'Content-Type':'application/json'});
   assert.equal(login.status,200);cookie=login.headers.get('Set-Cookie').split(';')[0];
-  assert.equal((await call('/playlist-bootstrap')).status,200);
+  const formPage=await call('/playlist-bootstrap');assert.equal(formPage.status,200);assert.equal(formPage.headers.get('Referrer-Policy'),'same-origin');assert.ok((await formPage.text()).includes('action="/api/playlist-bootstrap"'));
   const form=()=>{const f=new FormData();f.set('path','기본 .pro6pl');f.set('file',new Blob([xml],{type:'application/xml'}),'기본 (3).pro6pl');return f;};
   assert.equal((await call('/playlist-bootstrap','POST',form(),{Origin:'https://elsewhere.test'})).status,403);
   assert.equal((await call('/playlist-bootstrap','POST',new FormData())).status,400);
