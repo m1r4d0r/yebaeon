@@ -100,9 +100,21 @@ const assert=require('node:assert/strict');
  await page.locator('#inspector').evaluate(e=>e.scrollTop=0);await page.screenshot({path:'artifacts/studio-layout-editor.png'});
  const savedXML=await page.evaluate(()=>YebaeonEditor.document().xml);await page.evaluate(xml=>{YebaeonEditor.open(xml,'재열기.pro6',true,'layout-reopen');YebaeonEditor.setView('editor');},savedXML);assert.equal(await page.evaluate(()=>PP6.parseRTF(PP6.textNode(YebaeonLayout.active()).textContent).runs[0].style.size),120);
  await page.locator('#layerList').getByRole('button',{name:'삭제',exact:true}).click();assert.equal(await page.evaluate(()=>PP6.textElements(YebaeonEditor.current()).length),initialBoxes);assert.equal(await page.locator('#undo').isEnabled(),true);await page.locator('#undo').click();assert.equal(await page.evaluate(()=>PP6.textElements(YebaeonEditor.current()).length),initialBoxes+1);
+ // Virtual time verifies idle screens do not keep querying the production DB.
+ const beforeIdleLights=await page.evaluate(()=>{window.__idleLights=0;const api=YebaeonCloud.api;YebaeonCloud.api=(path,...args)=>{if(path==='/sync-observations')window.__idleLights++;return api(path,...args);};return window.__idleLights;});
+ await page.clock.install();await page.clock.fastForward(65000);assert.equal(await page.evaluate(()=>window.__idleLights),beforeIdleLights);
+ const statusPage=await browser.newPage({viewport:{width:1440,height:960}});let statusReads=0,detailReads=0;
+ await statusPage.clock.install();
+ await statusPage.route('**/api/status*',async route=>{const detailed=new URL(route.request().url()).searchParams.has('details');statusReads++;if(detailed)detailReads++;const storage={currentDocuments:{count:3000,bytes:1024},currentPlaylists:{count:1,bytes:100},documentHistory:{count:2,bytes:200},playlistHistory:{count:0,bytes:0},trackedBytes:1324};await route.fulfill({json:{documents:3000,bytes:1024,playlists:1,catalogDocuments:3107,unavailableDocuments:107,recent:[],sync:[],observedAt:'2026-10-02T07:35:00Z',...(detailed?{storage}:{})}});});
+ await statusPage.route('**/resources/catalog.json',r=>r.fulfill({json:{expectedDocuments:3107,fonts:[],media:[],templateFiles:0,templates:0,bible:{name:'개역개정',verses:31103}}}));
+ await statusPage.goto(`http://127.0.0.1:${server.address().port}/status.html`);await statusPage.locator('#dashboard').waitFor({state:'visible'});assert.equal(statusReads,1);assert.equal(detailReads,0);
+ await statusPage.clock.fastForward(65000);await statusPage.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));assert.equal(statusReads,1);
+ await statusPage.locator('#refresh').click();await statusPage.waitForFunction(()=>document.getElementById('message').textContent.includes('확인했습니다'));assert.equal(statusReads,2);
+ await statusPage.locator('#storageRefresh').click();await statusPage.locator('#storagePanel').waitFor({state:'visible'});assert.equal(detailReads,1);assert.equal(await statusPage.locator('#storage tr').count(),4);await statusPage.screenshot({path:'artifacts/server-status-manual.png'});await statusPage.close();
  assert.deepEqual(errors,[]);
  console.log('Studio browser flows passed: original/preview reuse, version/edit/font invalidation, template names after apply/reopen/reload, editing, save, undo, clipboard, reflow, IME, menu, Bible, order autosave and activity');
  }finally{await page.screenshot({path:'artifacts/studio-final.png'}).catch(()=>{});await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
 
 

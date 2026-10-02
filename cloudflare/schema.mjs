@@ -41,6 +41,8 @@ export const schema = [
     PRIMARY KEY(document_id, version)
   )`
 ];
+schema.push(`CREATE INDEX IF NOT EXISTS yebaeon_documents_recent ON yebaeon_documents(updated_at DESC,path)`);
+schema.push(`CREATE INDEX IF NOT EXISTS yebaeon_sync_recent ON yebaeon_sync_status(COALESCE(compared_at,connected_at) DESC)`);
 const pending = new WeakMap();
 export function ensureSchema(db) {
   if (!pending.has(db)) {
@@ -49,4 +51,5 @@ export function ensureSchema(db) {
   }
   return pending.get(db);
 }
+
 

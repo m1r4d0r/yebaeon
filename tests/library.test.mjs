@@ -69,7 +69,7 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     const restored=await (await call(`/documents/${id}`,{cookie,method:'PUT',body:original,headers:{'If-Match':'"2"'}})).json();
     assert.equal(restored.document.version,3);
     assert.equal(await (await call(`/documents/${id}/content?version=2`,{cookie})).text(),xml('second'));
-    const status=await (await call('/status',{cookie})).json();
+    const status=await (await call('/status?details=1',{cookie})).json();
     assert.equal(status.storage.currentDocuments.bytes,Buffer.byteLength(xml('first')));
     assert.equal(status.storage.documentHistory.count,2);
     assert.equal(status.storage.documentHistory.bytes,Buffer.byteLength(xml('first'))+Buffer.byteLength(xml('second')));
@@ -202,6 +202,7 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
   await t.test('status reflects committed documents and native connect/compare requests', async () => {
     const before = await (await call('/status', { cookie })).json();
     const totals = await db.prepare('SELECT COUNT(*) AS count, SUM(size) AS size FROM yebaeon_documents').first();
+    assert.equal(before.storage,undefined);assert.equal(before.workers,undefined);
     assert.equal(before.documents, totals.count); assert.equal(before.bytes, totals.size); assert.ok(before.recent.length <= 12);
     const native = { 'User-Agent': 'YebaeOn-Sync/0.3 (macOS)' };
     await code(await call('/session', { cookie, headers: native }), 200);
@@ -234,3 +235,4 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     const limited = await signIn(); await code(limited, 429, 'too_many_attempts'); assert.ok(Number(limited.headers.get('Retry-After')) > 0);
   });
 });
+
