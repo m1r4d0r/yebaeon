@@ -27,6 +27,7 @@
     $('dirtyState').textContent=editor.state().dirty ? '저장 안 됨' : '';
     $('locationTitle').textContent=linked ? (window.YebaeonPlaylists?.currentName?.() ? window.YebaeonPlaylists.currentName()+' › ' : '')+editor.state().name.replace(/\.pro6$/i,'') : '예배온 Studio';
     $('cloudContext').textContent = linked ? `서버 v${linked.version} · ${linked.updatedBy} · ${time(linked.updatedAt)}` : '';
+    window.YebaeonSave?.update();
   }
   function checkpointDraft() {
     if(!editor.state().dirty)return Promise.resolve();
@@ -43,7 +44,8 @@
   async function restoreDraft(record) {
     if (!record || record.kind !== 'document' || typeof record.xml !== 'string' || typeof record.baseXML !== 'string') throw new Error('복구할 문서 초안 형식이 올바르지 않습니다.');
     await checkpointDraft();
-    if (!editor.open(record.xml, record.name)) return false;
+    if(linked)contexts.set(linked.id,{linked:{...linked},baseXML,draftID});
+    if (!editor.open(record.xml, record.name,false,record.base?.id||record.name)) return false;
     linked = record.base ? {...record.base,serial:-1} : null; baseXML=record.baseXML;
     editor.markDirty(); await checkpointDraft(); update();
     return true;
@@ -114,10 +116,11 @@
     let done=0;try{for(const item of chosen){const doc=(await(await api('/documents/'+item.id)).json()).document;await api('/documents/'+item.id+'/policy',{method:'PUT',headers:{'Content-Type':'application/json','If-Match':`"${doc.version}"`},body:JSON.stringify({searchEnabled,historyEnabled,policyRevision:doc.policyRevision||0})});done++;}$('libraryMessage').textContent=`${done}개 설정 저장됨 · 검색 결과는 다음 검색 때 반영됩니다.`;}catch(error){$('libraryMessage').textContent=`${done}/${chosen.length}개 적용 후 중단 · ${error.message}`;}
   }
   async function openCloud(id, fromPlaylist = false, known = null) {
+    if(window.YebaeonSave?.busy())return false;
     const token=++openSequence;
     try {
       await checkpointDraft();
-      if(known?.available===false){if(token!==openSequence)return false;if(linked)contexts.set(linked.id,{linked:{...linked},baseXML,draftID});editor.unavailable(known);update();window.dispatchEvent(new CustomEvent('yebaeonclouddocument',{detail:{doc:known,fromPlaylist}}));editor.status('원본 미업로드 · 순서 추가 가능, 텍스트 편집 불가');return true;}
+      if(known?.available===false){if(token!==openSequence||window.YebaeonSave?.busy())return false;if(linked)contexts.set(linked.id,{linked:{...linked},baseXML,draftID});editor.unavailable(known);update();window.dispatchEvent(new CustomEvent('yebaeonclouddocument',{detail:{doc:known,fromPlaylist}}));editor.status('원본 미업로드 · 순서 추가 가능, 텍스트 편집 불가');return true;}
       const {document:doc}=await(await api('/documents/'+id)).json();
       const original=originals.get(id);let serverXML;
       if(original?.version===doc.version&&original.sha256===doc.sha256){serverXML=original.xml;rememberOriginal(doc,serverXML);}
@@ -125,7 +128,7 @@
         const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
         if(hash!==doc.sha256)throw new Error('받은 문서의 내용 확인에 실패했습니다.');
         serverXML=new TextDecoder('utf-8',{fatal:true}).decode(bytes);rememberOriginal(doc,serverXML);}
-      if(token!==openSequence)return false;
+      if(token!==openSequence||window.YebaeonSave?.busy())return false;
       if(linked)contexts.set(linked.id,{linked:{...linked},baseXML,draftID});
       const previous=contexts.get(id),cached=editor.cache?.(id),local=previous&&cached?.dirty;
       const xml=local?cached.xml:serverXML;
@@ -157,6 +160,31 @@
       $('saveDialog').close();
       window.dispatchEvent(new CustomEvent('yebaeoncloudsaved', { detail: result.document }));
     } finally { saving = false; update(); }
+  }
+  function pendingDocuments(ids) {
+    const wanted=new Set(ids),records=[];
+    for(const id of wanted){
+      const active=linked?.id===id,context=active?{linked,baseXML,draftID}:contexts.get(id);
+      const value=active?editor.document():editor.cache(id);
+      if(!context||!value?.dirty)continue;
+      records.push({id,xml:value.xml,name:value.name||context.linked.name,serial:value.serial,base:{...context.linked},baseXML:context.baseXML,draftID:context.draftID});
+    }
+    return records;
+  }
+  async function saveRecord(record) {
+    if(!needUser())throw new Error('입장한 뒤 저장하세요.');
+    // Capture and preserve each original base before attempting CAS. No document navigation.
+    const model=PP6.parse(record.xml,record.name);
+    if(PP6.all(model.doc,'[source]').some(e=>PP6.attr(e,'source').startsWith('file:///PP6-Package/')))throw new Error('새 미디어를 포함한 문서는 별도 업로드가 필요합니다.');
+    await drafts.put({id:record.draftID,kind:'document',name:record.name,author:user.name,base:record.base,baseXML:record.baseXML,xml:record.xml,serial:record.serial});
+    const result=await(await api('/documents/'+record.id,{method:'PUT',headers:{'Content-Type':'application/xml; charset=utf-8','If-Match':`"${record.base.version}"`},body:record.xml})).json();
+    const next={...result.document,serial:record.serial};
+    const context=contexts.get(record.id);
+    if(context?.draftID===record.draftID)contexts.set(record.id,{...context,linked:next,baseXML:record.xml});
+    if(linked?.id===record.id&&draftID===record.draftID){linked=next;baseXML=record.xml;editor.markSaved(record.serial);}
+    editor.markCachedSaved(record.id,record.xml);rememberOriginal(result.document,record.xml);
+    try{await drafts.settle(record.draftID,record.serial,next,record.xml);}catch(error){drafts.report(error);}
+    window.dispatchEvent(new CustomEvent('yebaeoncloudsaved',{detail:result.document}));update();return result.document;
   }
   let historyGroups = new Map();
   async function restoreVersion(doc, version) {
@@ -270,7 +298,7 @@
   window.addEventListener('yebaeonopen', () => { epoch++; linked = null; draftID=drafts.id(); baseXML=editor.document().xml; update(); });
   window.addEventListener('yebaeonchange', () => queueMicrotask(() => { update(); checkpointDraft().catch(drafts.report); }));
   document.addEventListener('visibilitychange', () => { if(document.hidden)checkpointDraft().catch(drafts.report); });
-  window.YebaeonCloud = { api, authenticated:()=>!!user, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, refresh:list, checkpointDraft, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)) };
+  window.YebaeonCloud = { api, authenticated:()=>!!user, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, refresh:list, checkpointDraft, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)),pendingDocuments,saveRecord };
   update();
   if (online) (async () => {
     try {
@@ -298,8 +326,9 @@
  dot(kind,id,node=''){const info=items[kind+'/'+id+'/'+node],state=failed?'unknown':info?.state||'unknown',span=document.createElement('span');span.dataset.syncKind=kind;span.dataset.syncId=id;span.dataset.syncNode=node;span.className='sync-light sync-'+state;span.setAttribute('role','img');span.setAttribute('aria-label',labels[state]);span.title=(failed?'서버 상태 조회 실패 · 이전 기록은 최신 확인이 아닙니다':labels[state])+(info?' · 마지막 Mac 확인 '+new Date(info.observedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+(info.author?' · '+info.author:'')+(info.deviceId?' · 장치 '+info.deviceId.slice(0,8):'')+(info.reason?' · '+info.reason:''):'')+(checkedAt?' · 웹 조회 '+checkedAt.toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'');return span;}
  };
  // Refresh on explicit list/playlist reload and successful saves, never by a polling timer.
- window.addEventListener('yebaeoncloudsaved',()=>{if(window.YebaeonCloud.authenticated())window.YebaeonSyncLights.refresh();});
+ window.addEventListener('yebaeoncloudsaved',()=>{if(window.YebaeonCloud.authenticated()&&!window.YebaeonSave?.busy())window.YebaeonSyncLights.refresh();});
 })();
+
 
 
 

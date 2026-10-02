@@ -70,7 +70,8 @@
     // PP6 alignment and text metrics still need native visual comparison.
     const vertical=P.attr(element,'verticalAlignment','0');
     let y=vertical==='1'?0:vertical==='2'?box.h-total:(box.h-total)/2;
-    y=Math.max(0,y);
+    // Keep the text block anchored to the box center/bottom even on overflow.
+    // Clipping still happens at the original box; never rewrite its geometry.
     if(P.attr(element,'drawingShadow')==='true'){const source=P.ivar(element,'shadow','shadow')?.textContent||'',parts=source.split('|'),offset=parts[2]?.match(/-?\d+(?:\.\d+)?/g)?.map(Number)||[0,0];ctx.shadowColor=P.color(parts[1]||'0 0 0 .333333');ctx.shadowBlur=Math.max(0,Number(parts[0])||0);ctx.shadowOffsetX=offset[0]||0;ctx.shadowOffsetY=-(offset[1]||0);}
     ctx.textBaseline='alphabetic';
     for(const row of lines) {
@@ -130,5 +131,6 @@
   }
   window.PP6Render={draw,media,layout,fit,clear:()=>{cache.clear();clearPreviews();}};
 })();
+
 
 

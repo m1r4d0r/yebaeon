@@ -17,3 +17,9 @@
 
 
 .slide-size{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:0 0 10px;color:var(--muted);font-size:11px}.slide-size input{width:100px;padding:0}.layout-mode .slide-size{display:none}#quickStage{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px;background:transparent;align-items:start}#quickInputs{position:static;max-height:60vh;overflow:auto}#quickInputs label{display:flex;flex-direction:column;gap:6px;margin:0 0 12px}#quickInputs textarea{position:static;resize:vertical;background:white;border:1px solid var(--line);padding:12px;overflow:auto;border-radius:6px;width:100%;min-height:160px;font-size:20px;line-height:1.6}@media(max-width:800px){#quickStage{grid-template-columns:1fr}.slide-size{display:none}}
+
+
+/* Compact Studio controls share the existing heading row. */
+.document-heading{gap:8px}.document-heading .slide-size{display:flex;align-items:center;gap:5px;margin:0;padding:0;flex:0 0 auto;border:0}.document-heading .slide-size input{width:82px;min-width:60px;padding:0}.document-heading .slide-size label{font-size:11px;white-space:nowrap}.document-heading .slide-size output{min-width:24px;font-size:11px}.document-heading #templateScope{max-width:100px}.document-heading #cloudContext{max-width:180px;font-size:10px}.document-heading #docTitle{max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.save-summary{font-size:11px;color:var(--orange);white-space:nowrap}.save-summary:not(:empty)::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor;margin-right:5px}.save-failed{color:#a33920}.document-heading select{max-width:155px}#saveScope{margin-left:auto}#status{margin-left:0;max-width:28%}#dirtyState{display:none}
+
+.bible-panel,.media-drawer{bottom:var(--studio-footer-space,68px)}

@@ -27,3 +27,11 @@ test('Removed playlist headers can be restored but extra injected structure is r
  assert.equal(parsePlaylist(editPlaylist(p,'A',[{headerXML:header}],new Map(),'~/Documents/ProPresenter6')).playlists[0].items[0].name,'기도');
  for(const raw of [header+'<foo/>','<RVDocumentCue UUID="D"/>',header+'</array></RVPlaylistNode><RVPlaylistNode UUID="B"><array rvXMLIvarName="children">'])assert.throws(()=>editPlaylist(p,'A',[{headerXML:raw}],new Map(),'~/Documents/ProPresenter6'));
 });
+
+
+test('Bible import removes source terminators without removing internal or manually added lines',()=>{
+ const source={books:[{name:'창세기',chapters:[{number:1,verses:[{number:1,text:'첫 줄\r\n둘째 줄\r\n \t'}]}]}]};
+ assert.equal(B.parse('창 1 1',source).verses[0].text,'첫 줄\n둘째 줄');
+ assert.equal(source.books[0].chapters[0].verses[0].text,'첫 줄\r\n둘째 줄\r\n \t');
+ assert.deepEqual(Array.from(B.wrap('수동 입력\n',100,s=>s.length)),['수동 입력','']);
+});
