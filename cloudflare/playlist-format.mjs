@@ -76,7 +76,7 @@ export function editPlaylist(parsed, nodeId, entries, documents, root) {
       const doc = documents.get(entry.documentId); if (!doc) fail('추가할 문서를 찾지 못했습니다.');
       if (item && item.kind !== 'document') fail('구분 항목은 문서로 교체할 수 없습니다.');
       if (!item) raw = `<RVDocumentCue UUID="${crypto.randomUUID().toUpperCase()}" displayName="" actionType="0" enabled="1" timeStamp="0" delayTime="0" filePath="" selectedArrangementID=""/>`;
-      raw = attr(attr(attr(raw, 'filePath', sourceRoot(root) + '/' + doc.path), 'displayName', doc.name.replace(/\.pro6$/i, '')), 'selectedArrangementID', '');
+      raw = attr(attr(attr(raw, 'filePath', sourceRoot(root) + '/' + (doc.originalPath||doc.path)), 'displayName', doc.name.replace(/\.pro6$/i, '')), 'selectedArrangementID', '');
     }
     if (entry.headerXML) {
       if(item || entry.documentId || typeof entry.headerXML!=='string' || entry.headerXML.length>65536)fail('구분 항목 복원 내용을 확인해 주세요.');

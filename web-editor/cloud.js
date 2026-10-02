@@ -9,8 +9,12 @@
   // Verified originals only. Recheck metadata on every open; never cache authorization.
   const originals=new Map();let originalBytes=0;
   function rememberOriginal(doc,xml){const old=originals.get(doc.id);if(old)originalBytes-=old.xml.length*2;originals.delete(doc.id);if(xml.length*2<=16*1024*1024){originals.set(doc.id,{version:doc.version,sha256:doc.sha256,xml});originalBytes+=xml.length*2;}while(originalBytes>24*1024*1024||originals.size>24){const first=originals.keys().next().value;originalBytes-=originals.get(first).xml.length*2;originals.delete(first);}}
-  const select=new YebaeonSelection.Selection($('documentsPane'),{kind:'documents',undo:redo=>editor.undo(redo),open:()=>openCloud(select.cursor),copy:()=>YebaeonSelection.copy({kind:'documents',documents:documents.filter(d=>select.chosen.has(d.id))})});
+  const select=new YebaeonSelection.Selection($('documentsPane'),{kind:'documents',undo:redo=>editor.undo(redo),open:()=>openCloud(select.cursor,false,documents.find(d=>d.id===select.cursor)),copy:()=>YebaeonSelection.copy({kind:'documents',documents:documents.filter(d=>select.chosen.has(d.id))})});
   let activitySequence=0;
+  let searchIndex=null,indexBusy=false;
+  function paintSearchIndex(){const target=$('searchIndexState');if(!target)return;target.hidden=!searchIndex?.remaining&&!searchIndex?.failed;target.textContent=searchIndex?.remaining?`본문 검색 준비 중 · ${searchIndex.total-searchIndex.remaining}/${searchIndex.total}개`:(searchIndex?.failed?`본문을 읽지 못한 문서 ${searchIndex.failed}개는 이름으로 검색할 수 있습니다.`:'');}
+  async function startSearchIndexing(){if(indexBusy||!user||!searchIndex?.remaining||document.hidden)return;indexBusy=true;try{while(user&&searchIndex.remaining&&!document.hidden){searchIndex=await(await api('/search-index',{method:'POST'})).json();paintSearchIndex();if(searchIndex.remaining)await new Promise(resolve=>setTimeout(resolve,250));}if(!searchIndex.remaining)await list();}catch(error){const target=$('searchIndexState');if(target){target.hidden=false;target.textContent='본문 검색 준비 중 연결이 끊겼습니다. 목록을 갱신하면 이어서 진행합니다.';}}finally{indexBusy=false;}}
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)startSearchIndexing();});
   let listNext = null, listSequence = 0, indexTimer = null, historyDoc = null, historyNext = null;
   const rememberName = name => { try { localStorage.setItem('yebaeon.workerName', name); } catch (_) {} };
   const recalledName = () => { try { return localStorage.getItem('yebaeon.workerName') || ''; } catch (_) { return ''; } };
@@ -86,17 +90,18 @@
     if (!more) { listNext = null; documents=[]; $('libraryList').replaceChildren(); }
     $('libraryMore').hidden = true; $('libraryMessage').textContent = '문서 목록을 불러오고 있습니다…';
     try {
-      const params = new URLSearchParams({q:query,sort});
+      const params = new URLSearchParams({q:query,sort,includeIndexed:'1'});
       if(more && listNext) params.set(sort==='name'||sort==='name-desc' ? 'after' : 'cursor',listNext);
       const data = await (await api('/documents?' + params)).json();
+      if(data.searchIndex){searchIndex=data.searchIndex;paintSearchIndex();startSearchIndexing();}
       if (sequence !== listSequence) return;
       for (const doc of data.documents) {
         documents.push(doc);const item=document.createElement('div');item.className='document-item';select.bind(item,doc.id);
         const name=document.createElement('strong');name.textContent=doc.name.replace(/\.pro6$/i,'');const small=document.createElement('small');
         const date=doc.lastDateUsed ? new Date(doc.lastDateUsed).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric',timeZone:'Asia/Seoul'})+' 사용' : '사용일 없음';
-        small.textContent=date;item.append(name,small);item.title=doc.path;
-        item.addEventListener('click',e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey)openCloud(doc.id);});
-        item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()}]);};$('libraryList').append(item);
+        small.textContent=doc.available===false?'원본 미업로드 · 편집 불가':doc.matchedBy==='content'?'본문 일치':date;item.classList.toggle('unavailable',doc.available===false);item.append(name,small);item.title=doc.path;
+        item.addEventListener('click',e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey)openCloud(doc.id,false,doc);});
+        item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id,false,doc)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()}]);};$('libraryList').append(item);
       }
       select.setKeys(documents.map(d=>d.id));
       if(scroll !== null) $('libraryList').scrollTop = scroll;
@@ -106,10 +111,11 @@
       if(data.indexing?.remaining && !more) indexTimer=setTimeout(()=>{if(document.visibilityState==='visible')list();},6000);
     } catch (error) { if (sequence === listSequence) $('libraryMessage').textContent = error.message; }
   }
-  async function openCloud(id, fromPlaylist = false) {
+  async function openCloud(id, fromPlaylist = false, known = null) {
     const token=++openSequence;
     try {
       await checkpointDraft();
+      if(known?.available===false){if(token!==openSequence)return false;if(linked)contexts.set(linked.id,{linked:{...linked},baseXML,draftID});editor.unavailable(known);update();window.dispatchEvent(new CustomEvent('yebaeonclouddocument',{detail:{doc:known,fromPlaylist}}));editor.status('원본 미업로드 · 순서 추가 가능, 텍스트 편집 불가');return true;}
       const {document:doc}=await(await api('/documents/'+id)).json();
       const original=originals.get(id);let serverXML;
       if(original?.version===doc.version&&original.sha256===doc.sha256){serverXML=original.xml;rememberOriginal(doc,serverXML);}
@@ -130,7 +136,7 @@
     } catch(error){$('libraryMessage').textContent=error.message;editor.status(error.message);if(fromPlaylist)throw error;return false;}
   }
   async function save(path) {
-    if (!needUser() || saving) return;
+    if (!needUser() || saving || !editor.ready()) return;
     if (editor.hasPackageMedia()) throw new Error('새 미디어를 교체한 문서는 지금은 ZIP으로 저장해 주세요. 서버는 기존 미디어 경로를 유지하는 .pro6 문서를 지원합니다.');
     const current = editor.document(), target = linked, startedEpoch = epoch, savedDraftID = draftID;
     if (target && target.serial === current.serial) { editor.status('이미 서버에 저장된 내용입니다.'); return; }

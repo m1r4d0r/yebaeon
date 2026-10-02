@@ -1,5 +1,6 @@
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
 import { parsePlaylist, catalog, referencePath, sourceRoot, editPlaylist } from './playlist-format.mjs';
+import { ensureCatalog,catalogDocument } from './library-catalog.mjs';
 const MAX = 5 * 1024 * 1024;
 const conflict = () => new HttpError(409, 'playlist_conflict', '재생목록이 먼저 변경됐습니다. 새로고침 후 다시 확인해 주세요.');
 function metadata(r) { return { id: r.id, path: r.path, version: r.current_version, sha256: r.sha256, size: r.size, updatedAt: r.updated_at, updatedBy: r.updated_by, sourceRoot: r.source_root, playlists: JSON.parse(r.catalog) }; }
@@ -71,11 +72,16 @@ export async function playlistsRoute(request, env, user, id, action) {
       const slice=paths.slice(offset,offset+80), rows=(await db.prepare(`SELECT * FROM yebaeon_documents WHERE path IN (${slice.map(()=>'?').join(',')})`).bind(...slice).all()).results;
       for (const value of rows) map.set(value.path,doc(value));
     }
+    const indexed=new Map();
+    if(url.searchParams.get('includeIndexed')==='1'){
+      await ensureCatalog(db);
+      for(let offset=0;offset<paths.length;offset+=80){const slice=paths.slice(offset,offset+80);const rows=(await db.prepare(`SELECT * FROM yebaeon_library_catalog WHERE path IN (${slice.map(()=>'?').join(',')})`).bind(...slice).all()).results;for(const value of rows)indexed.set(value.path,catalogDocument(value));}
+    }
     const items = playlist.items.map(item => {
       const path = item.kind === 'document' ? referencePath(item.sourcePath,r.source_root) : null;
       const document = path ? map.get(path) || null : null;
       const sharedWith = path ? parsed.playlists.filter(p=>p.id!==playlist.id && p.items.some(x=>x.kind==='document' && referencePath(x.sourcePath,r.source_root)===path)).map(p=>p.name) : [];
-      return {id:item.id,raw:parsed.xml.slice(item.node.start,item.node.end),kind:item.kind,name:item.name,sourcePath:item.sourcePath,path,document,sharedWith,issue:item.kind==='unsupported' ? 'unsupported' : item.kind==='document' && !document ? (path ? 'missing' : 'unmapped') : null};
+      return {id:item.id,raw:parsed.xml.slice(item.node.start,item.node.end),kind:item.kind,name:item.name,sourcePath:item.sourcePath,path,document,...(indexed.has(path)&&!document?{indexedDocument:indexed.get(path)}:{}),sharedWith,issue:item.kind==='unsupported' ? 'unsupported' : item.kind==='document' && !document ? (path ? 'missing' : 'unmapped') : null};
     });
     const documents = [...new Map(items.filter(x=>x.document).map(x=>[x.document.id,x.document])).values()];
     const nodeXml = parsed.xml.slice(playlist.node.start,playlist.node.end), nodeHash = await sha256(new TextEncoder().encode(nodeXml));
@@ -96,6 +102,7 @@ export async function playlistsRoute(request, env, user, id, action) {
   const docs=new Map(), ids=[...new Set(body.items.map(x=>x?.documentId).filter(Boolean))];
   if(ids.some(x=>typeof x!=='string' || !/^[0-9a-f-]{36}$/i.test(x)))throw new HttpError(400,'invalid_playlist','문서 번호를 확인해 주세요.');
   for(let offset=0;offset<ids.length;offset+=80){const slice=ids.slice(offset,offset+80), found=(await db.prepare(`SELECT * FROM yebaeon_documents WHERE id IN (${slice.map(()=>'?').join(',')})`).bind(...slice).all()).results;for(const value of found)docs.set(value.id,doc(value));}
+  const missing=ids.filter(id=>!docs.has(id));if(missing.length){await ensureCatalog(db);for(let offset=0;offset<missing.length;offset+=80){const slice=missing.slice(offset,offset+80),found=(await db.prepare(`SELECT * FROM yebaeon_library_catalog WHERE id IN (${slice.map(()=>'?').join(',')})`).bind(...slice).all()).results;for(const value of found)docs.set(value.id,catalogDocument(value));}}
   const xml=editPlaylist(await load(env,r),url.searchParams.get('node'),body.items,docs,r.source_root),data=new TextEncoder().encode(xml);
   return json(await save(env,user,r,{xml,data,parsed:parsePlaylist(xml),hash:await sha256(data)}));
 }
