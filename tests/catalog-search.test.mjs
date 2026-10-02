@@ -62,7 +62,7 @@ test('catalog-only playlist entries and current-version content search preserve 
   assert.equal((await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('새 문서')))).documents[0].localPresent,true);
   // A failed database commit also rolls back removed membership and earlier updates.
   await db.prepare("CREATE TRIGGER reject_inventory BEFORE INSERT ON yebaeon_library_catalog WHEN NEW.path='실패.pro6' BEGIN SELECT RAISE(ABORT,'fixture'); END").run();
-  assert.equal((await send([{originalPath:nfd,size:999},{originalPath:'실패.pro6',size:1}])).status,500);
+  assert.equal((await send([{originalPath:nfd,size:999},{originalPath:'실패.pro6',size:1}])).status,503);
   const afterFailure=(await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('새 문서')))).documents[0];
   assert.equal(afterFailure.localPresent,true);assert.equal(afterFailure.size,250);
   await db.prepare('DROP TRIGGER reject_inventory').run();
