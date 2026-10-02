@@ -26,9 +26,19 @@ export async function readStoredUsage(env, id, version, key) {
 export async function indexUsage(env, query, batchSize = 12) {
   const join = 'FROM yebaeon_documents d LEFT JOIN yebaeon_document_usage u ON u.document_id=d.id AND u.version=d.current_version';
   const rows = (await env.DB.prepare(`SELECT d.id, d.current_version, v.object_key ${join} JOIN yebaeon_versions v ON v.document_id=d.id AND v.version=d.current_version WHERE u.document_id IS NULL AND instr(lower(d.path),lower(?))>0 ORDER BY d.path LIMIT ?`).bind(query, batchSize).all()).results;
-  for (let i=0; i<rows.length; i+=4) await Promise.all(rows.slice(i,i+4).map(async row => {
-    const result = await readStoredUsage(env, row.id, row.current_version, row.object_key);
-    if (result.error) await usageStatement(env.DB,row.id,row.current_version,null,result.error).run();
-  }));
+  const statements=[];
+  for (let i=0; i<rows.length; i+=8) {
+    const group=await Promise.all(rows.slice(i,i+8).map(async row => {
+      let value=null,error=null;
+      try {
+        const object=await env.FILES.get(row.object_key,{range:{offset:0,length:65536}});
+        if(!object)throw new Error('file_unavailable');
+        value=usageFromXML(await object.text());
+      } catch (_) { error='usage_unavailable'; }
+      return usageStatement(env.DB,row.id,row.current_version,value,error);
+    }));
+    statements.push(...group);
+  }
+  if(statements.length)await env.DB.batch(statements);
   return env.DB.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(u.document_id IS NULL),0) AS remaining, COALESCE(SUM(u.error IS NOT NULL),0) AS failed ${join} WHERE instr(lower(d.path),lower(?))>0`).bind(query).first();
 }
