@@ -228,6 +228,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     NSData *server=remote ? [self.library.server downloadPlaylist:remote] : nil;NSString *nodeID=comparison[@"manifest"][@"playlist"][@"id"],*sourceRoot=remote[@"sourceRoot"] ?: @"~/Documents/ProPresenter6";
     NSMutableSet *paths=[NSMutableSet set];NSData *desired=nodeID ? server : local;NSMutableArray *selectedIDs=[NSMutableArray array];
     for(NSDictionary *node in nodes)if(!nodeID || [node[@"id"] isEqual:nodeID]){NSString *xml=[self serverXMLForNode:node root:sourceRoot paths:paths];desired=YBPlaylistReplacing(desired,node[@"id"],xml);[selectedIDs addObject:node[@"id"]];}
+    NSMutableArray *serverOnlyPlaylists=[NSMutableArray array];if(!nodeID && server)for(NSDictionary *old in YBPlaylistNodes(server))if(![selectedIDs containsObject:old[@"id"]]){desired=YBPlaylistReplacing(desired,old[@"id"],old[@"raw"]);[serverOnlyPlaylists addObject:@{@"id":old[@"id"],@"name":old[@"name"]}];}
     YBRequire(!nodeID || selectedIDs.count==1,@"Mac에 선택한 예배가 없습니다. 서버 내용 받기를 선택하세요.");YBRequire(desired.length<=5*1024*1024,@"재생목록이 서버 제한 5MB를 초과합니다.");
     NSArray *catalog=[self.library.server documentsChecking:self.library.operationCheckpoint];NSMutableDictionary *remotes=[NSMutableDictionary dictionary];for(NSDictionary *doc in catalog)remotes[doc[@"path"]]=doc;
     NSArray *allRows=nodeID ? nil : [sync plan:catalog];if(!nodeID)for(NSDictionary *row in allRows){YBRequire(!row[@"error"],row[@"error"] ?: @"문서 경로 오류");if(Value(row[@"localHash"]))[paths addObject:row[@"path"]];}
@@ -246,7 +247,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     }}
     if(!nodeID)for(NSDictionary *doc in catalog)if(![paths containsObject:doc[@"path"]]){[serverOnly addObject:doc];}
     YBRequire([YBReadPlaylist(self.target) isEqual:local],@"백업 도중 재생목록이 변경됐습니다.");
-    NSMutableDictionary *job=[@{@"id":identifier,@"status":@"prepared",@"createdAt":@(NSDate.date.timeIntervalSince1970),@"root":sync.root,@"target":self.target.path,@"origin":self.library.server.origin,@"beforeHash":YBHash(local),@"desiredHash":YBHash(desired),@"library":Null(remote),@"sourceRoot":sourceRoot,@"rows":rows,@"serverOnly":serverOnly,@"nodes":selectedIDs,@"all":@(!nodeID),@"changed":@(changed),@"completed":[NSMutableArray array]} mutableCopy];
+    NSMutableDictionary *job=[@{@"id":identifier,@"status":@"prepared",@"createdAt":@(NSDate.date.timeIntervalSince1970),@"root":sync.root,@"target":self.target.path,@"origin":self.library.server.origin,@"beforeHash":YBHash(local),@"desiredHash":YBHash(desired),@"library":Null(remote),@"sourceRoot":sourceRoot,@"rows":rows,@"serverOnly":serverOnly,@"serverOnlyPlaylists":serverOnlyPlaylists,@"nodes":selectedIDs,@"all":@(!nodeID),@"changed":@(changed),@"completed":[NSMutableArray array]} mutableCopy];
     [self writeJSON:job path:[folder stringByAppendingString:@"/job.json"]];return job;
 }
 - (NSDictionary *)applyMacReset:(NSDictionary *)prepared progress:(void (^)(NSString *))progress {

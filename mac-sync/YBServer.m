@@ -147,7 +147,7 @@ static NSString *Query(NSString *value) {
 - (NSData *)downloadPlaylist:(NSDictionary *)library {
     NSString *identifier=library[@"id"],*hash=library[@"sha256"];NSNumber *version=library[@"version"];
     YBRequire([identifier isKindOfClass:NSString.class] && [identifier rangeOfString:@"^[0-9a-f-]{36}$" options:NSRegularExpressionSearch].location!=NSNotFound && [hash isKindOfClass:NSString.class] && version.integerValue>0,@"재생목록 메타데이터 오류");
-    NSData *data=[self transfer:[NSString stringWithFormat:@"/api/playlists/%@/raw?version=%@",identifier,version] method:@"GET" body:nil headers:nil].data;
+    NSData *data=[self transfer:[NSString stringWithFormat:@"/api/playlists/%@/content?version=%@",identifier,version] method:@"GET" body:nil headers:nil].data;
     YBRequire([YBHash(data) isEqual:hash],@"서버 재생목록 백업 해시가 다릅니다.");return data;
 }
 
