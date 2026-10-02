@@ -5,7 +5,7 @@
   function clearPreviews(){revision++;previews.clear();previewBytes=0;}
   window.addEventListener('pp6fontschange',clearPreviews);
   window.addEventListener('yebaeonresourcesready',clearPreviews);
-  function rememberPreview(key,canvas,warnings){const bytes=canvas.width*canvas.height*4;if(bytes>4*1024*1024)return;const previous=previews.get(key);if(previous)previewBytes-=previous.bytes;previews.delete(key);const copy=document.createElement('canvas');copy.width=canvas.width;copy.height=canvas.height;copy.getContext('2d').drawImage(canvas,0,0);previews.set(key,{image:copy,warnings,bytes});previewBytes+=bytes;while(previewBytes>32*1024*1024){const first=previews.keys().next().value;previewBytes-=previews.get(first).bytes;previews.delete(first);}}
+  function rememberPreview(key,canvas,warnings){const bytes=canvas.width*canvas.height*4;if(bytes>4*1024*1024)return;const previous=previews.get(key);if(previous)previewBytes-=previous.bytes;previews.delete(key);const copy=document.createElement('canvas');copy.width=canvas.width;copy.height=canvas.height;copy.getContext('2d').drawImage(canvas,0,0);previews.set(key,{image:copy,warnings,bytes});previewBytes+=bytes;while(previewBytes>32*1024*1024||previews.size>256){const first=previews.keys().next().value;previewBytes-=previews.get(first).bytes;previews.delete(first);}}
   function media(file,kind) {
     if(cache.has(file))return cache.get(file);
     const promise=new Promise(resolve=>{
@@ -105,7 +105,7 @@
     const warnings=await drawFresh(buffer,model,slide,library);
     if(drawTokens.get(canvas)!==token||revision!==currentRevision)return warnings;
     canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);canvas.getContext('2d').drawImage(buffer,0,0);
-    if(key)rememberPreview(key,buffer,warnings);return warnings;
+    if(key&&key.length<=65536)rememberPreview(key,buffer,warnings);return warnings;
   }
   window.PP6Render={draw,media,clear:()=>{cache.clear();clearPreviews();}};
 })();

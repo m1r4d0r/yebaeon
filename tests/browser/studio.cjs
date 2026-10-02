@@ -63,6 +63,8 @@ const assert=require('node:assert/strict');
  const applied=await page.evaluate(()=>YebaeonEditor.document().xml);await page.evaluate(()=>YebaeonEditor.open(PP6_SAMPLE.xml,'other.pro6',true,'other'));await page.evaluate(xml=>YebaeonEditor.open(xml,'applied.pro6',true,'applied'),applied);
  await page.waitForFunction(()=>document.querySelector('#templateSelect option').textContent==='성경 · 본문');
  await page.screenshot({path:'artifacts/studio-template-name.png'});
+ await page.evaluate(()=>{const slide=PP6.slides(YebaeonEditor.model())[1];PP6.textElements(slide)[0].setAttribute('rotation','17');YebaeonEditor.redraw();});
+ await page.locator('.slide-card').nth(1).click({modifiers:['Shift']});await page.waitForFunction(()=>document.querySelector('#templateSelect option').textContent==='여러 서식 선택됨');
  const {templateFormatHash}=await import('../../scripts/build.mjs');
  const browserFormat=await page.evaluate(async xml=>{const slide=new DOMParser().parseFromString(xml,'application/xml').documentElement;return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(PP6.templateFormat(slide)))),n=>n.toString(16).padStart(2,'0')).join('');},templateXML);
  assert.equal(browserFormat,templateFormatHash(templateXML),'build and browser must agree on the template format');
