@@ -95,3 +95,12 @@ GitHub Actions의 특정 커밋 검사 실패, 사이트 배포 실패, 사용�
 
 - 수정 후 [36937791940](https://github.com/m1r4d0r/yebaeon/actions/runs/36937791940)에서 368개 검사와 패키징 성공. 자동 데이터 검사 후에도 실제 렌더링을 확인하니 복구 표가 첫 구성 때 다른 표 분기로 셀을 만든 문제가 보였다. 표 객체를 컨트롤러에 연결한 후 reload하고 실제 셀 문자열 검사도 추가했다.
 - Mac `ditto` ZIP 점검 시 Python 기본 ZIP 파일명 해석과 실제 한글 이름이 다르면 고정 문자열로 찾지 말고 항목을 열거해 확인한다. 지원되는 Python에서 `metadata_encoding='utf-8'`로 파일명 해석을 확인하며 배포 ZIP 바이트를 임의로 재작성하지 않는다.
+
+
+## 기본 재생목록 최초 등록 복구 · 2026-10-02 KST
+
+- 운영 Studio의 인증된 화면에서 문서 목록은 존재하지만 재생목록 목록은 비어 있음을 확인했다. PR #8/#9는 교회 Sync 비교 시 최초 등록하는 코드이며, 제공 원본을 운영 서버에 직접 올린 증거가 아니다.
+- PR #10 (`0b1eb59`)은 인증된 `/api/playlist-bootstrap` 초기 자료 복구 경로를 추가했다. 빈 서버 목록에만 등록 가능하며 기존 원본은 덮어쓰지 않는다. Studio에는 등록 버튼을 복구하지 않았다. 기존 API의 원본 보존·버전 저장·경로 검증과 동일한 처리를 사용한다.
+- [첫 Studio 검사 실패 36956973774](https://github.com/m1r4d0r/yebaeon/actions/runs/36956973774): Miniflare 시험 요청의 FormData 경계 헤더가 없어서 400 응답. 표준 Request로 시험 multipart 본문과 Content-Type을 함께 직렬화했다. [후속 Studio 검사 36957035412](https://github.com/m1r4d0r/yebaeon/actions/runs/36957035412)의 36개 Node 검사, 배포 dry-run, Chromium 검사가 성공했다. [Mac 검사 36957035408](https://github.com/m1r4d0r/yebaeon/actions/runs/36957035408)도 성공했다.
+- 운영 복구 페이지 표시로 배포 반영을 확인했다. 제공 원본 `기본 (3).pro6pl`은 74679 bytes, SHA-256 `79e43d8c187a0a1c24cb553a1db71729eea2025f560b86dbedf6f668212aa6e4`, 재생목록 19개다. 초기 서버 이름은 실제 Mac 경로 기록의 `기본 .pro6pl`로 입력했으며 원본 바이트는 편집하지 않았다.
+- **운영 등록 미완료:** Cloud Browser에서 파일 선택 후 제출할 때 URL 보안 정책이 차단했다(허용 프로토콜 http/https 외의 요청으로 판정). 이는 플랫폼의 제출 차단이며 Worker/PP6 오류로 확정하지 않는다. 우회하지 않았다. 사용자 브라우저에서 원본 제출 후 서버 등록과 Studio 자동 불러오기를 확인해야 한다. 코드 검사·배포 성공을 실제 원본 등록 성공으로 표현하지 않는다.
