@@ -14,6 +14,10 @@ SOURCES=( mac-sync/YBSync.m mac-app/YBPlaylistIO.m mac-app/YBPlaylistFormat.m )
 clang "${COMMON[@]}" "${SOURCES[@]}" mac-app/diagnostic-test.m -o "$TEMP_AREA/diagnostic-test"
 "$TEMP_AREA/diagnostic-test"
 clang "${COMMON[@]}" "${SOURCES[@]}" mac-app/diagnose-local.m -o "$TEMP_AREA/diagnose-local"
+if [[ "$#" == 1 && "$1" == --self-test ]]; then
+  echo "Diagnostic binaries compiled; synthetic checks passed. No operating files read."
+  exit 0
+fi
 OUTPUT="$(mktemp -d "$PWD/mac-app/diagnostic-XXXXXX")"
 if "$TEMP_AREA/diagnose-local" "$@" > "$OUTPUT/local-diagnostic.partial"; then
   mv "$OUTPUT/local-diagnostic.partial" "$OUTPUT/local-diagnostic.json"

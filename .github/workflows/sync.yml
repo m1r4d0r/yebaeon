@@ -3,6 +3,8 @@ name: Verify Mac Sync
 # for a release candidate; reuse its tested app and screenshots after merging.
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/sync-layout-pause]
 concurrency:
   group: mac-sync-${{ github.ref }}
   cancel-in-progress: true
@@ -10,6 +12,7 @@ permissions:
   contents: read
 jobs:
   native-sync:
+    if: github.event.repository.private == false && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[verify-mac]'))
     runs-on: macos-15-intel
     timeout-minutes: 15
     steps:
@@ -25,6 +28,8 @@ jobs:
         run: bash mac-sync/build-sync.command
       - name: Native safety and real Worker integration tests
         run: bash mac-sync/test-sync.command
+      - name: Read-only diagnostic build and synthetic tests
+        run: bash mac-app/diagnose-local.command --self-test
       - name: Build integrated native app
         run: bash mac-app/build.command
       - name: Playlist, Core, GUI and app transport checks
