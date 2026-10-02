@@ -6,6 +6,7 @@
 
 ## 최신 업데이트 · Studio / Sync 디자인 적용
 
+- **최신 설치 파일은 Sync 0.5.1 build 9**: PR #5가 승인한 Sync SVG(아래 화살표 `#6974A2`)로 Finder/Dock용 `.icns`를 앱 번들에 넣고 `4fe5fc0`로 병합했다. [Intel Mac CI 36947473168](https://github.com/m1r4d0r/yebaeon/actions/runs/36947473168)에서 368개 검사와 패키징이 성공했다. `YebaeOn-Sync-macOS-v0.5.1-build9.zip`은 595504 bytes, SHA-256 `21f33ed4fe67e1228edda2d38c9d7e241d808f2d56a7e0b8b3670cacf4726c39`. 실제 교회 High Sierra에서 Finder/Dock 아이콘 표시는 별도 확인이다.
 - Studio는 PR #2 (`67d7d0a`)로 병합·배포했다. 운영 주소는 https://yebaeon.grace-jean-p.workers.dev/ 이며 현황판은 `/status`다. 배포 검사 [36932037619](https://github.com/m1r4d0r/yebaeon/actions/runs/36932037619) 성공. 아래 초창기 화면/버전 설명보다 이 기록과 UX-HANDOFF-REVIEW를 우선한다.
 - Sync는 PR #3에서 **0.5.0 build 8**을 구현하고 `e511cb8`로 병합했다. 공유 경로 막대, 재생목록·문서·미디어 탭, 자동 비교, 참조/방향 필터·검색 내 전체 선택, 최근 사용일 정렬, 작업별 복구 목록을 제공한다. 기존 로컬 재생목록 도구는 메뉴로 옮겼다. `mac-app/README.md`에 최신 실행 흐름이 있다.
 - 문서 묶음 복구는 현재 내용·기준·백업을 모든 대상에 대해 먼저 검증한 후 수행한다. 나중 수정된 문서가 있으면 시작하지 않는다. 중간 종료는 기존 파일별 저널로 복구한다. 원자적 전체 복구나 자동 이어받기를 의미하지 않는다.

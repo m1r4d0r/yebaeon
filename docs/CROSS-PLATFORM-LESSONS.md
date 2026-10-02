@@ -99,3 +99,8 @@ GitHub Actions의 특정 커밋 검사 실패, 사이트 배포 실패, 사용�
 - Studio의 둥근 슬라이드 SVG를 사이트와 현황판의 파비콘으로 배포했다. SVG와 16·32·48·64px ICO를 명시적 공개 파일 목록에 추가했다. 운영 URL의 200 응답과 원본 SHA-256 일치를 확인했다.
 - 로컬 `dist`에 이전 작업 산출물이 남아 `npm run build`의 예상 밖 파일 보호 검사가 정상적으로 멈췄다. 기존 `dist`를 지우지 않고 빈 임시 출력 폴더에서 동일 소스의 빌드를 다시 수행해 SVG/ICO 및 HTML 연결을 확인했다. [배포 실행 36943271758](https://github.com/m1r4d0r/yebaeon/actions/runs/36943271758)은 성공했으며 서비스 작업은 중단되지 않았다.
 - Sync 아이콘 아래 화살표를 Studio 뒤쪽 종이의 연보라색 `#6974A2`로 바꿔 SVG 시안을 제공했다. 이번 웹 파비콘 변경은 Mac 앱 번들을 새로 패키징하지 않는다.
+
+## Mac 앱 아이콘 적용 · 2026-10-02 KST
+
+- 승인한 Sync SVG를 1024px PNG 원본으로 기록하고 `sips`/ `iconutil`로 16–1024px ICNS를 서명 전에 구성한다. plist의 아이콘 이름과 실제 앱 번들 자원을 함께 검사한다.
+- [검사 36947473168](https://github.com/m1r4d0r/yebaeon/actions/runs/36947473168): 10.13 대상 Intel Mac 빌드, ICNS 생성·패키징, 368개 회귀 검사 모두 성공. 배포 ZIP에서 아이콘 헤더/길이, plist 0.5.1 build 9, x86_64 실행 파일과 서명 자원을 확인했다. 교회 High Sierra 실기에서 실제 Finder/Dock 표시 여부는 아직 확인하지 않았다.
