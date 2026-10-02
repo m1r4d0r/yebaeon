@@ -38,7 +38,7 @@
 
 @interface YBProgressLibrary : YBLibrary
 @property NSUInteger calls;
-@property dispatch_semaphore_t gate;
+@property(nonatomic,strong) dispatch_semaphore_t gate;
 @property NSArray *syntheticRows;
 @end
 @implementation YBProgressLibrary

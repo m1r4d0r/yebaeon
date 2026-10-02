@@ -4,8 +4,10 @@
 @property NSUInteger active;
 @property NSUInteger peak;
 @property NSString *failPath;
+@property NSUInteger catalogFetches;
 @end
 @implementation YBParallelTestServer
+- (NSArray *)documentsChecking:(void (^)(void))check {self.catalogFetches++;return [super documentsChecking:check];}
 - (NSDictionary *)upload:(NSData *)data path:(NSString *)path previous:(NSDictionary *)previous {
     @synchronized(self){self.active++;self.peak=MAX(self.peak,self.active);}
     @try {usleep(120000);YBRequire(![path isEqual:self.failPath],@"injected upload failure");return [super upload:data path:path previous:previous];}
@@ -58,7 +60,7 @@ int main(int argc,const char *argv[]){@autoreleasepool{
         __block NSUInteger published=0;__block BOOL interrupt=NO;library.rowsCompared=^(NSArray *rows){published+=rows.count;interrupt=YES;};
         BOOL interrupted=NO;@try{[library refreshChecking:^{if(interrupt)YBRequire(NO,@"yield for user work");}];}@catch(NSException *e){interrupted=YES;}
         Check(interrupted && published>0,@"rows stream before the remaining comparison finishes");library.rowsCompared=nil;
-        NSUInteger reads=library.sync.summaryReads;NSArray *resumed=[library refreshChecking:nil];Check(resumed.count>published && library.sync.summaryReads==reads,@"resumed comparison reuses verified local summaries");
+        NSUInteger reads=library.sync.summaryReads,catalogFetches=server.catalogFetches;NSArray *resumed=[library refreshChecking:nil];Check(resumed.count>published && library.sync.summaryReads==reads && server.catalogFetches==catalogFetches,@"resumed comparison reuses verified local summaries and server catalog");
         NSString *conflictPath=@"resolve.pro6";NSData *left=Doc(@"Mac choice"),*right=Doc(@"server choice");Check([left writeToFile:[library.sync.root stringByAppendingPathComponent:conflictPath] atomically:YES],@"conflict local fixture");NSDictionary *remote=[web upload:right path:conflictPath previous:nil];NSDictionary *conflictRow=@{@"path":conflictPath,@"status":@"conflict",@"localHash":YBHash(left),@"remote":remote};
         NSDictionary *resolved=[library resolveRow:conflictRow receiving:NO];Check([resolved[@"status"] isEqual:@"same"] && [[server download:resolved[@"remote"]] isEqual:left],@"explicit document Mac choice stores and verifies its baseline");
         remote=[web upload:right path:conflictPath previous:resolved[@"remote"]];conflictRow=@{@"path":conflictPath,@"status":@"conflict",@"localHash":YBHash(left),@"remote":remote};resolved=[library resolveRow:conflictRow receiving:YES];Check([[library.sync readDocument:conflictPath] isEqual:right],@"explicit document server choice applies with backup");

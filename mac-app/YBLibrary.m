@@ -40,7 +40,7 @@
     NSMutableArray *result=[NSMutableArray array];NSISO8601DateFormatter *dates=[NSISO8601DateFormatter new];
     if(!self.comparisonCatalog){NSArray *catalog=[self.server documentsChecking:check];NSMutableDictionary *map=[NSMutableDictionary dictionary];for(NSDictionary *doc in catalog)map[doc[@"path"]]=doc;self.comparisonCatalog=map;}
     NSMutableArray *partial=[NSMutableArray array];__block NSTimeInterval lastPublish=0;
-    self.sync.rowCompared=^(NSDictionary *row){[partial addObject:row];NSTimeInterval now=NSDate.date.timeIntervalSince1970;if(partial.count>=32 || now-lastPublish>.2){if(self.rowsCompared)self.rowsCompared([partial copy]);[partial removeAllObjects];lastPublish=now;}};
+    self.sync.rowCompared=^(NSDictionary *row){[partial addObject:row];NSTimeInterval now=NSDate.date.timeIntervalSince1970;if(partial.count>=32 || now-lastPublish>.2){if(weakSelf.rowsCompared)weakSelf.rowsCompared([partial copy]);[partial removeAllObjects];lastPublish=now;}};
     for(NSDictionary *row in [self.sync plan:self.comparisonCatalog.allValues]) {@autoreleasepool {
         if(check)check();NSMutableDictionary *copy=[row mutableCopy];NSDate *modified=[NSFileManager.defaultManager attributesOfItemAtPath:[self.sync.root stringByAppendingPathComponent:row[@"path"]] error:NULL][NSFileModificationDate];if(modified)copy[@"modifiedTime"]=@(modified.timeIntervalSince1970);
         NSString *value=row[@"lastDateUsed"];NSDate *date=[dates dateFromString:value ?: @""];

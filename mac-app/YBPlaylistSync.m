@@ -68,10 +68,11 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     if(serverChanged)return @{ @"libraries":libraries, @"status":@"Mac과 서버가 모두 바뀌었습니다. 순서를 비교해 충돌을 해결하세요." };
     if(self.library.sync.presenterRunning())return @{ @"libraries":libraries, @"status":@"PP6 실행 중이어서 Mac 재생목록 변경을 서버로 보내지 않았습니다." };
     YBRequire([YBReadPlaylist(self.target) isEqual:local],@"Mac 재생목록이 비교 중 바뀌었습니다. 다시 비교하세요.");
-    NSDictionary *result=[self.library.server request:[NSString stringWithFormat:@"/api/playlists/%@",Query(remote[@"id"])] method:@"PUT" body:local headers:@{@"Content-Type":@"application/xml; charset=utf-8",@"If-Match":[NSString stringWithFormat:@"\"%@\"",remote[@"version"]]}];
+    NSData *serverBytes=local;NSMutableSet *paths=[NSMutableSet set];for(NSDictionary *node in YBPlaylistNodes(local))serverBytes=YBPlaylistReplacing(serverBytes,node[@"id"],[self serverXMLForNode:node root:remote[@"sourceRoot"] ?: @"~/Documents/ProPresenter6" paths:paths]);
+    NSDictionary *result=[self.library.server request:[NSString stringWithFormat:@"/api/playlists/%@",Query(remote[@"id"])] method:@"PUT" body:serverBytes headers:@{@"Content-Type":@"application/xml; charset=utf-8",@"If-Match":[NSString stringWithFormat:@"\"%@\"",remote[@"version"]]}];
     NSDictionary *saved=result[@"library"];
-    YBRequire([saved[@"sha256"] isEqual:localHash],@"서버에 저장한 재생목록의 해시가 다릅니다.");
-    if([YBReadPlaylist(self.target) isEqual:local])[self rememberFile:saved local:local];
+    YBRequire([saved[@"sha256"] isEqual:YBHash(serverBytes)],@"서버에 저장한 재생목록의 해시가 다릅니다.");
+    if([YBReadPlaylist(self.target) isEqual:local]){[self rememberFile:saved local:local];NSMutableDictionary *s=self.state,*entries=[s[@"entries"] mutableCopy];for(NSDictionary *node in YBPlaylistNodes(local)){NSString *key=[NSString stringWithFormat:@"%@/%@",saved[@"id"],node[@"id"]];entries[key]=@{@"localHash":YBHash(Data(node[@"raw"])),@"remoteHash":YBHash(Data(YBPlaylistNode(serverBytes,node[@"id"])[@"raw"]))};}s[@"entries"]=entries;[self writeJSON:s path:self.statePath];}
     else YBRequire(NO,@"서버 저장 중 Mac 파일이 바뀌었습니다. 서버 이력은 보존되며 다시 비교가 필요합니다.");
     return @{ @"libraries":[self libraries], @"status":@"Mac 재생목록 변경을 서버 새 버전으로 저장했습니다." };
 }
@@ -239,7 +240,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
         if(self.library.operationCheckpoint)self.library.operationCheckpoint();YBRequire(!sync.presenterRunning(),@"PP6가 실행되어 준비를 중단했습니다.");if(progress)progress([NSString stringWithFormat:@"백업 준비 %lu/%lu · %@",(unsigned long)index+1,(unsigned long)paths.count,path]);
         NSData *bytes=[sync readDocument:path];YBRequire(bytes!=nil,[@"Mac에 연결 문서가 없습니다: " stringByAppendingString:path]);NSString *hash=YBHash(bytes);NSDictionary *doc=remotes[path];
         YBWriteSafeFile(sync.profile,[NSString stringWithFormat:@"%@/local-%lu.pro6",folder,(unsigned long)index],bytes,0600,nil);
-        if(doc){NSData *old=[self.library.server download:doc];YBWriteSafeFile(sync.profile,[NSString stringWithFormat:@"%@/server-%lu.pro6",folder,(unsigned long)index],old,0600,nil);}
+        if(doc){NSData *old=[hash isEqual:doc[@"sha256"]] ? bytes : [self.library.server download:doc];YBWriteSafeFile(sync.profile,[NSString stringWithFormat:@"%@/server-%lu.pro6",folder,(unsigned long)index],old,0600,nil);}
         if(![hash isEqual:doc[@"sha256"]])changed++;
         [rows addObject:@{@"path":path,@"localHash":hash,@"remote":Null(doc),@"index":@(index++)}];
     }}
@@ -271,7 +272,8 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
         if(![remote[@"sha256"] isEqual:YBHash(desired)]){NSString *route=remote ? [@"/api/playlists/" stringByAppendingString:remote[@"id"]] : [NSString stringWithFormat:@"/api/playlists?path=%@&root=%@",Query(self.target.lastPathComponent),Query(job[@"sourceRoot"])];NSMutableDictionary *headers=[@{@"Content-Type":@"application/xml; charset=utf-8"} mutableCopy];if(remote)headers[@"If-Match"]=[NSString stringWithFormat:@"\"%@\"",remote[@"version"]];saved=[self.library.server request:route method:remote ? @"PUT" : @"POST" body:desired headers:headers][@"library"];}
         YBRequire([saved[@"sha256"] isEqual:YBHash(desired)],@"서버 순서 저장 결과가 다릅니다.");job[@"savedLibrary"]=saved;[self writeJSON:job path:jobPath];if(self.checkpoint)self.checkpoint(@"reset-playlist");
         NSDictionary *head=[self.library.server request:[@"/api/playlists/" stringByAppendingString:saved[@"id"]] method:@"GET" body:nil headers:nil][@"library"];YBRequire(Equal(head[@"version"],saved[@"version"]) && Equal(head[@"sha256"],saved[@"sha256"]),@"저장 후 서버 순서가 다시 변경됐습니다.");
-        for(NSDictionary *doc in completed){NSDictionary *current=[self.library.server head:doc];YBRequire(Equal(current[@"version"],doc[@"version"]) && Equal(current[@"sha256"],doc[@"sha256"]) && [YBHash([sync readDocument:doc[@"path"]]) isEqual:doc[@"sha256"]],@"검증 중 문서가 다시 변경됐습니다. 재설정 완료로 표시하지 않습니다.");}
+        NSMutableDictionary *finalCatalog=nil;if([job[@"all"] boolValue]){finalCatalog=[NSMutableDictionary dictionary];for(NSDictionary *doc in [self.library.server documentsChecking:self.library.operationCheckpoint])finalCatalog[doc[@"path"]]=doc;}
+        for(NSDictionary *doc in completed){NSDictionary *current=finalCatalog ? finalCatalog[doc[@"path"]] : [self.library.server head:doc];YBRequire(Equal(current[@"version"],doc[@"version"]) && Equal(current[@"sha256"],doc[@"sha256"]) && [YBHash([sync readDocument:doc[@"path"]]) isEqual:doc[@"sha256"]],@"검증 중 문서가 다시 변경됐습니다. 재설정 완료로 표시하지 않습니다.");}
         YBRequire([YBReadPlaylist(self.target) isEqual:local],@"검증 중 Mac 순서가 변경됐습니다.");NSMutableDictionary *state=self.state,*entries=[state[@"entries"] mutableCopy];
         for(NSString *nodeID in job[@"nodes"]){NSString *key=[NSString stringWithFormat:@"%@/%@",saved[@"id"],nodeID];entries[key]=@{@"localHash":YBHash(Data(YBPlaylistNode(local,nodeID)[@"raw"])),@"remoteHash":YBHash(Data(YBPlaylistNode(desired,nodeID)[@"raw"]))};}state[@"entries"]=entries;
         if([job[@"all"] boolValue])state[@"file"]=@{@"libraryID":saved[@"id"],@"remoteHash":saved[@"sha256"],@"localHash":YBHash(local),@"version":saved[@"version"]};else [state removeObjectForKey:@"file"];

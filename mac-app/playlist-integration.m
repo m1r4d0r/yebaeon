@@ -2,7 +2,7 @@
 #import "YBPlaylistFormat.h"
 #import "YBPlaylistIO.h"
 static int checks=0;
-static void Check(BOOL ok,NSString *message){checks++;YBRequire(ok,message);}
+static void Check(BOOL ok,NSString *message){checks++;fprintf(stderr,"PLAYLIST CHECK %d: %s\n",checks,message.UTF8String);YBRequire(ok,message);}
 static void Reject(void (^action)(void),NSString *message){BOOL rejected=NO;@try{action();}@catch(NSException *e){rejected=[e.name isEqual:@"YebaeOn"];}Check(rejected,message);}
 static NSData *D(NSString *text){return [text dataUsingEncoding:NSUTF8StringEncoding];}
 static NSData *Doc(NSString *text){return D([NSString stringWithFormat:@"<RVPresentationDocument UUID=\"SAME-DOCUMENT-UUID\" versionNumber=\"600\"><text>%@</text></RVPresentationDocument>",text]);}
@@ -59,7 +59,7 @@ int main(int argc,const char *argv[]){@autoreleasepool{
 
         // Explicit server selection is guarded by the exact reviewed local/server snapshot.
         comparison=[engine compare:identifier node:@"A"];Check(![comparison[@"ready"] boolValue],@"conflicted node requires explicit choice");
-        NSString *serverChoiceJob=[engine receiveChoosingServer:comparison progress:nil];Check([engine compare:identifier node:@"A"][@"ready"]!=nil,@"explicit server choice returns to normal comparison");[engine restoreJob:serverChoiceJob];Check([YBReadPlaylist(target) isEqual:D(macText)],@"explicit server choice has normal whole-batch undo");
+        NSString *serverChoiceJob=[engine receiveChoosingServer:comparison progress:nil];Check([[engine compare:identifier node:@"A"][@"ready"] boolValue],@"explicit server choice returns to normal comparison");[engine restoreJob:serverChoiceJob];Check([YBReadPlaylist(target) isEqual:D(macText)],@"explicit server choice has normal whole-batch undo");
         NSDictionary *staleChoice=[engine compare:identifier node:@"A"];Put(target.path,D([macText stringByReplacingOccurrencesOfString:@"주일 저녁" withString:@"after choice"]));Reject(^{[engine receiveChoosingServer:staleChoice progress:nil];},@"explicit server choice cannot overwrite a later local edit");Put(target.path,D(macText));
         // Choosing Mac backs up both sides, preserves other server nodes, and records exact baselines.
         comparison=[engine compare:identifier node:@"A"];NSDictionary *prepared=[engine prepareMacReset:comparison progress:nil];NSString *otherServer=YBPlaylistNode([server downloadPlaylist:prepared[@"library"]],@"B")[@"raw"];
