@@ -57,3 +57,23 @@ RVRect3D position에 글상자 위치/크기, verticalAlignment에 세로 정렬
 원본에 그림자 블러/색/오프셋도 저장된다. 말씀 본문은 blur19/검정alpha약0.333/offset0인데 현재 렌더는 고정blur8/alpha0.45/offsetY3으로 근사한다.
 
 현재 RTF 파서/작성기는 expnd/expndtw/kerning/strokewidth/strokec를 서식 모델에 넣지 않는다. setText/setRuns 경로에서 지원 서식으로 RTF를 재작성하면 이런 기존 효과가 유실될 수 있으므로 표시 구현뿐 아니라 편집 후 원본 서식 보존을 함께 수정해야 한다. 이번 작업은 원본 분석/기록만이며 앱 기능 수정·배포를 하지 않았다. 필요한 기준 출력과 원본 자료는 확보되었다.
+
+
+## 구현 승인 이후 · PR #19
+
+사용자가 구현과 후속 계획의 웹 영역 병행을 승인했다. 위의 ‘분석만 수행’ 기록은 당시 이력이며 현재 구현 범위는 아래와 같다.
+
+- 아리따부리 OTF 원본 5종(B/HL/L/M/SB)을 `church-resources/arita-buri*.otf`에 탑재했다. catalog는 내부 PostScript 이름과 실제 usWeightClass(700/300/400/500/600)를 사용한다. Medium+b는 원본 Bold를 선택한다. 외부 CDN 동명 대체를 제거했고 미등록/누락 Bold는 근사 표시를 알린다. 현재 등록 45 faces, 필요한 face만 로드한다.
+- 제공된 나눔고딕·아리따부리 19개 원본의 hhea ascent/descent를 catalog에 기록한다. 브라우저/OS의 임의 line-box 값 대신 원본 글꼴 메트릭으로 조판한다. 다른 기존 폰트는 Canvas 메트릭 경로를 유지한다.
+- RTF expnd/expndtw 자간, kerning, slleading 양수/음수 원본, strokewidth/strokec를 읽고 수정·부분 서식·나누기 후에도 기록한다. 문단 scalar controls 일부도 보존한다. 미지원 문단 조판은 경고하며 임의의 모든 RTF destination을 완전히 구현했다고 주장하지 않는다. 원본 XML 위치/그림자 등 수정하지 않은 요소는 유지한다.
+- Cocoa RTF stroke 값 /20을 font-size 대비 백분율로 읽는다. 음수=stroke+fill, 양수=stroke only. 원본 -100은 -5%, 크기110에서 실제 stroke 폭5.5 모델 단위다. XML shape stroke와 구분한다. 근거: https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/AttributedStrings/Tasks/RTFAndAttrStrings.html
+- 그림자는 원본 blur/rgba/offset을 읽는다. Native/AppKit 오프셋의 Y를 Canvas 아래 방향 좌표에 맞춰 변환한다. OS별 blur 커널의 픽셀 일치는 별도다.
+- 원본 PNG에서 찬양 2장의 두 줄 글자 영역은 y408–511/552–655, 줄 시작 간격144px다. 제공 Bold hhea 및 leading23의 모델 간격은144px다. 말씀 표지 제목 두 줄은432–521/551–640, 약119px 간격이다. 음수 -30을 단순히 기본 줄 높이에서 빼면88.8px이 되어 원본과 다르다. 원본 메트릭118.8px의 줄 영역 하한을 유지하는 것이 이 출력과 맞아 렌더는 음수값으로 기본 줄 영역을 축소하지 않는다. -30 자체는 편집값과 .pro6에 유지한다. 이 수치는 원본 PNG와 글꼴 메트릭 대조이며 브라우저와 PP6 전체 픽셀 일치 검사가 아니다.
+- 공통 조판 결과를 최대256개/추산4MiB로 캐시한다. 글꼴/자료 변경 시 무효화한다. 최종 Canvas 캐시의 기존32MiB/256개 제한과 별도다. 화면의 CSS 크기×DPR(최대3)을 문서 해상도/4M픽셀 내에서 사용한다. 보이지 않는 목록은 그리지 않고, 열 조절 시 DOM/원본 재파싱 대신 표시 Canvas만 다시 그린다. 폰트 완료 후 전체 카드 DOM 재생성을 제거하고 숨겨진 inspector Canvas 중복 렌더를 제거했다.
+- 실제 슬라이드 전체 렌더와 텍스트 입력을 나란히 제공하는 일반 빠른 편집으로 바꿨다. 자간/음수 간격/아웃라인 속성을 일반 편집기에 추가했다. 목록은4–8열 슬라이더와 브라우저 설정 보존을 제공한다. 좁은 화면은 기존2열을 유지한다.
+- 말씀 줄 수 용량 계산도 마지막 줄의 추가 간격을 제외하는 공통 조판 결과와 맞췄다. 말씀/빠른 편집 Canvas에도 표시 크기에 맞는 픽셀 설정을 사용한다.
+
+SVG 전환은 하지 않았다. 먼저 같은 조판을 재사용하고 중복 작업을 줄이는 구조로 변경했으며, Canvas/SVG 비용 비교나 사용자 Windows 지연 전후 실측은 별도 미완료다. 전체1000장을 매번1920px로 그리거나 PNG를 생성/전송하는 구조가 아니다. 원본 출력/가사 fixture는 공개 빌드와 GitHub에 넣지 않는다.
+
+
+PR #19를 f2dc390으로 병합했으며 [운영 배포36987657984](https://github.com/m1r4d0r/yebaeon/actions/runs/36987657984)의52개 검사·전체 리소스 업로드·Worker 배포 성공을 확인했다. 최종 PR 검사 Studio36987080209/Mac36987080205가 모두 성공했다. 최신 main의 D1 비용 검토 AGENTS 규칙(5ee9cff)도 보존했다. 새 JS를 사용하려면 열린 Studio 탭을 새로고침한다. 실제 교회 PP6 파일 재열기/Windows 화면 픽셀 비교·운영 DB 한도/비용 진단은 별도 미완료다.

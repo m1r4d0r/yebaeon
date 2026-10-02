@@ -211,3 +211,16 @@ P0 [PR #17](https://github.com/m1r4d0r/yebaeon/pull/17)은 `fc7d3c7`로 병합�
 
 
 로그인 수정 [PR #18](https://github.com/m1r4d0r/yebaeon/pull/18): 최종 소스 `0caf920`의 [검사 36981927928](https://github.com/m1r4d0r/yebaeon/actions/runs/36981927928)(Node 48개·배포 사전·Chromium) 성공. 초기 연결 실패→잘못된 비밀번호 거부→재시도 성공을 실제 Chromium의 합성 API로 검증했다. `4a248a5` 병합 후 [운영 배포 36982165692](https://github.com/m1r4d0r/yebaeon/actions/runs/36982165692) 성공. Cloud Browser의 운영 새로고침은 플랫폼 URL 보안 정책에 차단되어 배포 후 실사용 로그인 성공으로 표현하지 않는다. 사용자 브라우저는 한 번 새로고침 후 새 코드를 사용한다. 이번 CI/배포 실패는 없으며 최초 연결 실패의 원인은 여전히 미확정이다.
+
+
+## PP6 글자 조판과 브라우저 초안 · PR #19
+
+- `drawingStroke=false`만으로 글자 아웃라인 없음이라 판단하지 않는다. Cocoa RTF strokewidth/strokec와 XML 도형 stroke는 별도다. 지원 효과를 그리는 동시에 RTF 작성기에 넣어 편집 후 유실을 막는다.
+- 원본 PostScript 이름이 Medium이어도 b trait가 있으면 실제 Bold face를 먼저 찾는다. 사용자 제공 폰트 내부의 weight를 존중한다. 아리따부리 HairLine300/Light400처럼 일반적인 이름별 예상 굵기와 다른 원본도 있다. 동명 CDN 글꼴로 교체하지 않는다.
+- lineSpacing 음수를 CSS line-height처럼 빼면 PP6 기준 출력과 다를 수 있다. 본 예시 표지의 -30은 원본에 보존하되 native PNG에서 확인한 기본 line-fragment 하한을 유지한다. 지원한 원본 글꼴 hhea 메트릭을 써 OS별 Canvas line-box 차이를 줄인다.
+- 마지막 줄 뒤의 추가 leading을 높이에 포함하지 않으면 세로 가운데/아래 정렬과 overflow가 달라진다. 자동 나눔의 capacity 역시 같은 line height/마지막 간격 기준을 쓴다.
+- 렌더 캐시는 픽셀 크기별 결과와 모델 좌표 조판을 분리한다. 폰트 ensure 중 세대가 바뀌면 다시 그려 첫 화면이 빈 Canvas로 남지 않게 한다. 늦은 다른 편집의 draw는 토큰으로 버린다.
+- 순서는 브라우저 IndexedDB에 자동 보존하고 서버 저장은 명시적 버튼에서만 한다. 복구는 저장 전 기준 해시를 유지하여 다른 예배를 잘못 덮지 않으며 실패/CAS 충돌에도 초안을 남긴다.
+- 순서가 일치해도 연결 문서의 원본/관측이 없거나 unknown이면 초록으로 올리지 않는다. 상태등은 마지막 보고 장치·시간·연결 문서 판단 근거를 표시하며 조회 실패 시 회색으로 표시한다.
+- 회귀 이력: 36985692337은 말씀 조판 호출에 flattened text가 없어 캐시 크기 계산이 실패했다. runs만으로도 계산하도록 수정. 36986112590은 폰트 테스트가 SVG 문서에서 document.write를 써 실패했으며 HTML 시험 페이지로 수정. 36986460515는51개 Node·전체 리소스 dry-run·Chromium 통과. 36986813098은 새로고침 복구 시험 후 메모리 fixture PP6_SAMPLE가 사라진 시험 문제이며 합성 fixture를 다시 읽도록 수정했다. 실제 폰트5종 로딩과 Bold 선택·stroke 픽셀 차이 검사는 최초 성공 실행에서도 통과했다.
+- 로컬 검사 중 폰트 warning 배열의 괄호 문법 오류를 발견해 missing/warnings 변수로 분리했고 재검증했다. 원본 폰트 base64 전체 읽기는 도구의1MiB 출력 제한으로 잘려399999-byte 청크로 결합해 전체 길이와 blob SHA를 확인했다. 중간 실패를 성공으로 숨기지 않고 최종 실행과 연결한다.
