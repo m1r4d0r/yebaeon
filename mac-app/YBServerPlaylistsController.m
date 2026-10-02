@@ -35,7 +35,7 @@
     YBPanel *v=[[YBPanel alloc] initWithFrame:NSMakeRect(0,0,1060,720)];self.view=v;self.comparisons=[NSMutableDictionary dictionary];self.visibleChoices=@[];
     self.rootLabel=YBLabel(@"",NSZeroRect,12,NO);self.fileLabel=YBLabel(@"",NSZeroRect,12,NO);
     self.search=[[NSSearchField alloc] initWithFrame:NSMakeRect(24,623,305,28)];self.search.placeholderString=@"재생목록 검색";self.search.delegate=self;[v addSubview:self.search];
-    self.listTable=YBTable(v,NSMakeRect(24,163,305,448),@[@[@"name",@"재생목록",@134],@[@"status",@"상태",@102],@[@"date",@"바뀐 때",@140]],self);self.listTable.allowsMultipleSelection=NO;
+    self.listTable=YBTable(v,NSMakeRect(24,163,305,448),@[@[@"name",@"재생목록",@134],@[@"status",@"상태",@102],@[@"date",@"바뀐 때",@140]],self);self.listTable.allowsMultipleSelection=NO;self.listTable.columnAutoresizingStyle=NSTableViewNoColumnAutoresizing;self.listTable.enclosingScrollView.hasHorizontalScroller=NO;
     self.versionLabel=YBLabel(@"재생목록을 선택하세요.",NSMakeRect(349,625,687,25),13,YES);[v addSubview:self.versionLabel];
     self.table=YBTable(v,NSMakeRect(349,163,687,448),@[@[@"index",@"#",@38],@[@"name",@"곡 / 말씀",@230],@[@"status",@"받으면",@210],@[@"author",@"서버 저장 · 작업자",@245]],self);
     self.registerButton=YBButton(@"원본 재생목록 등록",NSMakeRect(60,385,238,36),self,@selector(publish:));self.registerButton.hidden=YES;[v addSubview:self.registerButton];
@@ -51,6 +51,11 @@
         c.search.frame=NSMakeRect(m,h-36,left,26);c.versionLabel.frame=NSMakeRect(right,h-36,rw,26);
         c.listTable.enclosingScrollView.frame=NSMakeRect(m,64,left,MAX(80,h-110));
         c.table.enclosingScrollView.frame=NSMakeRect(right,122,rw,MAX(80,h-168));
+        [c.listTable.enclosingScrollView tile];
+        CGFloat listWidth=c.listTable.enclosingScrollView.contentSize.width;
+        CGFloat usable=MAX(0,listWidth-c.listTable.intercellSpacing.width*c.listTable.tableColumns.count);
+        c.listTable.tableColumns[0].width=MAX(35,usable-230);c.listTable.tableColumns[1].width=90;c.listTable.tableColumns[2].width=140;
+        [c.listTable setFrameSize:NSMakeSize(listWidth,c.listTable.frame.size.height)];
         // Narrow windows give the long receiving explanation the full width.
         CGFloat textX=w<1280 ? m : right;c.summary.frame=NSMakeRect(textX,93,w-textX-m,23);c.status.frame=NSMakeRect(textX,66,w-textX-m,23);
         if(w<1280)c.listTable.enclosingScrollView.frame=NSMakeRect(m,122,left,MAX(80,h-168));
