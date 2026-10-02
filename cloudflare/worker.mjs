@@ -1,3 +1,4 @@
+import {inventoryRoute} from './inventory.mjs';
 import {syncObservationsRoute} from './sync-observations.mjs';
 import { bootstrapPlaylist } from './playlist-bootstrap.mjs';
 import { activityRoute } from './activity.mjs';
@@ -29,7 +30,7 @@ export default {
       }
       const route = /^\/api\/documents(?:\/([^/]+)(?:\/(content|versions|usage))?)?$/.exec(pathname);
       const playlist = /^\/api\/playlists(?:\/([^/]+)(?:\/(content|versions|plan))?)?$/.exec(pathname);
-      if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && !resource && !route && !playlist) throw new HttpError(404, 'not_found', '없는 요청입니다.');
+      if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && pathname !== '/api/inventory' && !resource && !route && !playlist) throw new HttpError(404, 'not_found', '없는 요청입니다.');
       if (!configured(env)) {
         if (pathname === '/api/session' && request.method === 'GET') return json({ authenticated: false, ready: false });
         throw new HttpError(503, 'setup_required', '서버의 공용 비밀번호 설정이 아직 완료되지 않았습니다.');
@@ -44,6 +45,7 @@ export default {
         return response;
       }
       const user = await requireSession(request, env);
+      if(pathname==='/api/inventory')return await inventoryRoute(request,env,user);
       if(pathname==='/api/sync-observations')return await syncObservationsRoute(request,env,user);
       if(pathname==='/api/search-index'){method(request,['POST']);sameOrigin(request);return json(await indexSearch(env));}
       if (pathname === '/api/playlist-bootstrap') return await bootstrapPlaylist(request, env, user);

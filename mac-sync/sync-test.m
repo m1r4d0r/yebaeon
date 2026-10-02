@@ -33,6 +33,7 @@ int main(void) { @autoreleasepool {
             NSString *area=NewArea(base); YBSync *s=Engine(area);
             NSString *nfd=path.decomposedStringWithCanonicalMapping; Put(s.root,nfd,a);
             chmod([s.root stringByAppendingPathComponent:nfd].fileSystemRepresentation,0640);
+            NSArray *inventory=[s inventory];Check(inventory.count==1 && [inventory[0][@"originalPath"] isEqual:nfd] && [inventory[0][@"size"] unsignedIntegerValue]==a.length,@"metadata inventory preserves original NFD path and size");
             Check([s plan:@[v1]].count==1 && [[s plan:@[v1]][0][@"status"] isEqual:@"same"],@"NFD and NFC match with actual local bytes");
             Check([s plan:@[]].count==1 && [[s plan:@[]][0][@"status"] isEqual:@"upload"],@"scan finds unregistered local file");
             [s acknowledge:v1 expectedLocalHash:YBHash(a)];

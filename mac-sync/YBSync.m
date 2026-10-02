@@ -272,6 +272,17 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
     }
     YBRequire(self.pendingTransactions.count==0,@"중단된 적용이 있습니다. 먼저 ‘중단 작업 복구’를 실행해 주세요."); }
 - (NSData *)readDocument:(NSString *)path { [self open]; YBPath(path); NSData *data=YBRead(self.root,path,NULL); if(data)YBValidateDocument(data); return data; }
+- (NSArray *)inventory {
+    [self open];NSMutableArray *documents=[NSMutableArray array];NSMutableSet *paths=[NSMutableSet set];
+    int directory=open(self.root.fileSystemRepresentation,O_RDONLY|O_DIRECTORY|O_NOFOLLOW);YBRequire(directory>=0,YBSystem(@"문서 인덱스 검색"));
+    @try {YBScan(directory,@"",^(NSString *relative){@autoreleasepool {
+        NSString *path=YBPath(relative);YBRequire(![paths containsObject:path],@"같은 이름으로 정규화되는 로컬 문서가 있습니다.");[paths addObject:path];
+        NSString *leaf;int parent=YBParent(self.root,relative,NO,&leaf);struct stat st;BOOL valid=parent>=0 && fstatat(parent,leaf.fileSystemRepresentation,&st,AT_SYMLINK_NOFOLLOW)==0 && S_ISREG(st.st_mode);if(parent>=0)close(parent);
+        YBRequire(valid,@"인덱스 검색 중 문서가 이동되거나 변경됐습니다. 다시 비교하세요.");
+        [documents addObject:@{@"originalPath":relative,@"size":@(st.st_size)}];
+    }});} @finally {close(directory);}
+    return documents;
+}
 - (NSArray *)plan:(NSArray *)remoteDocuments {
     NSMutableDictionary *remote=[NSMutableDictionary dictionary], *local=[NSMutableDictionary dictionary], *aliases=[NSMutableDictionary dictionary];
     NSMutableArray *excluded=[NSMutableArray array];
@@ -286,7 +297,7 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
     int directory=open(self.root.fileSystemRepresentation,O_RDONLY|O_DIRECTORY|O_NOFOLLOW);
     YBRequire(directory>=0,YBSystem(@"문서 폴더 검색"));
     @try {
-        YBScan(directory,@"",^(NSString *relative) {
+        YBScan(directory,@"",^(NSString *relative) {@autoreleasepool {
             NSString *p=nil;
             @try { p=YBPath(relative); }
             @catch(NSException *error) {
@@ -297,7 +308,7 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
             YBRequire(!local[p],@"같은 이름으로 정규화되는 로컬 문서가 있습니다.");
             registerPath(p); NSData *bytes=[self readDocument:p];
             YBRequire(bytes!=nil,@"목록을 읽는 동안 문서가 이동됐습니다. 다시 비교해 주세요."); local[p]=YBHash(bytes);
-        });
+        }});
     } @finally { close(directory); }
     NSMutableSet *paths=[NSMutableSet setWithArray:remote.allKeys]; [paths addObjectsFromArray:local.allKeys]; [paths addObjectsFromArray:self.entries.allKeys];
     NSMutableArray *rows=[NSMutableArray array];

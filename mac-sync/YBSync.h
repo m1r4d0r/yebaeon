@@ -19,6 +19,7 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 @property(nonatomic, copy) NSString *cookie;
 - (instancetype)initWithOrigin:(NSString *)origin allowLocalTestServer:(BOOL)allow;
 - (NSDictionary *)request:(NSString *)route method:(NSString *)method body:(NSData *)body headers:(NSDictionary *)headers;
+- (NSDictionary *)request:(NSString *)route method:(NSString *)method body:(NSData *)body headers:(NSDictionary *)headers timeout:(NSTimeInterval)timeout;
 - (NSDictionary *)login:(NSString *)name password:(NSString *)password;
 - (NSArray *)documents;
 - (NSDictionary *)head:(NSDictionary *)document;
@@ -39,6 +40,7 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 // Set only by the playlist coordinator while its durable batch journal owns the folder.
 @property(nonatomic) BOOL playlistOperationActive;
 - (instancetype)initWithRoot:(NSString *)root profile:(NSString *)profile origin:(NSString *)origin;
+- (NSArray *)inventory;
 - (NSArray *)plan:(NSArray *)remoteDocuments;
 - (NSData *)readDocument:(NSString *)path;
 - (void)acknowledge:(NSDictionary *)document expectedLocalHash:(NSString *)hash;
