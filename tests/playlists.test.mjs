@@ -84,7 +84,11 @@ test('authenticated initial playlist repair stores original and never replaces a
   const bundled=await build({entryPoints:['cloudflare/worker.mjs'],bundle:true,write:false,format:'esm',platform:'browser'});
   const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:bundled.outputFiles[0].text,compatibilityDate:'2026-09-28',bindings:{SITE_PASSWORD:'bootstrap-tests-only'},d1Databases:['DB'],r2Buckets:['FILES'],cf:false}));t.after(()=>mf.dispose());
   const origin='https://example.test';let cookie='';
-  const call=(path,method='GET',body,extra={})=>mf.dispatchFetch(origin+'/api'+path,{method,body,redirect:'manual',headers:{Cookie:cookie,...(method==='GET'?{}:{Origin:origin}),...extra}});
+  const call=async(path,method='GET',body,extra={})=>{
+    const h={Cookie:cookie,...(method==='GET'?{}:{Origin:origin}),...extra};
+    if(body instanceof FormData){const encoded=new Request(origin,{method:'POST',body});h['Content-Type']=encoded.headers.get('Content-Type');body=await encoded.arrayBuffer();}
+    return mf.dispatchFetch(origin+'/api'+path,{method,body,redirect:'manual',headers:h});
+  };
   assert.equal((await call('/playlist-bootstrap')).status,401);
   const login=await call('/session','POST',JSON.stringify({name:'초기 등록 시험',password:'bootstrap-tests-only'}),{'Content-Type':'application/json'});
   assert.equal(login.status,200);cookie=login.headers.get('Set-Cookie').split(';')[0];
