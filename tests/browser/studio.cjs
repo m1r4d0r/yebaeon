@@ -111,6 +111,34 @@ const assert=require('node:assert/strict');
  await statusPage.clock.fastForward(65000);await statusPage.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));assert.equal(statusReads,1);
  await statusPage.locator('#refresh').click();await statusPage.waitForFunction(()=>document.getElementById('message').textContent.includes('확인했습니다'));assert.equal(statusReads,2);
  await statusPage.locator('#storageRefresh').click();await statusPage.locator('#storagePanel').waitFor({state:'visible'});assert.equal(detailReads,1);assert.equal(await statusPage.locator('#storage tr').count(),4);await statusPage.screenshot({path:'artifacts/server-status-manual.png'});await statusPage.close();
+
+ // A failed initial session probe must not permanently lock the login form.
+ const retryPage=await browser.newPage({viewport:{width:900,height:700}});
+ let loginAttempts=0;
+ await retryPage.route('**/api/**',async route=>{
+  const path=new URL(route.request().url()).pathname;
+  if(path==='/api/session'){
+   if(route.request().method()==='GET'){await route.abort('failed');return;}
+   loginAttempts++;
+   await route.fulfill(loginAttempts===1?{status:401,json:{error:'wrong_password',message:'공용 비밀번호가 맞지 않습니다.'}}:{json:{ready:true,authenticated:true,name:'재시도 시험'}});return;
+  }
+  await route.fulfill({json:path==='/api/playlists'?{libraries:[],next:null}:{items:{}}});
+ });
+ await retryPage.goto(`http://127.0.0.1:${server.address().port}/`);
+ await retryPage.locator('#entryDialog').waitFor({state:'visible'});
+ assert.equal(await retryPage.locator('#entrySubmit').isEnabled(),true);
+ assert.match(await retryPage.locator('#entryMessage').textContent(),/다시 시도/);
+ await retryPage.locator('#entryName').fill('재시도 시험');
+ await retryPage.locator('#entryPassword').fill('test-only-invalid-password');
+ await retryPage.locator('#entrySubmit').click();
+ await retryPage.waitForFunction(()=>document.getElementById('entryMessage').textContent.includes('맞지 않습니다'));
+ assert.equal(await retryPage.locator('#entrySubmit').isEnabled(),true);
+ await retryPage.screenshot({path:'artifacts/studio-login-retry.png'});
+ await retryPage.locator('#entryPassword').fill('test-only-correct-password');
+ await retryPage.locator('#entrySubmit').click();
+ await retryPage.waitForFunction(()=>YebaeonCloud.authenticated()&&!document.getElementById('entryDialog').open);
+ assert.equal(loginAttempts,2);
+ await retryPage.close();
  assert.deepEqual(errors,[]);
  console.log('Studio browser flows passed: original/preview reuse, version/edit/font invalidation, template names after apply/reopen/reload, editing, save, undo, clipboard, reflow, IME, menu, Bible, order autosave and activity');
  }finally{await page.screenshot({path:'artifacts/studio-final.png'}).catch(()=>{});await browser.close();await new Promise(r=>server.close(r));}

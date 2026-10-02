@@ -248,7 +248,7 @@
       const state = await (await api('/session')).json(); ready = state.ready;
       if (state.authenticated) { user = state; rememberName(user.name); update(); await showPlaylists(); }
       else showEntry();
-    } catch (_) { ready = false; showEntry(); $('entryMessage').textContent = '서버에 연결하지 못했습니다. 현재 편집 내용은 브라우저 초안에 보존됩니다.'; }
+    } catch (_) { ready = true; showEntry(); $('entryMessage').textContent = '서버 연결 확인에 실패했습니다. 입장하기를 눌러 다시 시도해 주세요. 편집 내용은 브라우저 초안에 보존됩니다.'; }
   })();
 })();
 
