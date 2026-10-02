@@ -79,3 +79,27 @@ test('playlist server, linked edits, structural edits, history and conflicts', {
   });
 
 });
+
+test('authenticated initial playlist repair stores original and never replaces an existing library', {timeout:90000}, async t => {
+  const bundled=await build({entryPoints:['cloudflare/worker.mjs'],bundle:true,write:false,format:'esm',platform:'browser'});
+  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:bundled.outputFiles[0].text,compatibilityDate:'2026-09-28',bindings:{SITE_PASSWORD:'bootstrap-tests-only'},d1Databases:['DB'],r2Buckets:['FILES'],cf:false}));t.after(()=>mf.dispose());
+  const origin='https://example.test';let cookie='';
+  const call=async(path,method='GET',body,extra={})=>{
+    const h={Cookie:cookie,...(method==='GET'?{}:{Origin:origin}),...extra};
+    if(body instanceof FormData){const encoded=new Request(origin,{method:'POST',body});h['Content-Type']=encoded.headers.get('Content-Type');body=await encoded.arrayBuffer();}
+    return mf.dispatchFetch(origin+'/api'+path,{method,body,redirect:'manual',headers:h});
+  };
+  assert.equal((await call('/playlist-bootstrap')).status,401);
+  const login=await call('/session','POST',JSON.stringify({name:'초기 등록 시험',password:'bootstrap-tests-only'}),{'Content-Type':'application/json'});
+  assert.equal(login.status,200);cookie=login.headers.get('Set-Cookie').split(';')[0];
+  assert.equal((await call('/playlist-bootstrap')).status,200);
+  const form=()=>{const f=new FormData();f.set('path','기본 .pro6pl');f.set('file',new Blob([xml],{type:'application/xml'}),'기본 (3).pro6pl');return f;};
+  assert.equal((await call('/playlist-bootstrap','POST',form(),{Origin:'https://elsewhere.test'})).status,403);
+  assert.equal((await call('/playlist-bootstrap','POST',new FormData())).status,400);
+  const response=await call('/playlist-bootstrap','POST',form());assert.equal(response.status,303,await response.clone().text());assert.equal(response.headers.get('Location'),'/');
+  const listed=await(await call('/playlists')).json();assert.equal(listed.libraries.length,1);assert.equal(listed.libraries[0].path,'기본 .pro6pl');assert.equal(listed.libraries[0].playlists.length,2);
+  const id=listed.libraries[0].id;assert.equal(await(await call('/playlists/'+id+'/content')).text(),xml);
+  assert.equal((await call('/playlist-bootstrap','POST',form())).status,409);
+  assert.equal((await call('/playlist-bootstrap')).status,409);
+  assert.equal((await(await call('/playlists')).json()).libraries[0].version,1);
+});
