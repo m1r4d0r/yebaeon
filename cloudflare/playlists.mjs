@@ -1,6 +1,7 @@
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
 import { parsePlaylist, catalog, referencePath, sourceRoot, editPlaylist } from './playlist-format.mjs';
 import { ensureCatalog,catalogDocument } from './library-catalog.mjs';
+import {archiveList,protectManagedPlaylists,managePlaylist} from './playlist-management.mjs';
 const MAX = 5 * 1024 * 1024;
 const conflict = () => new HttpError(409, 'playlist_conflict', '재생목록이 먼저 변경됐습니다. 새로고침 후 다시 확인해 주세요.');
 function metadata(r) { return { id: r.id, path: r.path, version: r.current_version, sha256: r.sha256, size: r.size, updatedAt: r.updated_at, updatedBy: r.updated_by, sourceRoot: r.source_root, playlists: JSON.parse(r.catalog) }; }
@@ -31,7 +32,7 @@ function nodeInsert(db,r,n,fileVersion,author,at,guard=false) {
 async function baseline(env,r,parsed) {
   const nodes=await nodeSnapshots(parsed),existing=(await env.DB.prepare('SELECT DISTINCT node_id FROM yebaeon_playlist_node_versions WHERE library_id=?').bind(r.id).all()).results;const missing=nodes.filter(n=>!existing.some(v=>v.node_id===n.id));if(missing.length)await env.DB.batch(missing.map(n=>nodeInsert(env.DB,r,n,r.current_version,r.updated_by,r.updated_at)));return nodes;
 }
-async function save(env, user, r, content) {
+async function save(env, user, r, content,extra=()=>[]) {
   if (content.data.length > MAX) throw new HttpError(413, 'too_large', '재생목록은 5MB까지 저장할 수 있습니다.');
   if (content.hash === r.sha256) return { library: metadata(r), unchanged: true };
   const next = r.current_version + 1, writeId = crypto.randomUUID(), key = `playlists/${r.id}/${writeId}.pro6pl`, now = new Date().toISOString(), summary = JSON.stringify(catalog(content.parsed));
@@ -41,7 +42,8 @@ async function save(env, user, r, content) {
   const results = await env.DB.batch([
     env.DB.prepare('UPDATE yebaeon_playlists SET current_version=?, updated_at=?, updated_by=?, sha256=?, size=?, write_id=?, catalog=? WHERE id=? AND current_version=?').bind(next, now, user.author, content.hash, content.data.length, writeId, summary, r.id, r.current_version),
     env.DB.prepare('INSERT INTO yebaeon_playlist_versions(library_id,version,object_key,sha256,size,author,created_at) SELECT id,?,?,?,?,?,? FROM yebaeon_playlists WHERE id=? AND write_id=?').bind(next,key,content.hash,content.data.length,user.author,now,r.id,writeId),
-    ...changes.map(n=>nodeInsert(env.DB,{...r,write_id:writeId},n,next,user.author,now,true))
+    ...changes.map(n=>nodeInsert(env.DB,{...r,write_id:writeId},n,next,user.author,now,true)),
+    ...extra(writeId,now)
   ]);
   if (results[0].meta.changes !== 1) throw conflict();
   return { library: metadata({ ...r, current_version: next, updated_at: now, updated_by: user.author, sha256: content.hash, size: content.data.length, catalog: summary }) };
@@ -51,6 +53,7 @@ export async function playlistsRoute(request, env, user, id, action) {
   if (!id) {
     method(request, ['GET', 'POST']);
     if (request.method === 'GET') {
+      if(url.searchParams.get('scope')==='archived')return archiveList(request,env);
       const after = url.searchParams.get('after') || '';
       const rows = (await db.prepare('SELECT * FROM yebaeon_playlists WHERE path > ? ORDER BY path LIMIT 51').bind(after).all()).results;
       return json({ libraries: await Promise.all(rows.slice(0,50).map(r=>enriched(env,r))), next: rows.length > 50 ? rows[49].path : null });
@@ -74,6 +77,7 @@ export async function playlistsRoute(request, env, user, id, action) {
     return json({ library: metadata(await row(db,libraryId)) },201);
   }
   const r = await row(db,id);
+  if(['nodes','archive','restore'].includes(action))return managePlaylist(request,env,user,r,action,{load,save,metadata});
   if (action === 'content') {
     method(request,['GET','HEAD']);
     if(url.searchParams.has('node')){
@@ -130,7 +134,7 @@ export async function playlistsRoute(request, env, user, id, action) {
   }
   method(request,['GET','PUT','PATCH']); if(request.method==='GET')return json({library:metadata(r)});
   sameOrigin(request);const match=request.headers.get('If-Match');if(!match || !/^"[1-9][0-9]*"$/.test(match))throw new HttpError(428,'version_required','재생목록 기준 버전이 필요합니다.');if(request.method==='PUT'&&Number(match.slice(1,-1))!==r.current_version)throw conflict();
-  if(request.method==='PUT')return json(await save(env,user,r,await read(request)));
+  if(request.method==='PUT'){const content=await read(request);await protectManagedPlaylists(env,r,content.parsed);return json(await save(env,user,r,content));}
   const raw=await bytes(request,512*1024);let body;try{body=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));}catch{throw new HttpError(400,'invalid_playlist','순서 변경 내용을 확인해 주세요.');}
   if(!body || (!Array.isArray(body.items)&&!Number.isSafeInteger(body.restoreVersion)) || body.items?.length>2000)throw new HttpError(400,'invalid_playlist','순서 목록이 필요합니다.');
   const docs=new Map(), ids=[...new Set((body.items||[]).map(x=>x?.documentId).filter(Boolean))];

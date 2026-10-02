@@ -1,9 +1,12 @@
 import { XMLParser } from 'fast-xml-parser';
-export function usageFromXML(xml) {
+export function documentAttributes(xml) {
   const prefix = xml.replace(/^\uFEFF/, '').replace(/^\s*(?:<\?xml[^?]*\?>)?\s*/, '').replace(/^(?:<!--[\s\S]*?-->\s*)*/, '');
   const root = /^<RVPresentationDocument(?=\s|\/?>)(?:[^>"']|"[^"]*"|'[^']*')*>/.exec(prefix)?.[0];
   if (!root) throw new Error('usage_unavailable');
-  const attrs = new XMLParser({ ignoreAttributes: false, parseAttributeValue: false }).parse(root.endsWith('/>') ? root : root + '</RVPresentationDocument>').RVPresentationDocument;
+  return new XMLParser({ ignoreAttributes: false, parseAttributeValue: false, htmlEntities: true }).parse(root.endsWith('/>') ? root : root + '</RVPresentationDocument>').RVPresentationDocument;
+}
+export function usageFromXML(xml) {
+  const attrs = documentAttributes(xml);
   const value = attrs?.['@_lastDateUsed'];
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value)) ? value : null;
 }

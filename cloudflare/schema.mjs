@@ -1,5 +1,7 @@
 // Version 1: additive initialization; existing rows and other tables are untouched.
 export const schema = [
+  `CREATE TABLE IF NOT EXISTS yebaeon_playlist_controls (library_id TEXT NOT NULL,node_id TEXT NOT NULL,state TEXT NOT NULL,name TEXT NOT NULL,snapshot_key TEXT,updated_at TEXT NOT NULL,updated_by TEXT NOT NULL,PRIMARY KEY(library_id,node_id))`,
+  `CREATE INDEX IF NOT EXISTS yebaeon_playlist_control_state ON yebaeon_playlist_controls(state,library_id,node_id)`,
   `CREATE TABLE IF NOT EXISTS yebaeon_inventory_devices (device_id TEXT PRIMARY KEY, snapshot TEXT NOT NULL, updated_at TEXT NOT NULL, author TEXT NOT NULL, count INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS yebaeon_inventory_members (device_id TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY(device_id,path))`,
   `CREATE INDEX IF NOT EXISTS yebaeon_inventory_path ON yebaeon_inventory_members(path)`,
@@ -65,10 +67,20 @@ async function migrateCurrentMetadata(db) {
     if(!await db.prepare("SELECT name FROM yebaeon_schema_migrations WHERE name='document-policy-v1'").first())throw error;
   }
 }
+async function migrateCategoryMetadata(db) {
+  if (await db.prepare("SELECT name FROM yebaeon_schema_migrations WHERE name='document-category-v1'").first()) return;
+  const columns = new Set((await db.prepare('PRAGMA table_info(yebaeon_documents)').all()).results.map(r=>r.name));
+  const statements = columns.has('category') ? [] : [db.prepare('ALTER TABLE yebaeon_documents ADD COLUMN category TEXT')];
+  // No whole-library extraction on startup or search. Existing rows are learned
+  // from their original XML on the next explicit upload/save, including no-ops.
+  statements.push(db.prepare("INSERT INTO yebaeon_schema_migrations(name) VALUES ('document-category-v1')"));
+  try { await db.batch(statements); }
+  catch(error) { if(!await db.prepare("SELECT name FROM yebaeon_schema_migrations WHERE name='document-category-v1'").first())throw error; }
+}
 const pending = new WeakMap();
 export function ensureSchema(db) {
   if (!pending.has(db)) {
-    const job = db.batch(schema.map(sql => db.prepare(sql))).then(()=>migrateCurrentMetadata(db)).catch(error => { pending.delete(db); throw error; });
+    const job = db.batch(schema.map(sql => db.prepare(sql))).then(()=>migrateCurrentMetadata(db)).then(()=>migrateCategoryMetadata(db)).catch(error => { pending.delete(db); throw error; });
     pending.set(db, job);
   }
   return pending.get(db);

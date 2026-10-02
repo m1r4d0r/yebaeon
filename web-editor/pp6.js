@@ -204,6 +204,7 @@
       if(e.hasAttribute(key)) { const old=attr(e,key), value=uuid();map.set(old,value);e.setAttribute(key,value); }
     }
     for(const e of [node,...all(node,'*')])for(const a of Array.from(e.attributes))if(map.has(a.value))e.setAttribute(a.name,map.get(a.value));
+    return map;
   }
   function duplicate(slide, blank=false) {
     const copy=slide.cloneNode(true);refreshIDs(copy);
