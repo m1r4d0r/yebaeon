@@ -52,7 +52,7 @@
         const row = document.createElement('div'); row.className = 'library-row';
         const copy = document.createElement('div'), title = document.createElement('strong'), detail = document.createElement('small');
         title.textContent = record.name;
-        detail.textContent = `${record.kind === 'playlist' ? '순서' : '문서'} · ${record.author || '로컬 작업'} · ${new Date(record.updatedAt).toLocaleString('ko-KR')} · 기준 ${record.base?.version ? 'v' + record.base.version : '로컬 파일'}`;
+        detail.textContent = `${record.kind === 'playlist' ? '순서' : '문서'} · ${record.author || '로컬 작업'} · ${new Date(record.updatedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})} · 기준 ${record.base?.version ? 'v' + record.base.version : '로컬 파일'}`;
         copy.append(title,detail); row.append(copy);
         const restore = document.createElement('button'); restore.textContent = '복구';
         restore.onclick = async () => { restore.disabled = true; try {
@@ -74,3 +74,4 @@
   $('draftOpen').onclick = show; $('draftClose').onclick=()=> $('draftDialog').close();
   store.all().then(records => { if(records.length)notify(`복구 가능한 초안 ${records.length}개 · ‘브라우저 초안’에서 확인`); }).catch(report);
 })();
+

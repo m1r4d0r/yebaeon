@@ -24,7 +24,7 @@
     $('cloudAccount').textContent = online ? (user ? user.name + ' ▾' : '입장하기') : '연결 안 됨';
     $('cloudAccount').disabled = !online;
     $('cloudSave').disabled = !user || saving || !linked;
-    $('cloudSave').textContent = saving ? '저장 중…' : '서버에 저장 Ctrl+S';
+    $('cloudSave').textContent = saving ? '저장 중…' : '문서 서버 저장 Ctrl+S';
     $('cloudHistory').hidden = !linked || !user;
     const changed = linked && editor.state().serial !== linked.serial;
     $('dirtyState').textContent=editor.state().dirty ? '저장 안 됨' : '';
@@ -254,13 +254,14 @@
 
 
 (function(){
- let items={},pending;
- const labels={synced:'Mac 반영 완료',pending:'서버 변경 있음 · Mac으로 받기 필요',conflict:'서버와 Mac 양쪽 변경 · 충돌 확인 필요',local:'Mac 변경 있음 · 서버로 보내기 필요',unknown:'Mac 상태 확인 전 · 미업로드 포함'};
+ let items={},pending,failed=false,checkedAt=null;
+ const labels={synced:'마지막 Mac 확인에서 일치',pending:'서버 변경 있음 · Mac으로 받기 필요',conflict:'서버와 Mac 양쪽 변경 · 충돌 확인 필요',local:'Mac 변경 있음 · 서버로 보내기 필요',unknown:'Mac 확인 기록 없음 · 동기화 여부 미확인'};
  window.YebaeonSyncLights={
- async refresh(){if(pending)return pending;pending=(async()=>{try{items=(await(await window.YebaeonCloud.api('/sync-observations')).json()).items;}catch{items={};}finally{pending=null;}for(const old of document.querySelectorAll('.sync-light[data-sync-kind]'))old.replaceWith(window.YebaeonSyncLights.dot(old.dataset.syncKind,old.dataset.syncId,old.dataset.syncNode));})();return pending;},
- dot(kind,id,node=''){const info=items[kind+'/'+id+'/'+node],state=info?.state||'unknown',span=document.createElement('span');span.dataset.syncKind=kind;span.dataset.syncId=id;span.dataset.syncNode=node;span.className='sync-light sync-'+state;span.setAttribute('role','img');span.setAttribute('aria-label',labels[state]);span.title=labels[state]+' · 마지막 확인 기준'+(info?' · 마지막 Mac 확인 '+new Date(info.observedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'');return span;}
+ async refresh(){if(pending)return pending;pending=(async()=>{try{items=(await(await window.YebaeonCloud.api('/sync-observations')).json()).items;failed=false;checkedAt=new Date();}catch{failed=true;}finally{pending=null;}for(const old of document.querySelectorAll('.sync-light[data-sync-kind]'))old.replaceWith(window.YebaeonSyncLights.dot(old.dataset.syncKind,old.dataset.syncId,old.dataset.syncNode));})();return pending;},
+ dot(kind,id,node=''){const info=items[kind+'/'+id+'/'+node],state=failed?'unknown':info?.state||'unknown',span=document.createElement('span');span.dataset.syncKind=kind;span.dataset.syncId=id;span.dataset.syncNode=node;span.className='sync-light sync-'+state;span.setAttribute('role','img');span.setAttribute('aria-label',labels[state]);span.title=(failed?'서버 상태 조회 실패 · 이전 기록은 최신 확인이 아닙니다':labels[state])+(info?' · 마지막 Mac 확인 '+new Date(info.observedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+(info.author?' · '+info.author:'')+(info.deviceId?' · 장치 '+info.deviceId.slice(0,8):'')+(info.reason?' · '+info.reason:''):'')+(checkedAt?' · 웹 조회 '+checkedAt.toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'');return span;}
  };
  // Refresh on explicit list/playlist reload and successful saves, never by a polling timer.
  window.addEventListener('yebaeoncloudsaved',()=>{if(window.YebaeonCloud.authenticated())window.YebaeonSyncLights.refresh();});
 })();
+
 

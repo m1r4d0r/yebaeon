@@ -6,6 +6,12 @@ export function observationState(observation,hash){
   if(hash!==observation.server_hash)return observation.status==='upload'?'conflict':'pending';
   return ({same:'synced',download:'pending',upload:'local',unknown:'unknown'})[observation.status]||'unknown';
 }
+// A playlist cannot be green when a linked document has not been checked.
+export function linkedObservation(own,docs,items){
+  const priority={synced:0,unknown:1,local:2,pending:3,conflict:4};let result=own;
+  for(const key of docs){const info=items[key]||{...own,state:'unknown'};if(priority[info.state]>priority[result.state])result={...info,reason:info.state==='unknown'?'연결 문서의 원본 또는 Mac 확인 기록 없음':'연결 문서 상태 반영'};}
+  return result;
+}
 export async function syncObservationsRoute(request,env,user){
   method(request,['GET','POST']);
   if(request.method==='POST'){
@@ -24,7 +30,8 @@ export async function syncObservationsRoute(request,env,user){
   for(const l of libraries){const object=await env.FILES.get(l.object_key);if(!object)continue;const parsed=parsePlaylist(await object.text());for(const n of parsed.playlists){const key='playlist/'+l.id+'/'+n.id;hashes.set(key,await sha256(new TextEncoder().encode(parsed.xml.slice(n.node.start,n.node.end))));links.set(key,n.items.filter(i=>i.kind==='document').map(i=>documentPaths.get(referencePath(i.sourcePath,l.source_root))||''));}}
   const observations=(await env.DB.prepare('SELECT * FROM yebaeon_sync_observations').all()).results,items={};
   const priority={unknown:0,synced:1,local:2,pending:3,conflict:4};
-  for(const o of observations){const key=o.kind+'/'+o.resource_id+'/'+o.node_id;if(!hashes.has(key))continue;const state=observationState(o,hashes.get(key)),old=items[key];if(!old||priority[state]>priority[old.state]||(state===old.state&&o.observed_at>old.observedAt))items[key]={state,observedAt:o.observed_at,author:o.author};}
-  for(const [key,docs] of links){const own=items[key];if(!own)continue;for(const doc of docs){const info=items[doc];if(!info){if(own.state==='synced')items[key]={...own,state:'unknown'};continue;}if(priority[info.state]>priority[items[key].state])items[key]={...info};}}
+  for(const o of observations){const key=o.kind+'/'+o.resource_id+'/'+o.node_id;if(!hashes.has(key))continue;const state=observationState(o,hashes.get(key)),old=items[key];if(!old||priority[state]>priority[old.state]||(state===old.state&&o.observed_at>old.observedAt))items[key]={state,observedAt:o.observed_at,author:o.author,deviceId:o.device_id};}
+  for(const [key,docs] of links){if(items[key])items[key]=linkedObservation(items[key],docs,items);}
   return json({items});
 }
+
