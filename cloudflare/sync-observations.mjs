@@ -24,14 +24,28 @@ export async function syncObservationsRoute(request,env,user){
     }
     if(statements.length)await env.DB.batch(statements);return json({ok:true,observedAt:now});
   }
-  const hashes=new Map(),documentPaths=new Map(),links=new Map();
-  for(const d of (await env.DB.prepare('SELECT id,path,sha256 FROM yebaeon_documents').all()).results){hashes.set('document/'+d.id+'/',d.sha256);documentPaths.set(d.path,'document/'+d.id+'/');}
-  const libraries=(await env.DB.prepare('SELECT p.id,p.source_root,v.object_key FROM yebaeon_playlists p JOIN yebaeon_playlist_versions v ON v.library_id=p.id AND v.version=p.current_version').all()).results;
-  for(const l of libraries){const object=await env.FILES.get(l.object_key);if(!object)continue;const parsed=parsePlaylist(await object.text());for(const n of parsed.playlists){const key='playlist/'+l.id+'/'+n.id;hashes.set(key,await sha256(new TextEncoder().encode(parsed.xml.slice(n.node.start,n.node.end))));links.set(key,n.items.filter(i=>i.kind==='document').map(i=>documentPaths.get(referencePath(i.sourcePath,l.source_root))||''));}}
-  const observations=(await env.DB.prepare('SELECT * FROM yebaeon_sync_observations').all()).results,items={};
+  const raw=new URL(request.url).searchParams.get('targets');
+  // Old open tabs must not trigger the previous unbounded full-library query.
+  if(!raw)return json({items:{},requiresTargets:true});
+  let targets;try{targets=JSON.parse(raw);}catch{throw new HttpError(400,'invalid_targets','상태 확인 대상을 확인해 주세요.');}
+  if(raw.length>14000||!Array.isArray(targets)||targets.length>80||targets.some(t=>!t||!['document','playlist'].includes(t.kind)||typeof t.id!=='string'||!/^[0-9a-f-]{36}$/i.test(t.id)||typeof t.node!=='string'||t.node.length>240||(t.kind==='document'&&t.node)))throw new HttpError(400,'invalid_targets','상태 확인 대상을 확인해 주세요.');
+  const hashes=new Map(),documentPaths=new Map(),links=new Map(),documents=new Map();
+  async function selectIn(sql,values,size=80){const rows=[];for(let offset=0;offset<values.length;offset+=size){const part=values.slice(offset,offset+size);rows.push(...(await env.DB.prepare(sql.replace('$IN',part.map(()=>'?').join(','))).bind(...part).all()).results);}return rows;}
+  const ids=[...new Set(targets.filter(t=>t.kind==='document').map(t=>t.id))];
+  for(const d of await selectIn('SELECT id,path,sha256 FROM yebaeon_documents WHERE id IN ($IN)',ids))documents.set(d.id,d);
+  const playlistIDs=[...new Set(targets.filter(t=>t.kind==='playlist').map(t=>t.id))];
+  const libraries=await selectIn('SELECT p.id,p.source_root,v.object_key FROM yebaeon_playlists p JOIN yebaeon_playlist_versions v ON v.library_id=p.id AND v.version=p.current_version WHERE p.id IN ($IN)',playlistIDs);
+  const paths=new Set();
+  for(const l of libraries){const object=await env.FILES.get(l.object_key);if(!object)continue;const parsed=parsePlaylist(await object.text());for(const n of parsed.playlists){if(!targets.some(t=>t.kind==='playlist'&&t.id===l.id&&t.node===n.id))continue;const key='playlist/'+l.id+'/'+n.id;hashes.set(key,await sha256(new TextEncoder().encode(parsed.xml.slice(n.node.start,n.node.end))));const refs=n.items.filter(i=>i.kind==='document').map(i=>referencePath(i.sourcePath,l.source_root)||'');links.set(key,refs);refs.forEach(p=>{if(p)paths.add(p);});}}
+  for(const d of await selectIn('SELECT id,path,sha256 FROM yebaeon_documents WHERE path IN ($IN)',[...paths]))documents.set(d.id,d);
+  for(const d of documents.values()){const key='document/'+d.id+'/';hashes.set(key,d.sha256);documentPaths.set(d.path,key);}
+  for(const [key,refs] of links)links.set(key,refs.map(p=>documentPaths.get(p)||''));
+  const keys=[...documents.keys()].map(id=>({kind:'document',id,node:''})).concat(targets.filter(t=>t.kind==='playlist')),observations=[],items={};
+  for(let offset=0;offset<keys.length;offset+=30){const part=keys.slice(offset,offset+30);observations.push(...(await env.DB.prepare('SELECT * FROM yebaeon_sync_observations WHERE '+part.map(()=>'(kind=? AND resource_id=? AND node_id=?)').join(' OR ')).bind(...part.flatMap(t=>[t.kind,t.id,t.node])).all()).results);}
   const priority={unknown:0,synced:1,local:2,pending:3,conflict:4};
   for(const o of observations){const key=o.kind+'/'+o.resource_id+'/'+o.node_id;if(!hashes.has(key))continue;const state=observationState(o,hashes.get(key)),old=items[key];if(!old||priority[state]>priority[old.state]||(state===old.state&&o.observed_at>old.observedAt))items[key]={state,observedAt:o.observed_at,author:o.author,deviceId:o.device_id};}
   for(const [key,docs] of links){if(items[key])items[key]=linkedObservation(items[key],docs,items);}
   return json({items});
 }
+
 

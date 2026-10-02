@@ -43,13 +43,36 @@ export const schema = [
 ];
 schema.push(`CREATE INDEX IF NOT EXISTS yebaeon_documents_recent ON yebaeon_documents(updated_at DESC,path)`);
 schema.push(`CREATE INDEX IF NOT EXISTS yebaeon_sync_recent ON yebaeon_sync_status(COALESCE(compared_at,connected_at) DESC)`);
+// Additive, one-time metadata migration. It never deletes originals or old backups.
+async function migrateCurrentMetadata(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS yebaeon_schema_migrations (name TEXT PRIMARY KEY)').run();
+  if (await db.prepare("SELECT name FROM yebaeon_schema_migrations WHERE name='document-policy-v1'").first()) return;
+  const columns = new Set((await db.prepare('PRAGMA table_info(yebaeon_documents)').all()).results.map(r=>r.name));
+  const additions = {last_used:'TEXT',usage_error:'TEXT',usage_version:'INTEGER',search_enabled:'INTEGER NOT NULL DEFAULT 1',history_enabled:'INTEGER NOT NULL DEFAULT 1',history_start:'INTEGER',policy_revision:'INTEGER NOT NULL DEFAULT 0'};
+  const statements=Object.entries(additions).filter(([name])=>!columns.has(name)).map(([name,type])=>db.prepare(`ALTER TABLE yebaeon_documents ADD COLUMN ${name} ${type}`));
+  statements.push(db.prepare(`UPDATE yebaeon_documents SET
+    last_used=(SELECT u.last_used FROM yebaeon_document_usage u WHERE u.document_id=yebaeon_documents.id AND u.version=current_version),
+    usage_error=(SELECT u.error FROM yebaeon_document_usage u WHERE u.document_id=yebaeon_documents.id AND u.version=current_version),
+    usage_version=(SELECT u.version FROM yebaeon_document_usage u WHERE u.document_id=yebaeon_documents.id AND u.version=current_version)`),
+    db.prepare("CREATE INDEX IF NOT EXISTS yebaeon_documents_used ON yebaeon_documents(COALESCE(last_used,'') DESC,path)"),
+    db.prepare('CREATE INDEX IF NOT EXISTS yebaeon_observations_resource ON yebaeon_sync_observations(kind,resource_id,node_id)'),
+    db.prepare("INSERT INTO yebaeon_schema_migrations(name) VALUES ('document-policy-v1')"));
+  try {
+    const results=await db.batch(statements);
+    console.log(JSON.stringify({event:'d1-migration-cost',migration:'document-policy-v1',rowsRead:results.reduce((n,r)=>n+(r.meta?.rows_read||0),0),rowsWritten:results.reduce((n,r)=>n+(r.meta?.rows_written||0),0)}));
+  } catch(error) {
+    // Another isolate may have committed the same transaction first.
+    if(!await db.prepare("SELECT name FROM yebaeon_schema_migrations WHERE name='document-policy-v1'").first())throw error;
+  }
+}
 const pending = new WeakMap();
 export function ensureSchema(db) {
   if (!pending.has(db)) {
-    const job = db.batch(schema.map(sql => db.prepare(sql))).catch(error => { pending.delete(db); throw error; });
+    const job = db.batch(schema.map(sql => db.prepare(sql))).then(()=>migrateCurrentMetadata(db)).catch(error => { pending.delete(db); throw error; });
     pending.set(db, job);
   }
   return pending.get(db);
 }
+
 
 

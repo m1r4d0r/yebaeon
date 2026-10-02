@@ -18,9 +18,10 @@ test('catalog-only playlist entries and current-version content search preserve 
   const ok=async(response,status=200)=>{assert.equal(response.status,status,await response.clone().text());return response.json();};
   assert.equal((await call('/documents?includeIndexed=1')).status,401);assert.equal((await call('/search-index','POST')).status,401);
   const login=await call('/session','POST',JSON.stringify({name:'시험',password:'catalog-test-only'}),{'Content-Type':'application/json'});await ok(login);cookie=login.headers.get('Set-Cookie').split(';')[0];
-  const first=await ok(await call('/documents?includeIndexed=1&sort=name'));assert.equal(first.documents.length,100);assert.ok(first.documents.every(d=>d.available===false));
+  assert.deepEqual((await ok(await call('/documents?includeIndexed=1'))).documents,[]);
+  const first=await ok(await call('/documents?includeIndexed=1&q=.pro6&sort=name'));assert.equal(first.documents.length,100);assert.ok(first.documents.every(d=>d.available===false));
   const db=await mf.getD1Database('DB');assert.equal((await db.prepare('SELECT COUNT(*) AS total FROM yebaeon_library_catalog').first()).total,3107);
-  const second=await ok(await call('/documents?includeIndexed=1&sort=name&after='+encodeURIComponent(first.next)));assert.ok(second.documents[0].path>first.documents.at(-1).path);assert.equal((await ok(await call('/documents'))).documents.length,0);
+  const second=await ok(await call('/documents?includeIndexed=1&q=.pro6&sort=name&after='+encodeURIComponent(first.next)));assert.ok(second.documents[0].path>first.documents.at(-1).path);assert.equal((await ok(await call('/documents'))).documents.length,0);
   const id='33333333-3333-4333-a333-333333333333',path='미업로드 시험 : & %3A.pro6',original=path.normalize('NFD');
   await db.prepare('INSERT INTO yebaeon_library_catalog(id,path,original_path,size,slide_count,snapshot) VALUES (?,?,?,?,?,?)').bind(id,path,original,100,3,'fixture').run();
   let results=await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('미업로드 시험')));assert.equal(results.documents.length,1);assert.equal(results.documents[0].available,false);assert.equal((await call('/documents/'+id+'/content')).status,404);
@@ -37,9 +38,9 @@ test('catalog-only playlist entries and current-version content search preserve 
   assert.equal((await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('옛문장')))).documents.length,0);
   assert.equal((await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('새문장')))).documents[0].version,2);
   await db.prepare('DELETE FROM yebaeon_document_search WHERE document_id=? AND version=2').bind(doc.id).run();
-  assert.equal((await ok(await call('/documents?includeIndexed=1'))).searchIndex.remaining,1);
+  assert.equal((await ok(await call('/documents?includeIndexed=1&q=새문장'))).searchIndex,undefined);
   assert.equal((await call('/search-index','POST',undefined,{Origin:'https://elsewhere.test'})).status,403);
-  const progress=await ok(await call('/search-index','POST'));assert.equal(progress.remaining,0);assert.equal(progress.failed,0);
+  const progress=await ok(await call('/search-index','POST'));assert.equal(progress.next,null);assert.equal(progress.processed,1);
   assert.equal((await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('새문장')))).documents[0].id,doc.id);
   assert.equal((await call('/documents?includeIndexed=1&cursor=bad')).status,400);
   // Complete metadata scans preserve IDs, raw spelling and original-file semantics.
@@ -74,3 +75,4 @@ test('catalog-only playlist entries and current-version content search preserve 
   assert.equal((await call('/inventory','POST',JSON.stringify({documents:[]}),{'Content-Type':'application/json'})).status,400);
 
 });
+

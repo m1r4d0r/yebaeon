@@ -1,3 +1,4 @@
+import { measuredDB } from './db-cost.mjs';
 import {inventoryRoute} from './inventory.mjs';
 import {syncObservationsRoute} from './sync-observations.mjs';
 import { bootstrapPlaylist } from './playlist-bootstrap.mjs';
@@ -11,7 +12,7 @@ import { indexSearch } from './document-search.mjs';
 import { HttpError, headers, json, method, sameOrigin } from './http.mjs';
 export default {
   async fetch(request, env) {
-    let pathname;
+    let pathname, costDB;
     try { pathname = decodeURIComponent(new URL(request.url).pathname); } catch (_) { return json({ error: 'not_found', message: '없는 요청입니다.' }, 404); }
     const resource = pathname === '/resources' || pathname.startsWith('/resources/');
     if (!resource && pathname !== '/api' && !pathname.startsWith('/api/')) return env.ASSETS.fetch(request);
@@ -20,7 +21,7 @@ export default {
         method(request, ['GET', 'HEAD']);
         return request.method === 'HEAD' ? new Response(null, { headers }) : json({ ok: true, service: 'yebaeon', mode: 'document-library' });
       }
-      const route = /^\/api\/documents(?:\/([^/]+)(?:\/(content|versions|usage))?)?$/.exec(pathname);
+      const route = /^\/api\/documents(?:\/([^/]+)(?:\/(content|versions|usage|policy))?)?$/.exec(pathname);
       const playlist = /^\/api\/playlists(?:\/([^/]+)(?:\/(content|versions|plan))?)?$/.exec(pathname);
       if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && pathname !== '/api/inventory' && !resource && !route && !playlist) throw new HttpError(404, 'not_found', '없는 요청입니다.');
       if (!configured(env)) {
@@ -28,6 +29,8 @@ export default {
         throw new HttpError(503, 'setup_required', '서버의 공용 비밀번호 설정이 아직 완료되지 않았습니다.');
       }
       await ensureSchema(env.DB);
+      costDB=measuredDB(env.DB,route ? `documents/${route[2]|| (route[1] ? "item" : "list")}` : playlist ? `playlists/${playlist[2]|| (playlist[1] ? "item" : "list")}` : resource ? "resource" : pathname);
+      env={...env,DB:costDB};
       if (pathname === '/api/session') {
         const response = await sessionRoute(request, env);
         if (response.ok && request.method === 'GET' && (request.headers.get('User-Agent') || '').startsWith('YebaeOn-Sync/')) {
@@ -39,7 +42,7 @@ export default {
       const user = await requireSession(request, env);
       if(pathname==='/api/inventory')return await inventoryRoute(request,env,user);
       if(pathname==='/api/sync-observations')return await syncObservationsRoute(request,env,user);
-      if(pathname==='/api/search-index'){method(request,['POST']);sameOrigin(request);return json(await indexSearch(env));}
+      if(pathname==='/api/search-index'){method(request,['POST']);sameOrigin(request);return json(await indexSearch(env,8,new URL(request.url).searchParams.get('after')||''));}
       if (pathname === '/api/playlist-bootstrap') return await bootstrapPlaylist(request, env, user);
       if (resource) {
         method(request, ['GET', 'HEAD']);
@@ -57,8 +60,9 @@ export default {
       if (error instanceof HttpError) return json({ error: error.code, message: error.message }, error.status, error.headers);
       console.error('YebaeOn API operation failed:', error?.name || 'Error');
       return json({ error: 'server_error', message: '서버 작업을 완료하지 못했습니다. 내 편집 내용을 보관하고 다시 시도해 주세요.' }, 503);
-    }
+    } finally { costDB?.report(); }
   }
 };
+
 
 

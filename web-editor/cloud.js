@@ -11,11 +11,7 @@
   function rememberOriginal(doc,xml){const old=originals.get(doc.id);if(old)originalBytes-=old.xml.length*2;originals.delete(doc.id);if(xml.length*2<=16*1024*1024){originals.set(doc.id,{version:doc.version,sha256:doc.sha256,xml});originalBytes+=xml.length*2;}while(originalBytes>24*1024*1024||originals.size>24){const first=originals.keys().next().value;originalBytes-=originals.get(first).xml.length*2;originals.delete(first);}}
   const select=new YebaeonSelection.Selection($('documentsPane'),{kind:'documents',undo:redo=>editor.undo(redo),open:()=>openCloud(select.cursor,false,documents.find(d=>d.id===select.cursor)),copy:()=>YebaeonSelection.copy({kind:'documents',documents:documents.filter(d=>select.chosen.has(d.id))})});
   let activitySequence=0;
-  let searchIndex=null,indexBusy=false;
-  function paintSearchIndex(){const target=$('searchIndexState');if(!target)return;target.hidden=!searchIndex?.remaining&&!searchIndex?.failed;target.textContent=searchIndex?.remaining?`본문 검색 준비 중 · ${searchIndex.total-searchIndex.remaining}/${searchIndex.total}개`:(searchIndex?.failed?`본문을 읽지 못한 문서 ${searchIndex.failed}개는 이름으로 검색할 수 있습니다.`:'');}
-  async function startSearchIndexing(){if(indexBusy||!user||!searchIndex?.remaining||document.hidden)return;indexBusy=true;try{while(user&&searchIndex.remaining&&!document.hidden){searchIndex=await(await api('/search-index',{method:'POST'})).json();paintSearchIndex();if(searchIndex.remaining)await new Promise(resolve=>setTimeout(resolve,250));}if(!searchIndex.remaining)await list();}catch(error){const target=$('searchIndexState');if(target){target.hidden=false;target.textContent='본문 검색 준비 중 연결이 끊겼습니다. 목록을 갱신하면 이어서 진행합니다.';}}finally{indexBusy=false;}}
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)startSearchIndexing();});
-  let listNext = null, listSequence = 0, indexTimer = null, historyDoc = null, historyNext = null;
+  let listNext = null, listSequence = 0, historyDoc = null, historyNext = null;
   const rememberName = name => { try { localStorage.setItem('yebaeon.workerName', name); } catch (_) {} };
   const recalledName = () => { try { return localStorage.getItem('yebaeon.workerName') || ''; } catch (_) { return ''; } };
   const time = value => new Date(value).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short',timeZone:'Asia/Seoul' });
@@ -26,6 +22,7 @@
     $('cloudSave').disabled = !user || saving || !linked;
     $('cloudSave').textContent = saving ? '저장 중…' : '문서 서버 저장 Ctrl+S';
     $('cloudHistory').hidden = !linked || !user;
+    $('documentPolicy').hidden=!linked||!user;
     const changed = linked && editor.state().serial !== linked.serial;
     $('dirtyState').textContent=editor.state().dirty ? '저장 안 됨' : '';
     $('locationTitle').textContent=linked ? (window.YebaeonPlaylists?.currentName?.() ? window.YebaeonPlaylists.currentName()+' › ' : '')+editor.state().name.replace(/\.pro6$/i,'') : '예배온 Studio';
@@ -84,16 +81,16 @@
   function empty(target, message) { const div = document.createElement('div'); div.className = 'library-empty'; div.textContent = message; target.append(div); }
   async function list(more = false) {
     if (!needUser()) return;
-    clearTimeout(indexTimer);
     const sequence = ++listSequence, query = $('libraryQuery').value.trim(), sort = $('librarySort').value;
     const scroll = more ? null : $('libraryList').scrollTop;
     if (!more) { listNext = null; documents=[]; $('libraryList').replaceChildren(); }
-    $('libraryMore').hidden = true; $('libraryMessage').textContent = '문서 목록을 불러오고 있습니다…';
+    $('libraryMore').hidden = true;
+    if(!query){select.setKeys([]);empty($('libraryList'),'검색어를 입력해주세요');$('libraryMessage').textContent='';return;}
+    $('libraryMessage').textContent = '검색하고 있습니다…';
     try {
       const params = new URLSearchParams({q:query,sort,includeIndexed:'1'});
       if(more && listNext) params.set(sort==='name'||sort==='name-desc' ? 'after' : 'cursor',listNext);
-      const [data]=await Promise.all([(async()=> (await api('/documents?' + params)).json())(),window.YebaeonSyncLights.refresh()]);
-      if(data.searchIndex){searchIndex=data.searchIndex;paintSearchIndex();startSearchIndexing();}
+      const data=await(await api('/documents?' + params)).json();
       if (sequence !== listSequence) return;
       for (const doc of data.documents) {
         documents.push(doc);const item=document.createElement('div');item.className='document-item';select.bind(item,doc.id);
@@ -101,15 +98,20 @@
         const date=doc.lastDateUsed ? new Date(doc.lastDateUsed).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric',timeZone:'Asia/Seoul'})+' 사용' : '사용일 없음';
         small.textContent=doc.available===false?'원본 미업로드 · 편집 불가':doc.matchedBy==='content'?'본문 일치':date;item.classList.toggle('unavailable',doc.available===false);item.append(window.YebaeonSyncLights.dot('document',doc.id,''),name,small);item.title=doc.path+(doc.localPresent===false?' · 마지막 Mac 인덱스에서 없음 · 서버 원본과 이력은 보존됩니다.':'');
         item.addEventListener('click',e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey)openCloud(doc.id,false,doc);});
-        item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id,false,doc)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()}]);};$('libraryList').append(item);
+        item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id,false,doc)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()},{label:'선택 문서를 찬양용으로 설정',action:()=>applySelectedPolicy(true,false)},{label:'선택 문서를 광고·기도·말씀용으로 설정',action:()=>applySelectedPolicy(false,true)}]);};$('libraryList').append(item);
       }
       select.setKeys(documents.map(d=>d.id));
       if(scroll !== null) $('libraryList').scrollTop = scroll;
       listNext = data.next; $('libraryMore').hidden = !listNext;
       if (!$('libraryList').children.length) empty($('libraryList'), query ? '검색 결과가 없습니다.' : '아직 서버 문서가 없습니다. 교회 Sync에서 올려 주세요.');
-      $('libraryMessage').textContent = data.indexing?.remaining ? `최근 사용일 수집 중 · ${data.indexing.total-data.indexing.remaining}/${data.indexing.total}개. 확인된 날짜부터 정렬해 표시합니다.` : data.indexing?.failed ? `최근 사용일 확인 실패 ${data.indexing.failed}개는 날짜 없는 문서와 함께 뒤에 표시됩니다.` : '';
-      if(data.indexing?.remaining && !more) indexTimer=setTimeout(()=>{if(document.visibilityState==='visible')list();},6000);
+      $('libraryMessage').textContent='';
+      await window.YebaeonSyncLights.refresh();
     } catch (error) { if (sequence === listSequence) $('libraryMessage').textContent = error.message; }
+  }
+  async function applySelectedPolicy(searchEnabled,historyEnabled){
+    const chosen=documents.filter(d=>select.chosen.has(d.id)&&d.available!==false);if(!chosen.length)return;
+    if(!confirm(`${chosen.length}개 문서에 ${searchEnabled?'본문 검색 켬':'본문 검색 끔'} / ${historyEnabled?'이력 보관 켬':'이력 보관 끔'}을 적용할까요? 기존 백업은 유지됩니다.`))return;
+    let done=0;try{for(const item of chosen){const doc=(await(await api('/documents/'+item.id)).json()).document;await api('/documents/'+item.id+'/policy',{method:'PUT',headers:{'Content-Type':'application/json','If-Match':`"${doc.version}"`},body:JSON.stringify({searchEnabled,historyEnabled,policyRevision:doc.policyRevision||0})});done++;}$('libraryMessage').textContent=`${done}개 설정 저장됨 · 검색 결과는 다음 검색 때 반영됩니다.`;}catch(error){$('libraryMessage').textContent=`${done}/${chosen.length}개 적용 후 중단 · ${error.message}`;}
   }
   async function openCloud(id, fromPlaylist = false, known = null) {
     const token=++openSequence;
@@ -203,8 +205,35 @@
   $('entryLocal').onclick = () => $('entryDialog').close();
   try { const saved=localStorage.getItem('yebaeon.librarySort'); if(['name','name-desc','used','updated'].includes(saved))$('librarySort').value=saved; } catch (_) {}
   $('librarySort').onchange = () => { try { localStorage.setItem('yebaeon.librarySort',$('librarySort').value); } catch (_) {} list(); };
+  let maintenanceAfter='',maintenanceDone=false;
+  $('indexMaintenance').onclick=()=>{if(!needUser())return;$('accountMenu').hidden=true;$('indexMaintenanceDialog').showModal();};
+  $('indexMaintenanceClose').onclick=()=>$('indexMaintenanceDialog').close();
+  $('indexMaintenanceRun').onclick=async()=>{
+    const button=$('indexMaintenanceRun');button.disabled=true;let scanned=0,processed=0,failed=0;
+    try{if(maintenanceDone){maintenanceAfter='';maintenanceDone=false;}
+      for(let batch=0;batch<10;batch++){const result=await(await api('/search-index?'+new URLSearchParams({after:maintenanceAfter}),{method:'POST'})).json();scanned+=result.scanned;processed+=result.processed;failed+=result.failed;maintenanceAfter=result.next||'';if(!result.next){maintenanceDone=true;break;}}
+      $('indexMaintenanceMessage').textContent=`이번 확인 ${scanned}개 · 보완 ${processed}개 · 실패 ${failed}개 · ${maintenanceDone?'전체 경로 확인 완료':'나머지는 다음 버튼 클릭 때 확인합니다'}`;button.textContent=maintenanceDone?'처음부터 다시 확인':'다음 최대 80개 확인';
+    }catch(error){$('indexMaintenanceMessage').textContent=error.message;}finally{button.disabled=false;}
+  };
+  $('documentPolicy').onclick=async()=>{
+    if(!linked||!needUser())return;const id=linked.id;
+    try{const doc=(await(await api('/documents/'+id)).json()).document;if(linked?.id!==id)return;
+      const form=$('documentPolicyDialog');form.dataset.document=id;form.dataset.version=doc.version;form.dataset.revision=doc.policyRevision||0;
+      $('policySearch').checked=doc.searchEnabled!==false;$('policyHistory').checked=doc.historyEnabled!==false;$('policyMessage').textContent=doc.name+' · 기존 백업은 유지됩니다.';form.showModal();
+    }catch(error){editor.status(error.message);}
+  };
+  $('policySong').onclick=()=>{$('policySearch').checked=true;$('policyHistory').checked=false;};
+  $('policyWeekly').onclick=()=>{$('policySearch').checked=false;$('policyHistory').checked=true;};
+  $('policyClose').onclick=()=>$('documentPolicyDialog').close();
+  $('policySave').onclick=async()=>{
+    const form=$('documentPolicyDialog'),button=$('policySave');button.disabled=true;
+    try{const result=await(await api('/documents/'+form.dataset.document+'/policy',{method:'PUT',headers:{'Content-Type':'application/json','If-Match':`"${form.dataset.version}"`},body:JSON.stringify({searchEnabled:$('policySearch').checked,historyEnabled:$('policyHistory').checked,policyRevision:Number(form.dataset.revision)})})).json();
+      if(linked?.id===result.document.id)Object.assign(linked,{searchEnabled:result.document.searchEnabled,historyEnabled:result.document.historyEnabled,policyRevision:result.document.policyRevision});form.close();editor.status('검색·이력 설정 저장됨');
+    }catch(error){$('policyMessage').textContent=error.message;}finally{button.disabled=false;}
+  };
   $('libraryRefresh').onclick = () => list(); $('libraryMore').onclick = () => list(true);
-  let searchTimer; $('libraryQuery').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => list(), 250); };
+  $('libraryQuery').onkeydown=e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();list();}};
+  $('libraryQuery').oninput=()=>{if(!$('libraryQuery').value.trim())list();};
   $('cloudSave').onclick = async () => {
     if (!needUser()) return;
     try {
@@ -254,14 +283,23 @@
 
 
 (function(){
- let items={},pending,failed=false,checkedAt=null;
+ let items={},pending,refreshAgain=false,failed=false,checkedAt=null;
  const labels={synced:'마지막 Mac 확인에서 일치',pending:'서버 변경 있음 · Mac으로 받기 필요',conflict:'서버와 Mac 양쪽 변경 · 충돌 확인 필요',local:'Mac 변경 있음 · 서버로 보내기 필요',unknown:'Mac 확인 기록 없음 · 동기화 여부 미확인'};
  window.YebaeonSyncLights={
- async refresh(){if(pending)return pending;pending=(async()=>{try{items=(await(await window.YebaeonCloud.api('/sync-observations')).json()).items;failed=false;checkedAt=new Date();}catch{failed=true;}finally{pending=null;}for(const old of document.querySelectorAll('.sync-light[data-sync-kind]'))old.replaceWith(window.YebaeonSyncLights.dot(old.dataset.syncKind,old.dataset.syncId,old.dataset.syncNode));})();return pending;},
+ async refresh(){
+   if(pending){refreshAgain=true;return pending;}
+   pending=(async()=>{do{refreshAgain=false;
+     const targets=[...new Map([...document.querySelectorAll('.sync-light[data-sync-kind]')].filter(el=>el.dataset.syncId).map(el=>[el.dataset.syncKind+'/'+el.dataset.syncId+'/'+el.dataset.syncNode,{kind:el.dataset.syncKind,id:el.dataset.syncId,node:el.dataset.syncNode||''}])).values()];
+     if(!targets.length){items={};continue;}
+     try{const fresh={};for(let offset=0;offset<targets.length;offset+=40){const data=await(await window.YebaeonCloud.api('/sync-observations?'+new URLSearchParams({targets:JSON.stringify(targets.slice(offset,offset+40))}))).json();Object.assign(fresh,data.items);}items=fresh;failed=false;checkedAt=new Date();}catch{items={};failed=true;}
+     for(const old of document.querySelectorAll('.sync-light[data-sync-kind]'))old.replaceWith(window.YebaeonSyncLights.dot(old.dataset.syncKind,old.dataset.syncId,old.dataset.syncNode));
+   }while(refreshAgain);})().finally(()=>{pending=null;});return pending;
+ },
  dot(kind,id,node=''){const info=items[kind+'/'+id+'/'+node],state=failed?'unknown':info?.state||'unknown',span=document.createElement('span');span.dataset.syncKind=kind;span.dataset.syncId=id;span.dataset.syncNode=node;span.className='sync-light sync-'+state;span.setAttribute('role','img');span.setAttribute('aria-label',labels[state]);span.title=(failed?'서버 상태 조회 실패 · 이전 기록은 최신 확인이 아닙니다':labels[state])+(info?' · 마지막 Mac 확인 '+new Date(info.observedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+(info.author?' · '+info.author:'')+(info.deviceId?' · 장치 '+info.deviceId.slice(0,8):'')+(info.reason?' · '+info.reason:''):'')+(checkedAt?' · 웹 조회 '+checkedAt.toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'');return span;}
  };
  // Refresh on explicit list/playlist reload and successful saves, never by a polling timer.
  window.addEventListener('yebaeoncloudsaved',()=>{if(window.YebaeonCloud.authenticated())window.YebaeonSyncLights.refresh();});
 })();
+
 
 

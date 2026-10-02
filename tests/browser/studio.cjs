@@ -7,17 +7,19 @@ const assert=require('node:assert/strict');
 (async()=>{
  const root=resolve('web-editor');const server=createServer(async(req,res)=>{try{const path=resolve(root,'.'+new URL(req.url,'http://localhost').pathname.replace(/\/$/,'/index.html'));if(!path.startsWith(root+'/'))throw Error();res.setHeader('Content-Type',({'.html':'text/html','.js':'application/javascript','.css':'text/css'})[extname(path)]||'application/octet-stream');res.end(await readFile(path));}catch{res.writeHead(404);res.end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:960}});const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
- let xml='',version=1,playlistVersion=1,order=[],contentReads=0,orderPatches=0,failOrderSave=false;
+ let documentQueries=0,maintenanceCalls=0,xml='',version=1,playlistVersion=1,order=[],contentReads=0,orderPatches=0,failOrderSave=false;
  const id='11111111-1111-4111-a111-111111111111',libraryID='22222222-2222-4222-a222-222222222222';
- let catalogEnabled=false;
+ let catalogEnabled=false,policyRevision=0,policyCalls=0,searchEnabled=true,historyEnabled=true;
  const pendingDoc={id:'33333333-3333-4333-a333-333333333333',name:'아직 안 올라온 찬양.pro6',path:'아직 안 올라온 찬양.pro6',available:false,version:null,slideCount:3};
- const doc=()=>({id,path:'시험 문서.pro6',name:'시험 문서.pro6',version,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',lastDateUsed:'2026-10-01T00:00:00Z',useCount:1,sha256:createHash('sha256').update(xml).digest('hex')});
+ const doc=()=>({id,policyRevision,searchEnabled,historyEnabled,path:'시험 문서.pro6',name:'시험 문서.pro6',version,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',lastDateUsed:'2026-10-01T00:00:00Z',useCount:1,sha256:createHash('sha256').update(xml).digest('hex')});
  const nodeHash=()=>createHash('sha256').update(JSON.stringify(order)).digest('hex');
  const library=()=>({id:libraryID,path:'기본.pro6pl',version:playlistVersion,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',playlists:[{id:'A',name:'금요기도회',itemCount:order.length}]});
  await page.route('**/api/**',async route=>{const u=new URL(route.request().url()),path=u.pathname,method=route.request().method();let data={};
  if(path==='/api/sync-observations')data={items:{['document/'+id+'/']:{state:'pending',observedAt:'2026-10-02T00:00:00Z'},['playlist/'+libraryID+'/A']:{state:'synced',observedAt:'2026-10-02T00:00:00Z'}}};
+ else if(path==='/api/search-index'){maintenanceCalls++;data={next:null,processed:0};}
  else if(path==='/api/session')data={ready:true,authenticated:true,name:'시험'};
- else if(path==='/api/documents'){const q=u.searchParams.get('q')||'';data={documents:xml?(catalogEnabled?(q==='본문만검색'?[{...doc(),matchedBy:'content'}]:[doc(),pendingDoc].filter(d=>d.name.includes(q))):[doc()]):[],next:null};}
+ else if(path==='/api/documents'){documentQueries++;const q=u.searchParams.get('q')||'';data={documents:xml?(catalogEnabled?(q==='본문만검색'?[{...doc(),matchedBy:'content'}]:[doc(),pendingDoc].filter(d=>q==='문서전체시험'||d.name.includes(q))):[doc()]):[],next:null};}
+ else if(path==='/api/documents/'+id+'/policy'){const body=JSON.parse(route.request().postData());assert.equal(body.policyRevision,policyRevision);searchEnabled=body.searchEnabled;historyEnabled=body.historyEnabled;policyRevision++;policyCalls++;data={document:doc()};}
  else if(path==='/api/documents/'+id+'/content'){contentReads++;await route.fulfill({body:xml,contentType:'application/xml'});return;}
  else if(path==='/api/documents/'+id){if(method==='PUT'){xml=route.request().postData();version++;}data={document:doc()};}
  else if(path==='/api/playlists')data={libraries:xml?[library()]:[],next:null};
@@ -35,9 +37,13 @@ const assert=require('node:assert/strict');
  await page.goto(`http://127.0.0.1:${server.address().port}/`);await page.waitForFunction(()=>window.YebaeonCloud&&window.YebaeonResources);
  await page.addScriptTag({path:'web-editor/sample-demo.js'});
  xml=await page.evaluate(()=>{const m=PP6.parse(PP6_SAMPLE.xml,'test.pro6');for(const slide of PP6.slides(m)){const box=PP6.textElements(slide)[0],ref=box.cloneNode(true);PP6.refreshIDs(ref);PP6.setText(ref,'요한복음 3:16');ref.querySelector('RVRect3D').textContent='{120 900 0 1680 100}';box.parentNode.append(ref);}return PP6.serialize(m);});
- order=[{id:'cue0'},{id:'cue1'}];await page.evaluate(()=>YebaeonCloud.refresh());await page.locator('#libraryList .document-item').click();await page.waitForFunction(()=>YebaeonEditor.ready());await page.evaluate(()=>YebaeonPlaylists.show());
+ assert.equal(documentQueries,0,'initial studio must not query the document library');assert.match(await page.locator('#libraryList').textContent(),/검색어를 입력해주세요/);
+ await page.locator('#libraryQuery').fill('시험');await page.waitForTimeout(400);assert.equal(documentQueries,0,'typing must not query D1');assert.equal(maintenanceCalls,0);
+ order=[{id:'cue0'},{id:'cue1'}];await page.locator('#libraryQuery').press('Enter');await page.locator('#libraryQuery').fill('시험');await page.locator('#libraryQuery').press('Enter');await page.locator('#libraryList .document-item').click();await page.waitForFunction(()=>YebaeonEditor.ready());await page.evaluate(()=>YebaeonPlaylists.show());
  assert.equal(await page.locator('#libraryList .sync-pending').count(),1);assert.equal(await page.locator('#playlistsList .sync-synced').count(),1);assert.match(await page.locator('#libraryList .sync-light').getAttribute('title'),/마지막 Mac 확인/);
- await page.evaluate(async()=>{const api=YebaeonCloud.api;YebaeonCloud.api=(path,...args)=>path==='/sync-observations'?Promise.reject(new Error('fixture offline')):api(path,...args);await YebaeonSyncLights.refresh();YebaeonCloud.api=api;});assert.equal(await page.locator('#playlistsList .sync-synced').count(),0);assert.match(await page.locator('#playlistsList .sync-light').getAttribute('title'),/조회 실패/);await page.evaluate(()=>YebaeonSyncLights.refresh());
+ await page.evaluate(async()=>{const api=YebaeonCloud.api;YebaeonCloud.api=(path,...args)=>path.startsWith('/sync-observations')?Promise.reject(new Error('fixture offline')):api(path,...args);await YebaeonSyncLights.refresh();YebaeonCloud.api=api;});assert.equal(await page.locator('#playlistsList .sync-synced').count(),0);assert.match(await page.locator('#playlistsList .sync-light').getAttribute('title'),/조회 실패/);await page.evaluate(()=>YebaeonSyncLights.refresh());
+ await page.locator('#documentPolicy').click();await page.locator('#policySong').click();assert.equal(await page.locator('#policySearch').isChecked(),true);assert.equal(await page.locator('#policyHistory').isChecked(),false);await page.locator('#policySave').click();await page.locator('#documentPolicyDialog').waitFor({state:'hidden'});assert.equal(policyCalls,1);assert.equal(historyEnabled,false);
+ await page.locator('#documentPolicy').click();await page.locator('#policyWeekly').click();assert.equal(await page.locator('#policySearch').isChecked(),false);assert.equal(await page.locator('#policyHistory').isChecked(),true);await page.locator('#policySave').click();await page.locator('#documentPolicyDialog').waitFor({state:'hidden'});assert.equal(policyCalls,2);
  templateXML=await page.evaluate(xml=>new XMLSerializer().serializeToString(PP6.slides(PP6.parse(xml,'template'))[0]),xml);assert.equal(templateReads,0);assert.equal(await page.locator('#playlistItems').getByText(/함께 사용:/).count(),0);
  assert.equal(await page.locator('.slide-card').count(),3);
  await page.locator('#slideColumns').evaluate(e=>{e.value='6';e.dispatchEvent(new Event('input'));});assert.equal(await page.locator('#slideColumnsValue').textContent(),'6개');assert.equal(await page.evaluate(()=>getComputedStyle(document.getElementById('slides')).gridTemplateColumns.split(' ').length),6);
@@ -50,7 +56,7 @@ const assert=require('node:assert/strict');
  assert.deepEqual(previewCheck,{reused:true,edited:true,fontInvalidated:true});
  await page.locator('.slide-card').first().click();await page.locator('.slide-card').nth(2).click({modifiers:['Shift']});assert.equal(await page.locator('.slide-card.selected').count(),3);await page.locator('.slide-card').nth(1).click({modifiers:['Control']});assert.equal(await page.locator('.slide-card.selected').count(),2);
  const patchesBefore=orderPatches;await page.locator('#libraryList .document-item').dragTo(page.locator('#playlistItems .order-item').first());await page.waitForFunction(()=>document.getElementById('playlistsMessage').textContent.includes('초안 보존됨'));await page.waitForTimeout(350);assert.equal(orderPatches,patchesBefore,'order changes must stay local until explicit save');assert.equal(order.length,2);assert.match(await page.locator('#playlistState').textContent(),/저장 안 됨/);
- const localOrder=await page.evaluate(async()=>{const records=await YebaeonDrafts.all();return records.find(r=>r.kind==='playlist');});assert.equal(localOrder.items.length,3);await page.reload();await page.addScriptTag({path:'web-editor/sample-demo.js'});await page.waitForFunction(()=>window.YebaeonPlaylists?.state().dirty&&document.querySelectorAll('#playlistItems .order-item').length===3);assert.equal(orderPatches,patchesBefore,'reload recovery must not write the server');await page.locator('#libraryList .document-item').click();await page.waitForFunction(()=>YebaeonEditor.ready());
+ const localOrder=await page.evaluate(async()=>{const records=await YebaeonDrafts.all();return records.find(r=>r.kind==='playlist');});assert.equal(localOrder.items.length,3);await page.reload();await page.addScriptTag({path:'web-editor/sample-demo.js'});await page.waitForFunction(()=>window.YebaeonPlaylists?.state().dirty&&document.querySelectorAll('#playlistItems .order-item').length===3);assert.equal(orderPatches,patchesBefore,'reload recovery must not write the server');await page.locator('#libraryQuery').fill('시험');await page.locator('#libraryQuery').press('Enter');await page.locator('#libraryList .document-item').click();await page.waitForFunction(()=>YebaeonEditor.ready());
  await page.evaluate(()=>YebaeonPlaylists.openNode('22222222-2222-4222-a222-222222222222','A'));assert.equal(await page.locator('#playlistItems .order-item').count(),3,'opening the playlist must offer draft recovery');assert.equal(orderPatches,patchesBefore);
  failOrderSave=true;await page.locator('#playlistRetry').click();await page.waitForFunction(()=>YebaeonPlaylists.state().blocked&&!YebaeonPlaylists.state().busy);assert.equal(await page.evaluate(()=>YebaeonPlaylists.state().dirty),true);assert.equal(await page.locator('#playlistItems .order-item').count(),3);assert.ok((await page.evaluate(()=>YebaeonDrafts.all())).some(r=>r.kind==='playlist'));
  failOrderSave=false;await page.locator('#playlistRetry').click();await page.waitForFunction(()=>document.getElementById('playlistsMessage').textContent==='순서 저장됨');assert.equal(order.length,3);
@@ -81,8 +87,8 @@ const assert=require('node:assert/strict');
  const browserFormat=await page.evaluate(async xml=>{const slide=new DOMParser().parseFromString(xml,'application/xml').documentElement;return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(PP6.templateFormat(slide)))),n=>n.toString(16).padStart(2,'0')).join('');},templateXML);
  assert.equal(browserFormat,templateFormatHash(templateXML),'build and browser must agree on the template format');
  template.format=templateFormatHash(templateXML);xml='<?xml version="1.0"?><RVPresentationDocument width="1920" height="1080"><array rvXMLIvarName="groups"><RVSlideGrouping name="본문"><array rvXMLIvarName="slides">'+templateXML+'</array></RVSlideGrouping></array></RVPresentationDocument>';version++;
- await page.reload();await page.locator('#libraryList .document-item').click();await page.waitForFunction(()=>document.querySelector('#templateSelect option').textContent==='성경 · 본문');
- catalogEnabled=true;await page.evaluate(()=>YebaeonCloud.refresh());
+ await page.reload();await page.locator('#libraryQuery').fill('시험');await page.locator('#libraryQuery').press('Enter');await page.locator('#libraryList .document-item').click();await page.waitForFunction(()=>document.querySelector('#templateSelect option').textContent==='성경 · 본문');
+ catalogEnabled=true;await page.locator('#libraryQuery').fill('문서전체시험');await page.locator('#libraryQuery').press('Enter');
  await page.evaluate(()=>{PP6.setText(PP6.textElements(YebaeonEditor.current())[0],'전환 전에 편집한 초안');YebaeonEditor.markDirty();});
  const pendingRow=page.locator('#libraryList .document-item').filter({hasText:'아직 안 올라온 찬양'});await pendingRow.click();await page.waitForFunction(()=>!YebaeonEditor.ready());
  assert.equal(await page.evaluate(()=>YebaeonEditor.ready()),false);assert.equal(await page.locator('#cloudSave').isDisabled(),true);assert.equal(await page.locator('#templateSelect').isDisabled(),true);assert.match(await page.locator('#emptyDocument').textContent(),/원본 미업로드/);assert.equal(await page.locator('.slide-card').count(),0);
@@ -90,7 +96,7 @@ const assert=require('node:assert/strict');
  await page.locator('#playlistItems .order-item').first().click();assert.match(await page.locator('#emptyDocument').textContent(),/텍스트 편집과 미리보기를 사용할 수 없습니다/);
  await page.screenshot({path:'artifacts/studio-indexed-document.png'});
  await page.locator('#libraryList .document-item').filter({hasText:'시험 문서'}).click();await page.waitForFunction(()=>YebaeonEditor.ready());assert.equal(await page.evaluate(()=>YebaeonEditor.state().dirty),true);assert.equal(await page.evaluate(()=>PP6.parseRTF(PP6.textNode(PP6.textElements(YebaeonEditor.current())[0]).textContent).text),'전환 전에 편집한 초안');
- await page.locator('#libraryQuery').fill('본문만검색');await page.waitForFunction(()=>document.querySelectorAll('#libraryList .document-item').length===1);assert.equal(await page.locator('#libraryList small').textContent(),'본문 일치');
+ await page.locator('#libraryQuery').fill('본문만검색');await page.locator('#libraryQuery').press('Enter');await page.waitForFunction(()=>document.querySelectorAll('#libraryList .document-item').length===1);assert.equal(await page.locator('#libraryList small').textContent(),'본문 일치');
  assert.deepEqual(errors,[]);
  await page.addScriptTag({path:'web-editor/sample-demo.js'});
  await page.evaluate(()=>{YebaeonEditor.open(PP6_SAMPLE.xml,'배치 편집 시험.pro6',true,'layout-test');YebaeonEditor.setView('editor');});
@@ -108,7 +114,7 @@ const assert=require('node:assert/strict');
  const savedXML=await page.evaluate(()=>YebaeonEditor.document().xml);await page.evaluate(xml=>{YebaeonEditor.open(xml,'재열기.pro6',true,'layout-reopen');YebaeonEditor.setView('editor');},savedXML);assert.equal(await page.evaluate(()=>PP6.parseRTF(PP6.textNode(YebaeonLayout.active()).textContent).runs[0].style.size),120);
  await page.locator('#layerList').getByRole('button',{name:'삭제',exact:true}).click();assert.equal(await page.evaluate(()=>PP6.textElements(YebaeonEditor.current()).length),initialBoxes);assert.equal(await page.locator('#undo').isEnabled(),true);await page.locator('#undo').click();assert.equal(await page.evaluate(()=>PP6.textElements(YebaeonEditor.current()).length),initialBoxes+1);
  // Virtual time verifies idle screens do not keep querying the production DB.
- const beforeIdleLights=await page.evaluate(()=>{window.__idleLights=0;const api=YebaeonCloud.api;YebaeonCloud.api=(path,...args)=>{if(path==='/sync-observations')window.__idleLights++;return api(path,...args);};return window.__idleLights;});
+ const beforeIdleLights=await page.evaluate(()=>{window.__idleLights=0;const api=YebaeonCloud.api;YebaeonCloud.api=(path,...args)=>{if(path.startsWith('/sync-observations'))window.__idleLights++;return api(path,...args);};return window.__idleLights;});
  await page.clock.install();await page.clock.fastForward(65000);assert.equal(await page.evaluate(()=>window.__idleLights),beforeIdleLights);
  const statusPage=await browser.newPage({viewport:{width:1440,height:960}});let statusReads=0,detailReads=0;
  await statusPage.clock.install();
@@ -163,6 +169,7 @@ const assert=require('node:assert/strict');
  console.log('Studio browser flows passed: original/preview reuse, version/edit/font invalidation, template names after apply/reopen/reload, editing, save, undo, clipboard, reflow, IME, menu, Bible, explicit order save, draft recovery/conflict and activity');
  }finally{await page.screenshot({path:'artifacts/studio-final.png'}).catch(()=>{});await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
 
 
 
