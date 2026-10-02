@@ -1,5 +1,8 @@
 // Version 1: additive initialization; existing rows and other tables are untouched.
 export const schema = [
+  `CREATE TABLE IF NOT EXISTS yebaeon_inventory_devices (device_id TEXT PRIMARY KEY, snapshot TEXT NOT NULL, updated_at TEXT NOT NULL, author TEXT NOT NULL, count INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS yebaeon_inventory_members (device_id TEXT NOT NULL, path TEXT NOT NULL, PRIMARY KEY(device_id,path))`,
+  `CREATE INDEX IF NOT EXISTS yebaeon_inventory_path ON yebaeon_inventory_members(path)`,
   `CREATE TABLE IF NOT EXISTS yebaeon_playlist_node_versions (library_id TEXT NOT NULL, node_id TEXT NOT NULL, version INTEGER NOT NULL, file_version INTEGER NOT NULL, name TEXT NOT NULL, xml TEXT NOT NULL, sha256 TEXT NOT NULL, author TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(library_id,node_id,version), UNIQUE(library_id,node_id,file_version))`,
   `CREATE TABLE IF NOT EXISTS yebaeon_sync_observations (device_id TEXT NOT NULL, kind TEXT NOT NULL, resource_id TEXT NOT NULL, node_id TEXT NOT NULL DEFAULT '', server_hash TEXT NOT NULL, status TEXT NOT NULL, observed_at TEXT NOT NULL, author TEXT NOT NULL, PRIMARY KEY(device_id,kind,resource_id,node_id))`,
   `CREATE TABLE IF NOT EXISTS yebaeon_library_catalog (id TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, original_path TEXT NOT NULL, size INTEGER NOT NULL, slide_count INTEGER NOT NULL, snapshot TEXT NOT NULL)`,

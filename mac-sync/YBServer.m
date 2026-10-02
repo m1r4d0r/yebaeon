@@ -41,22 +41,25 @@ static NSString *Query(NSString *value) {
     return self;
 }
 - (YBTransfer *)transfer:(NSString *)route method:(NSString *)method body:(NSData *)body headers:(NSDictionary *)headers {
+    return [self transfer:route method:method body:body headers:headers timeout:60];
+}
+- (YBTransfer *)transfer:(NSString *)route method:(NSString *)method body:(NSData *)body headers:(NSDictionary *)headers timeout:(NSTimeInterval)timeout {
     YBRequire([route hasPrefix:@"/api/"] && ![route containsString:@"\r"] && ![route containsString:@"\n"],@"서버 요청 경로가 올바르지 않습니다.");
     NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:[NSURL URLWithString:[self.origin stringByAppendingString:route]]];
-    request.HTTPMethod=method; request.HTTPBody=body; request.timeoutInterval=45; request.HTTPShouldHandleCookies=NO;
+    request.HTTPMethod=method; request.HTTPBody=body; request.timeoutInterval=MIN(45,timeout); request.HTTPShouldHandleCookies=NO;
     [request setValue:@"YebaeOn-Sync/0.3 (macOS)" forHTTPHeaderField:@"User-Agent"];
     [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
     if(self.cookie)[request setValue:self.cookie forHTTPHeaderField:@"Cookie"];
     if(![method isEqual:@"GET"]) [request setValue:self.origin forHTTPHeaderField:@"Origin"];
     for(NSString *key in headers)[request setValue:headers[key] forHTTPHeaderField:key];
     NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;
-    configuration.HTTPShouldSetCookies=NO; configuration.HTTPCookieStorage=nil; configuration.URLCache=nil; configuration.timeoutIntervalForResource=60;
+    configuration.HTTPShouldSetCookies=NO; configuration.HTTPCookieStorage=nil; configuration.URLCache=nil; configuration.timeoutIntervalForResource=timeout;
     YBTransfer *transfer=[YBTransfer new]; NSOperationQueue *queue=[NSOperationQueue new]; queue.maxConcurrentOperationCount=1;
     NSURLSession *session=[NSURLSession sessionWithConfiguration:configuration delegate:transfer delegateQueue:queue];
     NSURLSessionDataTask *task=[session dataTaskWithRequest:request]; [task resume];
-    BOOL timeout=dispatch_semaphore_wait(transfer.done,dispatch_time(DISPATCH_TIME_NOW,65*NSEC_PER_SEC))!=0;
-    if(timeout)[task cancel]; [session invalidateAndCancel];
-    YBRequire(!timeout,@"서버 응답 시간이 초과됐습니다. 다시 비교한 후 시도해 주세요.");
+    BOOL timedOut=dispatch_semaphore_wait(transfer.done,dispatch_time(DISPATCH_TIME_NOW,(int64_t)((timeout+5)*NSEC_PER_SEC)))!=0;
+    if(timedOut)[task cancel]; [session invalidateAndCancel];
+    YBRequire(!timedOut,@"서버 응답 시간이 초과됐습니다. 다시 비교한 후 시도해 주세요.");
     YBRequire(!transfer.rejected,@"서버 응답이 너무 크거나 올바르지 않습니다.");
     YBRequire(!transfer.error,@"서버에 연결하지 못했습니다. 인터넷과 서버 주소를 확인해 주세요.");
     NSInteger status=transfer.response.statusCode;
@@ -70,7 +73,10 @@ static NSString *Query(NSString *value) {
     return transfer;
 }
 - (NSDictionary *)request:(NSString *)route method:(NSString *)method body:(NSData *)body headers:(NSDictionary *)headers {
-    YBTransfer *result=[self transfer:route method:method body:body headers:headers];
+    return [self request:route method:method body:body headers:headers timeout:60];
+}
+- (NSDictionary *)request:(NSString *)route method:(NSString *)method body:(NSData *)body headers:(NSDictionary *)headers timeout:(NSTimeInterval)timeout {
+    YBTransfer *result=[self transfer:route method:method body:body headers:headers timeout:timeout];
     id value=[NSJSONSerialization JSONObjectWithData:result.data options:0 error:NULL];
     YBRequire([value isKindOfClass:NSDictionary.class],@"서버에서 올바른 정보를 받지 못했습니다."); return value;
 }

@@ -97,7 +97,7 @@
         [self ensureSessionLoaded];NSDictionary *session=[self.server request:@"/api/session" method:@"GET" body:nil headers:nil];
         if(![session[@"authenticated"] boolValue])return @{@"signedOut":@YES};
         BOOL directory=NO;if(![[NSFileManager defaultManager] fileExistsAtPath:self.documentsRoot isDirectory:&directory] || !directory)return @{@"noFolder":@YES,@"name":session[@"name"] ?: @""};
-        YBLibrary *library=[self connectedLibrary];NSArray *rows=[library refresh];
+        YBLibrary *library=[self connectedLibrary];library.phaseChanged=^(NSString *message){dispatch_async(dispatch_get_main_queue(),^{self.statusLabel.stringValue=message;self.work.message=message;});};NSArray *rows=[library refresh];library.phaseChanged=nil;
         YBSavePreferences(@"last-server-comparison.json",@{@"at":[NSDate.date description],@"root":self.documentsRoot,@"documents":@(rows.count),@"automatic":@YES});
         return @{@"rows":rows,@"name":session[@"name"] ?: @"",@"pending":@(library.sync.pendingTransactions.count)};
     } completion:^(NSDictionary *result,NSString *error) {
@@ -114,7 +114,7 @@
     [self.work run:^id {
         [self ensureSessionLoaded];NSDictionary *session=[self.server request:@"/api/session" method:@"GET" body:nil headers:nil];
         YBRequire([session[@"authenticated"] boolValue],@"먼저 ‘입장 / 이름 변경’에서 공용 비밀번호로 입장해 주세요.");
-        YBLibrary *library=[self connectedLibrary];NSArray *rows=[library refresh];YBSavePreferences(@"last-server-comparison.json",@{@"at":[NSDate.date description],@"root":self.documentsRoot,@"documents":@(rows.count),@"automatic":@NO});return @{@"rows":rows,@"name":session[@"name"] ?: @"",@"pending":@(library.sync.pendingTransactions.count)};
+        YBLibrary *library=[self connectedLibrary];library.phaseChanged=^(NSString *message){dispatch_async(dispatch_get_main_queue(),^{self.statusLabel.stringValue=message;self.work.message=message;});};NSArray *rows=[library refresh];library.phaseChanged=nil;YBSavePreferences(@"last-server-comparison.json",@{@"at":[NSDate.date description],@"root":self.documentsRoot,@"documents":@(rows.count),@"automatic":@NO});return @{@"rows":rows,@"name":session[@"name"] ?: @"",@"pending":@(library.sync.pendingTransactions.count)};
     } completion:^(NSDictionary *result,NSString *error) {
         if(error){[self acceptRows:@[]];self.statusLabel.stringValue=@"비교하지 못했습니다. 입장 상태와 폴더를 확인해 주세요.";YBAlert(@"문서 비교",error);return;}
         [self acceptRows:result[@"rows"]];self.sessionLabel.stringValue=[NSString stringWithFormat:@"%@ 연결됨",result[@"name"]];if(self.sessionChanged)self.sessionChanged(self.sessionLabel.stringValue);
@@ -189,15 +189,17 @@
     self.progress.indeterminate=NO;self.progress.maxValue=selected.count;self.progress.doubleValue=0;self.statusLabel.stringValue=@"전송 준비 중 · 완료 0";
     [self.work run:^id {
         YBLibrary *library=[self connectedLibrary];NSUInteger count=[library transfer:selected receiving:receiving progress:^(NSString *path,NSUInteger done) {
-            dispatch_async(dispatch_get_main_queue(),^{self.progress.doubleValue=done;NSDateFormatter *clock=[NSDateFormatter new];clock.dateFormat=@"HH:mm:ss";self.statusLabel.stringValue=[NSString stringWithFormat:@"%@ %lu/%lu · 마지막 성공 %@ · %@",receiving ? @"받는 중" : @"보내는 중",(unsigned long)done,(unsigned long)selected.count,[clock stringFromDate:NSDate.date],path];});
+            dispatch_async(dispatch_get_main_queue(),^{self.progress.doubleValue=done;self.work.message=done==selected.count ? @"전송 완료 · 상태 확인 마무리" : [NSString stringWithFormat:@"문서 %@ %lu/%lu",receiving ? @"받기" : @"보내기",(unsigned long)done,(unsigned long)selected.count];NSDateFormatter *clock=[NSDateFormatter new];clock.dateFormat=@"HH:mm:ss";self.statusLabel.stringValue=[NSString stringWithFormat:@"%@ %lu/%lu · 마지막 성공 %@ · %@",receiving ? @"받는 중" : @"보내는 중",(unsigned long)done,(unsigned long)selected.count,[clock stringFromDate:NSDate.date],path];});
         }];
-        NSString *warning=receiving ? (library.sync.backupWarning ?: @"") : @"";NSArray *rows=@[];@try{rows=[library refresh];}@catch(NSException *e){warning=[warning stringByAppendingFormat:@"\n%@",e.reason];}
+        NSString *warning=receiving ? (library.sync.backupWarning ?: @"") : @"";
+        NSMutableArray *rows=[NSMutableArray array];NSDictionary *entries=library.sync.entries;NSMutableSet *completed=[NSMutableSet set];for(NSDictionary *row in selected)[completed addObject:row[@"path"]];
+        for(NSDictionary *row in self.rows){NSMutableDictionary *copy=[row mutableCopy];NSDictionary *saved=entries[row[@"path"]];if([completed containsObject:row[@"path"]] && saved){copy[@"remote"]=saved;copy[@"localHash"]=saved[@"sha256"];copy[@"status"]=@"same";}[rows addObject:copy];}
         return @{@"count":@(count),@"rows":rows,@"warning":warning};
     } completion:^(NSDictionary *result,NSString *error) {
         [self acceptRows:result[@"rows"] ?: @[]];
         if(error){self.statusLabel.stringValue=[NSString stringWithFormat:@"전송 미완료 · %.0f/%lu 완료 · 오류 있음 · 복구 기록 확인 후 다시 비교",self.progress.doubleValue,(unsigned long)selected.count];YBAlert(@"문서 송수신 중단",error);return;}
-        self.statusLabel.stringValue=[NSString stringWithFormat:@"%@개 완료했습니다. %@",result[@"count"],[result[@"warning"] length] ? @"목록을 다시 비교해 주세요." : @"최신 상태를 표시합니다."];
-        if([result[@"warning"] length])YBAlert(@"송수신은 완료했습니다.",result[@"warning"]);if(self.comparisonFinished)self.comparisonFinished();
+        self.statusLabel.stringValue=[NSString stringWithFormat:@"%@개 완료했습니다. %@",result[@"count"],[result[@"warning"] length] ? @"목록을 다시 비교해 주세요." : @"전송한 문서 상태를 반영했습니다. 다른 변경은 ‘서버와 비교’로 확인하세요."];
+        if([result[@"warning"] length])YBAlert(@"송수신은 완료했습니다.",result[@"warning"]);
     }];
 }
 - (void)preview:(id)sender {

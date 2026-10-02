@@ -56,6 +56,7 @@
         YBCanvas *canvas=[[YBCanvas alloc] initWithFrame:NSMakeRect(0,0,1060,720)];[canvas addSubview:views[i]];scroll.documentView=canvas;item.view=scroll;[self.tabs addTabViewItem:item];
     }
     [self.window.contentView addSubview:self.tabs];
+    self.work.messageChanged=^{[weakSelf updateConnection];};
     self.work.busyChanged=^(BOOL busy) {
         YBAppDelegate *app=weakSelf;[app enableView:app.serverPlaylists.view enabled:!busy];[app enableView:app.playlist.view enabled:!busy];[app enableView:app.documents.view enabled:!busy];[app enableView:app.media.view enabled:!busy];
         [app enableView:app.connectionBar enabled:!busy];[app updateConnection];
@@ -63,7 +64,7 @@
     [self.window makeKeyAndOrderFront:nil];
     [self.documents startupCompare];[NSApp activateIgnoringOtherApps:YES];
 }
-- (void)updateConnection {self.status.stringValue=[NSString stringWithFormat:@"%@%@%@",self.connectionText ?: @"서버 연결 확인",self.lastCompared ? [@" · 문서 비교 " stringByAppendingString:self.lastCompared] : @"",self.work.busy ? @" · 작업 중" : @""];self.status.toolTip=self.status.stringValue;}
+- (void)updateConnection {self.status.stringValue=[NSString stringWithFormat:@"%@%@%@",self.connectionText ?: @"서버 연결 확인",self.lastCompared ? [@" · 문서 비교 " stringByAppendingString:self.lastCompared] : @"",self.work.busy ? [@" · " stringByAppendingString:self.work.message ?: @"작업 중"] : @""];self.status.toolTip=self.status.stringValue;self.window.title=self.work.busy ? [@"예배온 Sync · " stringByAppendingString:self.work.message ?: @"작업 중"] : @"예배온 Sync";}
 - (void)showLocal:(id)sender {if(self.work.busy)return;if(!self.toolWindow){self.toolWindow=[[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,1060,720) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];self.toolWindow.releasedWhenClosed=NO;self.toolWindow.title=@"로컬 재생목록 비교";NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:self.toolWindow.contentView.bounds];scroll.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;scroll.hasVerticalScroller=YES;scroll.hasHorizontalScroller=YES;scroll.documentView=self.playlist.view;[self.toolWindow.contentView addSubview:scroll];[self.toolWindow center];}[self.toolWindow makeKeyAndOrderFront:nil];}
 - (BOOL)validateMenuItem:(NSMenuItem *)item {return !self.work.busy;}
 - (void)enableView:(NSView *)view enabled:(BOOL)enabled {

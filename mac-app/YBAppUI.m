@@ -55,13 +55,14 @@ NSString *YBProfilePath(NSString *root,NSString *origin) {NSString *identity=[NS
 @property(nonatomic,strong) dispatch_queue_t queue;
 @end
 @implementation YBWork
+- (void)setMessage:(NSString *)message {_message=[message copy];if(self.messageChanged)self.messageChanged();}
 - (instancetype)init {if((self=[super init]))self.queue=dispatch_queue_create("org.yebaeon.sync.work",DISPATCH_QUEUE_SERIAL);return self;}
 - (void)run:(id (^)(void))task completion:(void (^)(id,NSString *))completion {
     if(self.busy) {YBAlert(@"작업 중입니다.",@"현재 작업이 끝난 후 다시 시도해 주세요.");return;}
-    self.busy=YES;if(self.busyChanged)self.busyChanged(YES);
+    self.message=@"작업 준비 중";self.busy=YES;if(self.busyChanged)self.busyChanged(YES);
     dispatch_async(self.queue,^{@autoreleasepool {
         id result=nil;NSString *error=nil;@try {result=task();}@catch(NSException *e){error=e.reason ?: @"작업을 완료하지 못했습니다.";}
-        dispatch_async(dispatch_get_main_queue(),^{self.busy=NO;if(self.busyChanged)self.busyChanged(NO);completion(result,error);});
+        dispatch_async(dispatch_get_main_queue(),^{self.busy=NO;self.message=nil;if(self.busyChanged)self.busyChanged(NO);completion(result,error);});
     }});
 }
 @end

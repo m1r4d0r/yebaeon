@@ -42,4 +42,35 @@ test('catalog-only playlist entries and current-version content search preserve 
   const progress=await ok(await call('/search-index','POST'));assert.equal(progress.remaining,0);assert.equal(progress.failed,0);
   assert.equal((await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('새문장')))).documents[0].id,doc.id);
   assert.equal((await call('/documents?includeIndexed=1&cursor=bad')).status,400);
+  // Complete metadata scans preserve IDs, raw spelling and original-file semantics.
+  const inventory=documents=>JSON.stringify({deviceId:'a'.repeat(64),documents});
+  const send=documents=>call('/inventory','POST',inventory(documents),{'Content-Type':'application/json'});
+  const newName='새 문서 : %3A.pro6',nfd=newName.normalize('NFD');
+  assert.equal((await call('/inventory','POST',inventory([]),{'Content-Type':'application/json',Origin:'https://elsewhere.test'})).status,403);
+  await ok(await send([{originalPath:original,size:100},{originalPath:nfd,size:200}]));
+  let indexed=(await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('새 문서')))).documents[0];
+  assert.equal(indexed.available,false);assert.equal(indexed.localPresent,true);assert.equal(indexed.originalPath,nfd);
+  assert.equal((await call('/documents/'+indexed.id+'/content')).status,404);
+  const indexedId=indexed.id;
+  await ok(await send([{originalPath:nfd,size:250}]));
+  indexed=(await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('새 문서')))).documents[0];
+  assert.equal(indexed.id,indexedId);assert.equal(indexed.size,250);
+  const stored=(await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('미업로드 시험')))).documents[0];
+  assert.equal(stored.localPresent,false);assert.equal(stored.available,true);assert.equal(stored.version,2);
+  assert.equal((await send([{originalPath:nfd,size:300},{originalPath:newName,size:300}])).status,400);
+  assert.equal((await send([{originalPath:'../bad.pro6',size:1}])).status,400);
+  assert.equal((await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('새 문서')))).documents[0].localPresent,true);
+  // A failed database commit also rolls back removed membership and earlier updates.
+  await db.prepare("CREATE TRIGGER reject_inventory BEFORE INSERT ON yebaeon_library_catalog WHEN NEW.path='실패.pro6' BEGIN SELECT RAISE(ABORT,'fixture'); END").run();
+  assert.equal((await send([{originalPath:nfd,size:999},{originalPath:'실패.pro6',size:1}])).status,500);
+  const afterFailure=(await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('새 문서')))).documents[0];
+  assert.equal(afterFailure.localPresent,true);assert.equal(afterFailure.size,250);
+  await db.prepare('DROP TRIGGER reject_inventory').run();
+  await ok(await call('/inventory','POST',JSON.stringify({deviceId:'b'.repeat(64),documents:[{originalPath:original,size:100}]}),{'Content-Type':'application/json'}));
+  assert.equal((await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('미업로드 시험')))).documents[0].localPresent,true);
+  await ok(await send([]));
+  assert.equal((await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('새 문서')))).documents[0].localPresent,false);
+  assert.equal((await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('미업로드 시험')))).documents[0].version,2);
+  assert.equal((await call('/inventory','POST',JSON.stringify({documents:[]}),{'Content-Type':'application/json'})).status,400);
+
 });
