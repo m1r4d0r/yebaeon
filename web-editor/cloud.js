@@ -260,5 +260,7 @@
  async refresh(){if(pending)return pending;pending=(async()=>{try{items=(await(await window.YebaeonCloud.api('/sync-observations')).json()).items;}catch{items={};}finally{pending=null;}for(const old of document.querySelectorAll('.sync-light[data-sync-kind]'))old.replaceWith(window.YebaeonSyncLights.dot(old.dataset.syncKind,old.dataset.syncId,old.dataset.syncNode));})();return pending;},
  dot(kind,id,node=''){const info=items[kind+'/'+id+'/'+node],state=info?.state||'unknown',span=document.createElement('span');span.dataset.syncKind=kind;span.dataset.syncId=id;span.dataset.syncNode=node;span.className='sync-light sync-'+state;span.setAttribute('role','img');span.setAttribute('aria-label',labels[state]);span.title=labels[state]+' · 마지막 확인 기준'+(info?' · 마지막 Mac 확인 '+new Date(info.observedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'');return span;}
  };
- setInterval(()=>{if(!document.hidden&&window.YebaeonCloud.authenticated())window.YebaeonSyncLights.refresh();},30000);
+ // Refresh on explicit list/playlist reload and successful saves, never by a polling timer.
+ window.addEventListener('yebaeoncloudsaved',()=>{if(window.YebaeonCloud.authenticated())window.YebaeonSyncLights.refresh();});
 })();
+
