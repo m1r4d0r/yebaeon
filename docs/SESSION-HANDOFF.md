@@ -132,3 +132,12 @@ Sync 디자인과 현재 백업 정책의 충돌 및 아이콘 제안은 docs/UX
 - [최종 검사 36937791940](https://github.com/m1r4d0r/yebaeon/actions/runs/36937791940): **368개 통과**(문서 안전성 151, 엔진/Worker 18, 앱·Core·화면 87, 앱/Worker 59, 재생목록/Worker 53). 검사 소스 `eb14ee66`, PR #3 병합 `e511cb86`. 문서·재생목록·복구 렌더링을 직접 확인했다. 복구 목록의 최초 셀 연결 오류도 수정·재검증했다.
 - 전달 설치 파일: `YebaeOn-Sync-macOS-v0.5.0-build8.zip`, 398674 bytes. SHA-256: `5e0b70acd873770b79cf46dc2b1694d031364b3205ce2e1e2e28afa455991806`. Info.plist 0.5.0 / build 8 / 최소 10.13, 실행 파일 x86_64 및 실행 권한 확인. CI가 만든 내부 ZIP을 재압축하지 않고 전달했다.
 - 이전 실패 원인·수정은 CROSS-PLATFORM-LESSONS에 기록했다. 운영 앱 업로드 중단과 구분한다. 교회 Mac 실기 검증과 아이콘 교체는 완료로 표시하지 않는다.
+
+
+## 2026-10-02 기본 재생목록 최초 등록 상태
+
+최신 Sync 소스는 **0.5.2 build 10** (`844a5be`)이다. 위 build 9 안내보다 최신 커밋을 우선한다. PR #8의 Sync 자동 등록 기능은 실행 시 동작하며, 사용자가 보내준 원본이 서버에 미리 등록됐다는 의미가 아니다.
+
+운영 Studio의 로그인된 화면에서 재생목록 목록이 비어 있음을 확인했다. PR #10 (`0b1eb59`)의 인증된 초기 자료 복구 페이지 https://yebaeon.grace-jean-p.workers.dev/api/playlist-bootstrap 는 배포되어 표시된다. 기존 목록이 있으면 409로 거부하며 Studio에는 등록 버튼이 없다. 서버 이름 `기본 .pro6pl`로 제공 파일 `기본 (3).pro6pl` 원본을 최초 등록한다. 원본은 19개 재생목록, 74679 bytes, SHA-256 `79e43d8c187a0a1c24cb553a1db71729eea2025f560b86dbedf6f668212aa6e4`이다.
+
+**아직 운영 서버 원본 등록을 완료하지 못했다.** Cloud Browser가 마지막 form 제출을 URL 보안 정책으로 차단했다. 사용자 브라우저에서 제출 후 운영 목록과 자동 선택 확인이 남았다. Studio 36개 Node/배포 사전/Chromium 검사와 Mac CI는 성공했다. 실패와 후속 성공은 CROSS-PLATFORM-LESSONS에 기록했다.
