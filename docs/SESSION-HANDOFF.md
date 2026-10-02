@@ -173,3 +173,6 @@ PR #13: 제공된 `pp6-index-v0.2.json` (44,328,304 bytes, 생성 1790850853)의
 검증: 로컬 Node 40개 통과. 최초 실행의 초안 시험 2개는 모사 편집기에 새 ready 메서드가 없어 실패했고, 재생목록 시험 1개는 로컬 XML fixture 미복사로 실패했다. 시험 모사와 fixture를 보완한 뒤 40개 모두 통과했다. 새 서버 검사는 3,107개 이름 색인·페이지 경계·기본 Mac 목록 분리·미업로드 순서 저장·NFD 경로 유지·원본 업로드 후 자동 연결·최신 본문만 검색·기존 원본 색인·인증/Origin을 확인한다. Chromium 검사는 미업로드 선택·순서 추가·읽기 전용·이전 초안 복귀·본문 결과 표시를 포함한다. 최신 CI와 배포 결과는 PR #13을 따른다.
 
 앞선 PR #12는 최종 36962247884 검사와 36962404394 배포에 성공했다. 사용자 Windows 체감속도 실측과 교회 High Sierra 실기는 별도다.
+
+
+PR #13 최종 검사 기록: 최초 Chromium 실행 [36963232885](https://github.com/m1r4d0r/yebaeon/actions/runs/36963232885)와 후속 최적화 실행 [36963378335](https://github.com/m1r4d0r/yebaeon/actions/runs/36963378335)은 초안의 IndexedDB 보존을 기다리지 않고 문서 전환 직후 ready를 검사하여 실패했다. 실패 캡처에서는 이후 정상적인 미업로드 읽기 전용 화면을 확인했다. 제품의 초안 보호 대기는 유지하고 시험이 전환 완료를 기다리도록 수정했다. 최종 소스 `3dd853f`의 [웹 36963450027](https://github.com/m1r4d0r/yebaeon/actions/runs/36963450027)(Node 40개·배포 사전·Chromium) 및 [Mac 연동 36963450040](https://github.com/m1r4d0r/yebaeon/actions/runs/36963450040) 성공 후 `7bbda2a`로 병합했다. 이 검사는 교회 High Sierra 실기나 운영 Mac 업로드 완주를 의미하지 않는다.
