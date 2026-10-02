@@ -15,6 +15,7 @@
 @property NSArray *visibleChoices;
 @property NSMutableDictionary *comparisons;
 @property NSButton *receiveButton;
+@property NSButton *receiveAllButton;
 @property NSButton *registerButton;
 @property NSTextField *summary;
 @property NSTextField *versionLabel;
@@ -42,7 +43,8 @@
     self.summary=YBLabel(@"수정·새 문서를 먼저 적용한 뒤 선택한 예배의 순서만 교체합니다.",NSMakeRect(24,127,1012,26),12,NO);[v addSubview:self.summary];
     self.status=YBLabel(@"서버 연결 후 자동으로 순서와 연결 문서를 비교합니다.",NSMakeRect(24,94,1012,25),12,NO);[v addSubview:self.status];
     [v addSubview:YBButton(@"복구 기록…",NSMakeRect(24,35,150,36),self,@selector(restore:))];[v addSubview:YBButton(@"Studio 열기",NSMakeRect(187,35,145,36),self,@selector(openStudio:))];
-    [v addSubview:YBLabel(@"PP6 종료 후 원본 백업 · Mac도 바뀌면 적용 차단",NSMakeRect(360,41,440,24),12,NO)];
+    [v addSubview:YBLabel(@"PP6 종료 후 백업하며 받기",NSMakeRect(360,41,185,24),12,NO)];
+    self.receiveAllButton=YBButton(@"변경 예배 모두 받기",NSMakeRect(556,35,240,36),self,@selector(receiveAll:));[v addSubview:self.receiveAllButton];
     self.receiveButton=YBButton(@"선택한 예배 받기",NSMakeRect(806,35,230,36),self,@selector(receive:));self.receiveButton.keyEquivalent=@"\r";self.receiveButton.enabled=NO;[v addSubview:self.receiveButton];[self.documents setPlaylistFile:self.target];
 }
 - (NSString *)targetPath {return self.target.path ?: @"재생목록 파일 선택 필요";}
@@ -52,7 +54,7 @@
 - (YBPlaylistSync *)engine {YBRequire(self.target!=nil,@"재생목록 파일을 먼저 선택하세요.");[self.documents ensureSessionLoaded];return [[YBPlaylistSync alloc] initWithLibrary:[self.documents connectedLibrary] target:self.target];}
 - (NSString *)choiceKey:(NSDictionary *)choice {return [NSString stringWithFormat:@"%@/%@",choice[@"library"],choice[@"node"]];}
 - (NSString *)comparisonStatus:(NSDictionary *)value {if(!value)return @"미확인";if(value[@"error"])return @"확인 필요";if(![value[@"ready"] boolValue]){for(NSDictionary *r in value[@"rows"])if([@[@"upload",@"conflict"] containsObject:r[@"status"]])return @"Mac도 바뀜";return @"확인 필요";}if([value[@"orderChanged"] boolValue])return @"서버가 새로움";for(NSDictionary *r in value[@"rows"])if([r[@"status"] isEqual:@"download"])return @"서버가 새로움";return @"같음";}
-- (void)acceptLibraries:(NSArray *)libraries {NSMutableArray *choices=[NSMutableArray array];for(NSDictionary *library in libraries)for(NSDictionary *node in library[@"playlists"])[choices addObject:@{@"library":library[@"id"],@"node":node[@"id"],@"name":node[@"name"],@"path":library[@"path"],@"date":library[@"updatedAt"] ?: @""}];self.choices=choices;self.registerButton.hidden=choices.count>0;[self filterChoices];}
+- (void)acceptLibraries:(NSArray *)libraries {NSMutableArray *choices=[NSMutableArray array];for(NSDictionary *library in libraries)for(NSDictionary *node in library[@"playlists"])[choices addObject:@{@"library":library[@"id"],@"node":node[@"id"],@"name":node[@"name"],@"path":library[@"path"],@"date":node[@"updatedAt"] ?: library[@"updatedAt"] ?: @""}];self.choices=choices;self.registerButton.hidden=choices.count>0;[self filterChoices];}
 - (void)filterChoices {NSString *query=self.search.stringValue.precomposedStringWithCanonicalMapping;NSMutableArray *visible=[NSMutableArray array];for(NSDictionary *choice in self.choices)if(!query.length || [choice[@"name"] rangeOfString:query options:NSCaseInsensitiveSearch].location!=NSNotFound)[visible addObject:choice];self.visibleChoices=visible;[self.listTable reloadData];if(visible.count)[self.listTable selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];else [self selectionChanged:nil];}
 - (void)controlTextDidChange:(NSNotification *)note {[self filterChoices];}
 - (void)refresh:(id)sender {
@@ -66,7 +68,7 @@
     NSAlert *alert=[NSAlert new];alert.messageText=@"원본 재생목록과 연결 문서를 서버에 등록";alert.informativeText=[NSString stringWithFormat:@"%@\n\n아래는 재생목록이 원래 참조하던 문서 폴더입니다. 실제 업로드할 문서는 화면 위에서 선택한 문서 폴더에서 찾습니다. 서버와 다른 내용은 자동으로 덮어쓰지 않습니다.",self.target.path];NSTextField *root=[[NSTextField alloc] initWithFrame:NSMakeRect(0,0,560,30)];root.stringValue=@"~/Documents/ProPresenter6";alert.accessoryView=root;[alert addButtonWithTitle:@"서버에 등록"];[alert addButtonWithTitle:@"취소"];if([alert runModal]!=NSAlertFirstButtonReturn)return;NSString *source=root.stringValue;
     [self.work run:^id{YBPlaylistSync *engine=[self engine];NSDictionary *result=[engine registerFileWithSourceRoot:source progress:^(NSString *message){dispatch_async(dispatch_get_main_queue(),^{self.status.stringValue=message;});}];return @{@"result":result,@"libraries":[engine libraries]};} completion:^(NSDictionary *value,NSString *error){if(error){YBAlert(@"원본 등록",error);self.status.stringValue=@"등록을 마치지 못했습니다. 원본과 서버 이력은 유지합니다.";return;}[self acceptLibraries:value[@"libraries"]];[self refresh:nil];NSDictionary *result=value[@"result"];self.status.stringValue=[NSString stringWithFormat:@"재생목록 등록 · 문서 %@개 확인 · 누락/충돌 %lu개",result[@"count"],(unsigned long)[result[@"issues"] count]];if([result[@"issues"] count])YBShowText(@"아직 연결되지 않은 문서",[result[@"issues"] componentsJoinedByString:@"\n"]);}];
 }
-- (void)acceptComparison:(NSDictionary *)result {self.comparison=result;[self.table reloadData];NSUInteger changed=0,added=0;for(NSDictionary *r in result[@"rows"])if([r[@"status"] isEqual:@"download"]){if(r[@"localHash"]==NSNull.null)added++;else changed++;}NSDictionary *manifest=result[@"manifest"],*library=manifest[@"library"];self.versionLabel.stringValue=[NSString stringWithFormat:@"%@ · 파일 v%@ · %@",manifest[@"playlist"][@"name"],library[@"version"] ?: @"—",library[@"updatedBy"] ?: @"—"];self.versionLabel.toolTip=library[@"updatedAt"];
+- (void)acceptComparison:(NSDictionary *)result {self.comparison=result;[self.table reloadData];NSUInteger changed=0,added=0;for(NSDictionary *r in result[@"rows"])if([r[@"status"] isEqual:@"download"]){if(r[@"localHash"]==NSNull.null)added++;else changed++;}NSDictionary *manifest=result[@"manifest"],*library=manifest[@"library"];self.versionLabel.stringValue=[NSString stringWithFormat:@"%@ · 순서 v%@ · %@",manifest[@"playlist"][@"name"],manifest[@"playlist"][@"version"] ?: @"—",manifest[@"playlist"][@"updatedBy"] ?: library[@"updatedBy"] ?: @"—"];self.versionLabel.toolTip=library[@"updatedAt"];
     self.summary.stringValue=[NSString stringWithFormat:@"① 수정 %lu개 받기 → ② 새 문서 %lu개 추가 → ③ 선택한 예배 순서 %@ · 다른 순서는 유지",(unsigned long)changed,(unsigned long)added,[result[@"orderChanged"] boolValue] ? @"교체" : @"유지"];
     self.status.stringValue=[result[@"ready"] boolValue] ? ((changed+added || [result[@"orderChanged"] boolValue]) ? @"공유 문서 변경은 함께 쓰는 다른 예배에도 반영됩니다." : @"서버와 같습니다.") : [result[@"issues"] componentsJoinedByString:@" · "];
     self.receiveButton.title=[NSString stringWithFormat:@"%@ 받기",manifest[@"playlist"][@"name"] ?: @"선택한 예배"];self.receiveButton.toolTip=self.receiveButton.title;self.receiveButton.enabled=[result[@"ready"] boolValue] && (changed+added || [result[@"orderChanged"] boolValue]) && !self.work.busy;
@@ -81,6 +83,13 @@
         if([column.identifier isEqual:@"index"])text=[NSString stringWithFormat:@"%ld",(long)index+1];else if([column.identifier isEqual:@"name"])text=item[@"name"];else if([column.identifier isEqual:@"status"]){text=removed ? @"순서에서 빠짐 · 파일 유지" : [item[@"kind"] isEqual:@"header"] ? @"구분" : [row[@"status"] isEqual:@"same"] ? @"그대로" : [row[@"status"] isEqual:@"download"] ? (row[@"localHash"]==NSNull.null ? @"새 문서 · 폴더에 추가" : @"내용 수정 · 문서 받기") : @"누락 / Mac 변경 확인";if([item[@"sharedWith"] count] && [row[@"status"] isEqual:@"download"])text=[text stringByAppendingFormat:@" · %lu곳",(unsigned long)[item[@"sharedWith"] count]+1];}else {NSDictionary *doc=row[@"remote"];text=[doc isKindOfClass:NSDictionary.class] ? [NSString stringWithFormat:@"%@ · %@",doc[@"updatedAt"] ?: @"—",doc[@"updatedBy"] ?: @"—"] : @"—";}tip=[item[@"path"] isKindOfClass:NSString.class] ? item[@"path"] : @"";if(removed)color=NSColor.secondaryLabelColor;
     }
     NSTextField *field=YBLabel(text ?: @"",NSMakeRect(0,2,column.width,24),12,NO);field.toolTip=tip.length ? tip : text;field.textColor=color;return field;
+}
+- (void)receiveAll:(id)sender {
+    if(self.work.busy)return;NSMutableArray *selected=[NSMutableArray array];NSUInteger skipped=0;
+    for(NSDictionary *choice in self.choices){NSDictionary *c=self.comparisons[[self choiceKey:choice]];if(![c[@"ready"] boolValue]){skipped++;continue;}BOOL changed=[c[@"orderChanged"] boolValue];for(NSDictionary *r in c[@"rows"])if([r[@"status"] isEqual:@"download"])changed=YES;if(changed)[selected addObject:c];}
+    if(!selected.count){YBAlert(@"받을 변경이 없습니다.",@"먼저 비교하고 누락/충돌 상태를 확인하세요.");return;}
+    NSAlert *alert=[NSAlert new];alert.messageText=@"변경된 예배를 함께 받을까요?";alert.informativeText=[NSString stringWithFormat:@"%lu개 예배의 순서를 하나의 파일로 합치고 공유 문서는 한 번 받습니다. 누락/충돌 %lu개 예배는 제외합니다.",(unsigned long)selected.count,(unsigned long)skipped];[alert addButtonWithTitle:@"함께 받기"];[alert addButtonWithTitle:@"취소"];if([alert runModal]!=NSAlertFirstButtonReturn)return;
+    [self.work run:^id{return [[self engine] receiveComparisons:selected progress:^(NSString *message){dispatch_async(dispatch_get_main_queue(),^{self.status.stringValue=message;});}];} completion:^(id result,NSString *error){if(error){self.status.stringValue=@"미완료 · 중단 복구 후 다시 비교하세요.";YBAlert(@"예배 묶음 동기화 중단",error);}else{[self refresh:nil];}}];
 }
 - (void)receive:(id)sender {
     if(self.work.busy)return;if(!self.receiveButton.enabled || ![self.comparison[@"ready"] boolValue]){YBAlert(@"먼저 순서를 비교해 주세요.",@"문서 누락/충돌을 해결한 뒤 다시 비교하면 받을 수 있습니다.");return;}NSDictionary *comparison=self.comparison;
@@ -103,3 +112,4 @@
 }
 - (void)openStudio:(id)sender {[NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"https://yebaeon.grace-jean-p.workers.dev/"]];}
 @end
+

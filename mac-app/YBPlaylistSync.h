@@ -10,7 +10,9 @@
 - (NSDictionary *)registerFileWithSourceRoot:(NSString *)sourceRoot progress:(void (^)(NSString *message))progress;
 - (NSDictionary *)compare:(NSString *)libraryID node:(NSString *)nodeID;
 - (NSDictionary *)compare:(NSString *)libraryID node:(NSString *)nodeID hashCache:(NSMutableDictionary *)hashCache;
+- (NSString *)receiveComparisons:(NSArray *)comparisons progress:(void (^)(NSString *message))progress;
 - (NSString *)receive:(NSDictionary *)comparison progress:(void (^)(NSString *message))progress;
 - (NSArray *)jobs;
 - (void)restoreJob:(NSString *)identifier;
 @end
+

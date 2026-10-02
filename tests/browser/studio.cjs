@@ -12,15 +12,17 @@ const assert=require('node:assert/strict');
  let catalogEnabled=false;
  const pendingDoc={id:'33333333-3333-4333-a333-333333333333',name:'아직 안 올라온 찬양.pro6',path:'아직 안 올라온 찬양.pro6',available:false,version:null,slideCount:3};
  const doc=()=>({id,path:'시험 문서.pro6',name:'시험 문서.pro6',version,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',lastDateUsed:'2026-10-01T00:00:00Z',useCount:1,sha256:createHash('sha256').update(xml).digest('hex')});
+ const nodeHash=()=>createHash('sha256').update(JSON.stringify(order)).digest('hex');
  const library=()=>({id:libraryID,path:'기본.pro6pl',version:playlistVersion,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',playlists:[{id:'A',name:'금요기도회',itemCount:order.length}]});
  await page.route('**/api/**',async route=>{const u=new URL(route.request().url()),path=u.pathname,method=route.request().method();let data={};
- if(path==='/api/session')data={ready:true,authenticated:true,name:'시험'};
+ if(path==='/api/sync-observations')data={items:{['document/'+id+'/']:{state:'pending',observedAt:'2026-10-02T00:00:00Z'},['playlist/'+libraryID+'/A']:{state:'synced',observedAt:'2026-10-02T00:00:00Z'}}};
+ else if(path==='/api/session')data={ready:true,authenticated:true,name:'시험'};
  else if(path==='/api/documents'){const q=u.searchParams.get('q')||'';data={documents:xml?(catalogEnabled?(q==='본문만검색'?[{...doc(),matchedBy:'content'}]:[doc(),pendingDoc].filter(d=>d.name.includes(q))):[doc()]):[],next:null};}
  else if(path==='/api/documents/'+id+'/content'){contentReads++;await route.fulfill({body:xml,contentType:'application/xml'});return;}
  else if(path==='/api/documents/'+id){if(method==='PUT'){xml=route.request().postData();version++;}data={document:doc()};}
  else if(path==='/api/playlists')data={libraries:xml?[library()]:[],next:null};
- else if(path.endsWith('/plan'))data={library:library(),playlist:{id:'A',name:'금요기도회',editable:true},ready:true,items:order.map((x,i)=>x.documentId===pendingDoc.id?{kind:'document',id:x.id||'cue'+i,name:pendingDoc.name,document:null,indexedDocument:pendingDoc,issue:'missing'}:{kind:'document',id:x.id||'cue'+i,name:doc().name,document:doc(),sharedWith:['수요예배','금요예배']})};
- else if(path==='/api/playlists/'+libraryID&&method==='PATCH'){order=JSON.parse(route.request().postData()).items;playlistVersion++;data={library:library()};}
+ else if(path.endsWith('/plan'))data={library:library(),playlist:{id:'A',name:'금요기도회',editable:true,version:playlistVersion,sha256:nodeHash()},ready:true,items:order.map((x,i)=>x.documentId===pendingDoc.id?{kind:'document',id:x.id||'cue'+i,name:pendingDoc.name,document:null,indexedDocument:pendingDoc,issue:'missing'}:{kind:'document',id:x.id||'cue'+i,name:doc().name,document:doc(),sharedWith:['수요예배','금요예배']})};
+ else if(path==='/api/playlists/'+libraryID&&method==='PATCH'){const body=JSON.parse(route.request().postData());assert.equal(body.baseNodeHash,nodeHash());order=body.items;playlistVersion++;data={library:library(),playlist:{sha256:nodeHash()}};}
  else if(path==='/api/activity')data={items:[{kind:'document',...doc(),author:'시험',createdAt:doc().updatedAt}],next:null};
  else if(path.endsWith('/versions'))data={versions:[],next:null};
  else throw Error('Unhandled '+path);
@@ -34,6 +36,7 @@ const assert=require('node:assert/strict');
  await page.addScriptTag({path:'web-editor/sample-demo.js'});
  xml=await page.evaluate(()=>{const m=PP6.parse(PP6_SAMPLE.xml,'test.pro6');for(const slide of PP6.slides(m)){const box=PP6.textElements(slide)[0],ref=box.cloneNode(true);PP6.refreshIDs(ref);PP6.setText(ref,'요한복음 3:16');ref.querySelector('RVRect3D').textContent='{120 900 0 1680 100}';box.parentNode.append(ref);}return PP6.serialize(m);});
  order=[{id:'cue0'},{id:'cue1'}];await page.evaluate(()=>YebaeonCloud.refresh());await page.locator('#libraryList .document-item').click();await page.waitForFunction(()=>YebaeonEditor.ready());await page.evaluate(()=>YebaeonPlaylists.show());
+ assert.equal(await page.locator('#libraryList .sync-pending').count(),1);assert.equal(await page.locator('#playlistsList .sync-synced').count(),1);assert.match(await page.locator('#libraryList .sync-light').getAttribute('title'),/마지막 Mac 확인/);
  templateXML=await page.evaluate(xml=>new XMLSerializer().serializeToString(PP6.slides(PP6.parse(xml,'template'))[0]),xml);assert.equal(templateReads,0);assert.equal(await page.locator('#playlistItems').getByText(/함께 사용:/).count(),0);
  assert.equal(await page.locator('.slide-card').count(),3);
  const firstReads=contentReads;
@@ -85,3 +88,4 @@ const assert=require('node:assert/strict');
  console.log('Studio browser flows passed: original/preview reuse, version/edit/font invalidation, template names after apply/reopen/reload, editing, save, undo, clipboard, reflow, IME, menu, Bible, order autosave and activity');
  }finally{await page.screenshot({path:'artifacts/studio-final.png'}).catch(()=>{});await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
+
