@@ -60,12 +60,12 @@
       const rgb = ['red','green','blue'].map(k => Number(part.match(new RegExp('\\\\'+k+'(\\d+)'))?.[1] || 0));
       if (/\\red/.test(part)) colors.push(`rgb(${rgb.join(',')})`);
     });
-    const defaults = {font:0, size:48, bold:false, italic:false, underline:false, color:1, align:'left', leading:0};
+    const defaults = {font:0, size:48, bold:false, italic:false, underline:false, color:1, align:'left', leading:0, tracking:0, kerning:null, strokeWidth:0, strokeColor:0, paragraphControls:''};
     let state = {...defaults, skip:false, uc:1, cp:1252};
     const stack = [], runs = [], warnings = new Set();
     let bytes = [], fallback = 0, lastStyle = null;
     function currentStyle() { return {font:fonts[state.font] || 'Arial', size:state.size, bold:state.bold, italic:state.italic,
-      underline:state.underline, color:colors[state.color] || '#ffffff', align:state.align, leading:state.leading}; }
+      underline:state.underline, color:colors[state.color] || '#ffffff', align:state.align, leading:state.leading, tracking:state.tracking, kerning:state.kerning, strokeWidth:state.strokeWidth, strokeColor:state.strokeColor===0?'rgb(0,0,0)':colors[state.strokeColor]||'rgb(0,0,0)', paragraphControls:state.paragraphControls}; }
     function emit(text) {
       if (state.skip || !text) return;
       const style = currentStyle();
@@ -118,7 +118,17 @@
       else if(word==='cf')state.color=value;
       else if(['ql','qc','qr','qj'].includes(word))state.align=({ql:'left',qc:'center',qr:'right',qj:'left'})[word];
       else if(word==='slleading')state.leading=value/20;
-      else if(word==='pard'){state.align='left';state.leading=0;}
+      else if(word==='expnd')state.tracking=value/4;
+      else if(word==='expndtw')state.tracking=value/20;
+      else if(word==='kerning')state.kerning=value;
+      // Cocoa RTF uses twentieths of a percentage; negative means stroke + fill.
+      else if(word==='strokewidth')state.strokeWidth=value/20;
+      else if(word==='strokec')state.strokeColor=value;
+      else if(['sl','slmult','sb','sa','fi','li','ri','tx','pardeftab','partightenfactor'].includes(word)){
+        state.paragraphControls=state.paragraphControls.replace(new RegExp('\\\\'+word+'-?\\d+','g'),'')+'\\'+word+value;
+        if(['sl','sb','sa','fi','li','ri','tx'].includes(word)&&value!==0)warnings.add('일부 문단 조판은 Mac에서 확인하세요');
+      }
+      else if(word==='pard'){state.align='left';state.leading=0;state.paragraphControls='';}
       else if(word==='plain')Object.assign(state,defaults);
       else if(word==='par' || word==='line')emit('\n');
       else if(word==='tab')emit('\t');
@@ -180,10 +190,10 @@
     return [...sliceRuns(runs,0,start),{text:after.slice(start,after.length-end),style:{...inherited}},...sliceRuns(runs,before.length-end,before.length)].filter(r=>r.text);
   }
   function runsRTF(runs,fallback={font:'Arial',size:90,color:'#ffffff',align:'center'}){
-    const values=runs.length?runs:[{text:'',style:fallback}],fonts=[...new Set(values.map(r=>r.style.font))],colors=[...new Set(values.map(r=>r.style.color))];
+    const values=runs.length?runs:[{text:'',style:fallback}],fonts=[...new Set(values.map(r=>r.style.font))],colors=[...new Set(values.flatMap(r=>[r.style.color,r.style.strokeColor||'#000000']))];
     const rgb=value=>{if(/^#[a-f\d]{6}$/i.test(value))return [1,3,5].map(i=>parseInt(value.slice(i,i+2),16));return value.match(/\d+/g)?.slice(0,3).map(Number)||[255,255,255];};
     const head='{\\rtf1\\ansi\\ansicpg1252\\uc1{\\fonttbl'+fonts.map((f,i)=>`{\\f${i}\\fnil ${escapeRTF(f)};}`).join('')+'}{\\colortbl;'+colors.map(c=>{const [r,g,b]=rgb(c);return `\\red${r}\\green${g}\\blue${b};`;}).join('')+'}';
-    return btoa(head+values.map(({text,style:s})=>`\\pard\\${({left:'ql',center:'qc',right:'qr'})[s.align]||'ql'}\\slleading${Math.round((s.leading||0)*20)}\\f${fonts.indexOf(s.font)}\\fs${Math.round(s.size*2)}\\cf${colors.indexOf(s.color)+1}\\b${s.bold?1:0}\\i${s.italic?1:0}\\ul${s.underline?1:0} ${escapeRTF(text)}`).join('')+'}');
+    return btoa(head+values.map(({text,style:s})=>`\\pard\\${({left:'ql',center:'qc',right:'qr'})[s.align]||'ql'}\\slleading${Math.round((s.leading||0)*20)}${s.paragraphControls||''}\\expndtw${Math.round((s.tracking||0)*20)}${s.kerning==null?'':'\\kerning'+s.kerning}\\strokewidth${Math.round((s.strokeWidth||0)*20)}\\strokec${colors.indexOf(s.strokeColor||'#000000')+1}\\f${fonts.indexOf(s.font)}\\fs${Math.round(s.size*2)}\\cf${colors.indexOf(s.color)+1}\\b${s.bold?1:0}\\i${s.italic?1:0}\\ul${s.underline?1:0} ${escapeRTF(text)}`).join('')+'}');
   }
   function setRuns(element,runs,fallback){textNode(element).textContent=runsRTF(runs,fallback);}
   function formatRange(element,start,end,patch){const parsed=parseRTF(textNode(element).textContent);start=Math.max(0,start);end=Math.min(parsed.text.length,end);if(end<=start){start=0;end=parsed.text.length;}const middle=sliceRuns(parsed.runs,start,end).map(r=>({text:r.text,style:{...r.style,...patch}}));setRuns(element,[...sliceRuns(parsed.runs,0,start),...middle,...sliceRuns(parsed.runs,end,parsed.text.length)],{...parsed.emptyStyle,...patch});}
@@ -218,3 +228,4 @@
   function templateFormat(slide){return templateFormatData(Object.fromEntries(Array.from(slide.attributes,a=>[a.name,a.value])),all(slide,'RVTextElement,RVImageElement,RVVideoElement').map(e=>({type:e.tagName,attrs:Object.fromEntries(Array.from(e.attributes,a=>[a.name,a.value])),position:ivar(e,'RVRect3D','position')?.textContent||'',shadow:ivar(e,'shadow','shadow')?.textContent||'',...(e.tagName==='RVTextElement'?{rtf:textNode(e)?.textContent||''}:{})})));}
   window.PP6={all,ivar,attr,nfc,basename,uuid,rect,color,parseRTF,textRTF,runsRTF,sliceRuns,replaceRuns,setRuns,formatRange,setRect,textNode,parse,slides,textElements,mediaElements,setText,duplicate,refreshIDs,serialize,templateFormat,templateFormatData};
 })();
+

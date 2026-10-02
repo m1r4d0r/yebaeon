@@ -2,28 +2,14 @@
 (function () {
   'use strict';
   const entries=new Map(), exact=new Map();let catalog=[];
-  function registerCatalog(fonts) { catalog=fonts;for(const f of fonts) { const family="YebaeFont-"+f.file.replace(/[^a-z0-9]/gi,"-"); const face=new FontFace(family,`url(/resources/${f.file})`,{weight:String(f.weight)});document.fonts.add(face);exact.set(f.name.toLowerCase(),{family,label:f.name,weight:f.weight,note:"",key:family+":"+f.weight}); } entries.clear();notify(); }
+  function registerCatalog(fonts) { catalog=fonts;exact.clear();for(const f of fonts) { const family="YebaeFont-"+f.file.replace(/[^a-z0-9]/gi,"-"); const face=new FontFace(family,`url(/resources/${f.file})`,{weight:String(f.weight)});document.fonts.add(face);exact.set(f.name.toLowerCase(),{family,label:f.name,weight:f.weight,note:"",key:family+":"+f.weight}); } entries.clear();notify(); }
   function resolve(style) {
-    const name=String(style.font || ''); const installed=exact.get(name.toLowerCase()); if(installed&&!style.bold)return installed; if(installed&&style.bold){if(/bold|heavy|black/i.test(name)||/[a-z](?:EB|B)$/.test(name))return installed;const base=name.replace(/(?:regular|medium|light|book)(?=[_-]|$)/ig,'');const candidates=[name+"Bold",base.replace(/([_-]?)(OTF)?$/i,'Bold$2'),name.replace(/(?:regular|medium|light|book)/ig,'Bold')];for(const candidate of candidates){const face=exact.get(candidate.toLowerCase());if(face)return face;}if(!/arita|nanumgothic|nanummyeongjo/i.test(name))return {...installed,weight:Math.max(700,installed.weight)};} const key=name.toLowerCase().replace(/[\s_-]/g,'');
-    let family, label, weight=400, note='';
-    if(key.startsWith('aritaburi') || key.startsWith('아리따부리')) {
-      family='PP6 Arita Buri';label='아리따부리';weight=500;
-      if(/hairline|thin/.test(key))weight=100;
-      else if(/light/.test(key))weight=300;
-      else if(/semibold/.test(key))weight=600;
-      else if(/bold/.test(key))weight=700;
-    } else if(key.startsWith('nanumgothic') || key.startsWith('나눔고딕')) {
-      // Coding, Eco and Light are different designs, not aliases of this CDN face.
-      if(/coding|eco|light/.test(key))return null;
-      family='PP6 Nanum Gothic';label='나눔고딕';
-    } else if(key.startsWith('nanummyeongjo') || key.startsWith('나눔명조')) {
-      if(/eco/.test(key))return null;
-      family='PP6 Nanum Myeongjo';label='나눔명조';
-      if(/yethangul|옛한글/.test(key))note='옛한글판은 일반 나눔명조로 미리보기';
-    } else return null;
-    if(family!=='PP6 Arita Buri')weight=/extrabold/.test(key)?800:/bold/.test(key)?700:400;
-    if(style.bold&&weight<600)weight=700;
-    return {family,label,weight,note,key:family+':'+weight};
+    const name=String(style.font||''),installed=exact.get(name.toLowerCase());if(!installed)return null;
+    if(!style.bold||/bold|heavy|black/i.test(name)||/[a-z](?:EB|B)$/.test(name))return installed;
+    const base=name.replace(/(?:regular|medium|light|book)(?=[_-]|$)/ig,''),candidates=[name+'Bold',base.replace(/([_-]?)(OTF)?$/i,'Bold$2'),name.replace(/(?:regular|medium|light|book)/ig,'Bold')];
+    for(const candidate of candidates){const face=exact.get(candidate.toLowerCase());if(face)return face;}
+    // Keep the uploaded design when the actual Bold face is missing. Never fetch a CDN substitute.
+    return {...installed,weight:700,key:installed.family+':700',note:'원본 Bold 파일 없음 · 브라우저 굵게 근사'};
   }
   function styles(slide) {
     return PP6.textElements(slide).flatMap(element=>{
@@ -48,26 +34,29 @@
   async function ensure(slide) {
     const fonts=new Map(styles(slide).map(resolve).filter(Boolean).map(font=>[font.key,font]));
     await Promise.all([...fonts.values()].map(font=>start(font).wait));
-    return [...fonts.values()].filter(font=>entries.get(font.key).status!=='loaded').map(font=>`${font.label} 웹폰트를 불러오지 못해 설치된 글꼴 또는 대체 글꼴로 표시합니다`);
+    const missing=styles(slide).filter(style=>!resolve(style)).map(style=>style.font+' · 원본 폰트 미등록 · 대체 표시');
+    const warnings=[...fonts.values()].flatMap(font=>[...(entries.get(font.key).status!=='loaded'?[`${font.label} 서버 폰트를 불러오지 못해 설치된 글꼴 또는 대체 글꼴로 표시합니다`]:[]),...(font.note?[font.label+' · '+font.note]:[])]);
+    return [...new Set([...missing,...warnings])];
   }
   function css(style) {
     const font=resolve(style), ready=font && entries.get(font.key)?.status==='loaded';
     const family=ready?font.family:style.font;
     const weight=ready?font.weight:(style.bold?700:400);
-    const fallback=font && font.family!=='PP6 Nanum Gothic'?'"Batang", serif':'"Malgun Gothic", sans-serif';
+    const fallback=/arita|myeongjo|batang|times|georgia/i.test(style.font||'')?'"Batang", serif':'"Malgun Gothic", sans-serif';
     return `${style.italic?'italic ':''}${weight} ${style.size}px ${JSON.stringify(family)}, ${fallback}`;
   }
   function descriptions(slide) {
     const lines=styles(slide).map(style=>{
       const font=resolve(style);
-      if(!font)return `${style.font} · 웹폰트 미등록 · 설치 여부에 따라 대체 표시`;
+      if(!font)return `${style.font} · 원본 폰트 미등록 · 설치 여부에 따라 대체 표시`;
       const status=entries.get(font.key)?.status || 'loading';
-      const label=({loaded:'웹폰트 적용',loading:'웹폰트 불러오는 중',delayed:'연결 지연 · 대체 글꼴 사용',error:'연결 실패 · 대체 글꼴 사용'})[status];
+      const label=({loaded:'서버 폰트 적용',loading:'서버 폰트 불러오는 중',delayed:'연결 지연 · 대체 글꼴 사용',error:'연결 실패 · 대체 글꼴 사용'})[status];
       return `${font.label} ${font.weight} · ${label}${font.note?' · '+font.note:''}`;
     });
     return [...new Set(lines)];
   }
   function state(){return [...entries.values()].map(({family,weight,status})=>({family,weight,status}));}
-  window.PP6Fonts={registerCatalog,resolve,ensure,css,descriptions,state,choices:()=>[...catalog,...['HairLine','Light','Medium','SemiBold','Bold'].map(n=>({name:'Arita-buri-'+n+'_OTF'}))]};
+  window.PP6Fonts={registerCatalog,resolve,ensure,css,descriptions,state,choices:()=>[...catalog]};
 })();
+
 
