@@ -2,6 +2,7 @@
 
 현재 상태와 다음 작업은 [SESSION-HANDOFF.md](SESSION-HANDOFF.md)를 기준으로 확인합니다. 문서에 적힌 코드·자료 경로와 명령은 별도 설명이 없으면 저장소 루트를 기준으로 합니다.
 
+- [Sync·Studio 후속 개선 단계별 계획·완료 조건](SYNC-STUDIO-FOLLOWUP-PLAN.md)
 - [Mac ↔ Windows 시행착오·실패 원인·재발 방지](CROSS-PLATFORM-LESSONS.md)
 - [새 세션 인수인계·완료/미완료·다운로드](SESSION-HANDOFF.md)
 - [교회 Mac 실행·실기 확인 순서](CHURCH-TEST.md)
