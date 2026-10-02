@@ -14,6 +14,12 @@ bash mac-app/build.command
 
 결과는 `mac-app/build/예배온 Sync.app`이다. Apple Command Line Tools의 `clang`만 필요하며 교회 실행에 Node.js·Python·Wrangler는 필요 없다. 기존 Core와 개별 송수신 도구는 `mac-sync/`에 유지한다.
 
+## Sync 0.5.2 build 10 · 재생목록 자동 비교
+
+- 실행/서버 비교 때 저장된 Mac 원본 `.pro6pl`과 서버의 같은 이름을 확인한다. 서버가 비어 있으면 원본 파일을 등록하고 문서 참조는 별도로 비교한다.
+- 공통 기준이 있고 Mac 파일만 바뀐 경우 서버 버전 조건을 확인해 새 버전으로 보낸다. 서버만 바뀌면 기존 백업을 거치는 받기 화면에서 확인한다. 양쪽 변경, 다른 파일 이름, 공통 기준이 없는 경우 자동 덮어쓰지 않고 상태를 표시한다.
+- 이 동작은 **새 앱 설치 후 실행할 때** 적용된다. 기존 0.5.1 앱은 자동 업데이트되지 않는다. 최초 서버 등록 전에는 Mac의 저장된 `.pro6pl` 경로가 실제 운영 파일인지 확인한다.
+
 ## Sync 0.5.1 build 9 · Mac 아이콘
 
 Studio 파비콘과 같은 남색 바탕·호박색 강조·둥근 종이 형태를 유지하고, 아래쪽 동기화 화살표는 Studio 뒤쪽 종이와 같은 `#6974A2`를 사용한다. `assets/SyncIcon.svg`는 편집 원본, `assets/SyncIcon-1024.png`는 Mac iconset 제작용 래스터 원본이다. `build.command`가 기본 `sips`와 `iconutil`로 16~1024 픽셀 `.icns`를 만들어 앱 서명 전에 번들에 넣는다. 앱에 필요한 아이콘만 바뀌었고 동기화 데이터/설정 경로는 0.5.0과 동일하다.
