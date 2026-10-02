@@ -82,7 +82,7 @@
 }
 - (void)updateReceiveAll {
     NSUInteger count=0;for(NSDictionary *c in self.comparisons.allValues)if([c[@"ready"] boolValue]){BOOL changed=[c[@"orderChanged"] boolValue];for(NSDictionary *r in c[@"rows"])if([r[@"status"] isEqual:@"download"])changed=YES;if(changed)count++;}
-    self.receiveAllButton.title=[NSString stringWithFormat:@"변경 예배 모두 받기 · %lu",(unsigned long)count];self.receiveAllButton.enabled=count>0 && !self.work.busy;[self updateReceiveAll];
+    self.receiveAllButton.title=[NSString stringWithFormat:@"변경 예배 모두 받기 · %lu",(unsigned long)count];self.receiveAllButton.enabled=count>0 && !self.work.busy;
 }
 - (void)acceptComparison:(NSDictionary *)result {self.comparison=result;[self.table reloadData];NSUInteger changed=0,added=0;for(NSDictionary *r in result[@"rows"])if([r[@"status"] isEqual:@"download"]){if(r[@"localHash"]==NSNull.null)added++;else changed++;}NSDictionary *manifest=result[@"manifest"],*library=manifest[@"library"];self.versionLabel.stringValue=[NSString stringWithFormat:@"%@ · 순서 v%@ · %@",manifest[@"playlist"][@"name"],manifest[@"playlist"][@"version"] ?: @"—",manifest[@"playlist"][@"updatedBy"] ?: library[@"updatedBy"] ?: @"—"];NSString *serverDate=YBDisplayDate(manifest[@"playlist"][@"updatedAt"] ?: library[@"updatedAt"]);
     NSDate *localDate=self.target ? [NSFileManager.defaultManager attributesOfItemAtPath:self.target.path error:NULL][NSFileModificationDate] : nil;
@@ -90,6 +90,7 @@
     self.summary.stringValue=[NSString stringWithFormat:@"받는 순서 ① 수정 %lu개 받기 → ② 새 문서 %lu개 추가 → ③ 선택한 예배 순서 %@ · 다른 순서는 유지",(unsigned long)changed,(unsigned long)added,[result[@"orderChanged"] boolValue] ? @"교체" : @"유지"];
     self.status.stringValue=[result[@"ready"] boolValue] ? ((changed+added || [result[@"orderChanged"] boolValue]) ? @"공유 문서 변경은 함께 쓰는 다른 예배에도 반영됩니다." : @"서버와 같습니다.") : [result[@"issues"] componentsJoinedByString:@" · "];
     self.receiveButton.title=@"선택한 예배 받기";self.receiveButton.toolTip=[NSString stringWithFormat:@"%@ 받기",manifest[@"playlist"][@"name"] ?: @"선택한 예배"];self.receiveButton.enabled=[result[@"ready"] boolValue] && (changed+added || [result[@"orderChanged"] boolValue]) && !self.work.busy;
+    [self updateReceiveAll];
 }
 - (NSArray *)previewItems {
     NSMutableArray *items=[NSMutableArray array];NSMutableDictionary *oldByID=[NSMutableDictionary dictionary];NSMutableArray *oldIDs=[NSMutableArray array],*newIDs=[NSMutableArray array];

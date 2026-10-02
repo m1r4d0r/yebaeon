@@ -3,9 +3,6 @@ name: Verify Mac Sync
 # for a release candidate; reuse its tested app and screenshots after merging.
 on:
   workflow_dispatch:
-  # Explicit manual request through the GitHub connector; pushes never trigger this.
-  pull_request:
-    types: [labeled]
 concurrency:
   group: mac-sync-${{ github.ref }}
   cancel-in-progress: true
@@ -13,7 +10,6 @@ permissions:
   contents: read
 jobs:
   native-sync:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'verify-mac'
     runs-on: macos-15-intel
     timeout-minutes: 15
     steps:

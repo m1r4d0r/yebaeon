@@ -44,6 +44,9 @@ static NSString *Query(NSString *value) {
     return [self transfer:route method:method body:body headers:headers timeout:60];
 }
 - (YBTransfer *)transfer:(NSString *)route method:(NSString *)method body:(NSData *)body headers:(NSDictionary *)headers timeout:(NSTimeInterval)timeout {
+#ifdef YB_TESTING
+    YBRequire(NO,@"격리 GUI 검사에서는 네트워크 전송을 허용하지 않습니다.");
+#endif
     YBRequire([route hasPrefix:@"/api/"] && ![route containsString:@"\r"] && ![route containsString:@"\n"],@"서버 요청 경로가 올바르지 않습니다.");
     NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:[NSURL URLWithString:[self.origin stringByAppendingString:route]]];
     request.HTTPMethod=method; request.HTTPBody=body; request.timeoutInterval=MIN(45,timeout); request.HTTPShouldHandleCookies=NO;
@@ -122,6 +125,9 @@ static NSString *Query(NSString *value) {
     YBValidateMetadata(doc); YBRequire([doc[@"path"] isEqual:path] && [doc[@"sha256"] isEqual:YBHash(data)] && [doc[@"size"] unsignedIntegerValue]==data.length && (!previous || [previous[@"id"] isEqual:doc[@"id"]]),@"서버 저장 결과와 보낸 문서가 다릅니다. 다시 비교해 주세요."); return doc;
 }
 - (NSMutableDictionary *)keychainQuery {
+#ifdef YB_TESTING
+    YBRequire(NO,@"격리 GUI 검사에서는 운영 키체인에 접근하지 않습니다.");
+#endif
     return [@{(__bridge id)kSecClass:(__bridge id)kSecClassGenericPassword,(__bridge id)kSecAttrService:@"org.yebaeon.sync.session",(__bridge id)kSecAttrAccount:self.origin} mutableCopy];
 }
 - (void)loadSession {

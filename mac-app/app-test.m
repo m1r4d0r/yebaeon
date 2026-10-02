@@ -28,6 +28,7 @@
 @interface YBServerPlaylistsController (Tests)
 - (void)acceptLibraries:(NSArray *)libraries;
 - (void)acceptComparison:(NSDictionary *)comparison;
+- (void)updateReceiveAll;
 - (NSArray *)recoveryRecordsForSync:(YBSync *)sync jobs:(NSArray *)jobs;
 - (NSView *)recoveryView;
 @end
@@ -72,6 +73,14 @@ int main(void) {@autoreleasepool {
     NSString *area=[NSTemporaryDirectory() stringByAppendingPathComponent:[@"yebaeon-app-tests-" stringByAppendingString:NSUUID.UUID.UUIDString]];
     @try {
         [NSApplication sharedApplication];YBSetTestPreferencesDirectory([area stringByAppendingPathComponent:@"settings"]);
+        YBSavePreferences(@"documents-settings.json",@{@"root":[area stringByAppendingPathComponent:@"ui-documents"]});
+        YBSavePreferences(@"media-settings.json",@{@"roots":@[[area stringByAppendingPathComponent:@"ui-media"]]});
+        YBServer *offline=[[YBServer alloc] initWithOrigin:@"https://example.test" allowLocalTestServer:NO];
+        Reject(^{[offline request:@"/api/session" method:@"GET" body:nil headers:nil];},@"GUI network guard");
+        Reject(^{[offline loadSession];},@"GUI keychain read guard");
+        offline.cookie=@"synthetic";
+        Reject(^{[offline saveSession];},@"GUI keychain write guard");
+        Reject(^{[offline forgetSession];},@"GUI keychain delete guard");
         NSString *old=[NSString stringWithContentsOfFile:@"mac-app/fixtures/dummy_old.xml" encoding:NSUTF8StringEncoding error:NULL],*new=[NSString stringWithContentsOfFile:@"mac-app/fixtures/dummy_new.xml" encoding:NSUTF8StringEncoding error:NULL];Check(old && new,@"original prototype fixtures");
         NSString *legacyDocument=[area stringByAppendingPathComponent:@"legacy-library.pro6pl"];
         Put(legacyDocument,[old dataUsingEncoding:NSUTF8StringEncoding]);
@@ -145,6 +154,12 @@ int main(void) {@autoreleasepool {
         YBServerPlaylistsController *serverUI=[[YBServerPlaylistsController alloc] initWithWork:work documents:controller];
         [serverUI setValue:@{@"ready":@YES,@"orderChanged":@YES,@"rows":@[@{@"path":@"찬양/공유 찬양.pro6",@"status":@"download"}],@"manifest":@{@"playlist":@{@"name":@"주일 1부 예배"},@"items":@[@{@"name":@"공유 찬양",@"kind":@"document",@"path":@"찬양/공유 찬양.pro6",@"sharedWith":@[@"주일 2부 예배"]}]}} forKey:@"comparison"];
         NSDictionary *uiComparison=[serverUI valueForKey:@"comparison"];[serverUI setValue:[@{@"lib/order":uiComparison} mutableCopy] forKey:@"comparisons"];[serverUI acceptLibraries:@[@{@"id":@"lib",@"path":@"기본 .pro6pl",@"updatedAt":@"2026-10-01",@"playlists":@[@{@"id":@"order",@"name":@"주일 1부 예배"}]}]];[serverUI acceptComparison:uiComparison];
+        Check([[serverUI valueForKey:@"receiveAllButton"] isEnabled],@"ready changed playlist enables receive all without recursion");
+        [serverUI setValue:[NSMutableDictionary dictionary] forKey:@"comparisons"];[serverUI acceptComparison:uiComparison];
+        Check(![[serverUI valueForKey:@"receiveAllButton"] isEnabled],@"acceptComparison refreshes receive all after results cleared");
+        [serverUI setValue:[@{@"blocked":@{@"ready":@NO,@"orderChanged":@YES},@"same":@{@"ready":@YES,@"rows":@[],@"orderChanged":@NO}} mutableCopy] forKey:@"comparisons"];[serverUI updateReceiveAll];
+        Check(![[serverUI valueForKey:@"receiveAllButton"] isEnabled],@"blocked and unchanged playlists cannot enable receive all");
+        [serverUI setValue:[@{@"lib/order":uiComparison} mutableCopy] forKey:@"comparisons"];[serverUI acceptComparison:uiComparison];
         [[serverUI valueForKey:@"table"] reloadData];Check([[serverUI valueForKey:@"table"] numberOfRows]==1,@"server playlist UI row binding");Render(serverUI.view,@"server-playlists");
         YBSync *recoverySync=[[YBSync alloc] initWithRoot:[area stringByAppendingPathComponent:@"recovery-docs"] profile:[area stringByAppendingPathComponent:@"recovery-profile"] origin:@"https://example.test"];recoverySync.presenterRunning=^BOOL{return NO;};[recoverySync beginBackupBatch:@"documents" playlistJob:nil];for(NSString *path in @[@"찬양.pro6",@"말씀.pro6"])[recoverySync apply:doc document:@{@"id":NSUUID.UUID.UUIDString.lowercaseString,@"path":path,@"version":@1,@"sha256":YBHash(doc),@"size":@(doc.length),@"updatedBy":@"테스트",@"updatedAt":@"2026-10-01"} expectedLocalHash:nil];[recoverySync endBackupBatch:YES];NSArray *records=[serverUI recoveryRecordsForSync:recoverySync jobs:@[]];Check(records.count==1 && [records[0][@"members"] count]==2,@"recovery list groups documents by operation without duplicate rows");[serverUI setValue:records forKey:@"recoveryRecords"];NSView *recovery=[serverUI recoveryView];[[serverUI valueForKey:@"recoveryTable"] selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];NSTableView *recoveryTable=[serverUI valueForKey:@"recoveryTable"];NSTextField *targetCell=(NSTextField *)[recoveryTable viewAtColumn:1 row:0 makeIfNecessary:YES];Check([targetCell.stringValue isEqual:@"문서 받기"],@"recovery cells render the selected batch, not playlist preview data");Render(recovery,@"recovery");[recoverySync close];
         // Actual window: compare before / playlist / document / settings, including minimum size.
@@ -205,4 +220,3 @@ int main(void) {@autoreleasepool {
         printf("Integrated app checks passed: %d\n",checks);Check([area hasPrefix:[NSTemporaryDirectory() stringByAppendingPathComponent:@"yebaeon-app-tests-"]],@"cleanup scope");[NSFileManager.defaultManager removeItemAtPath:area error:NULL];return 0;
     }@catch(NSException *e){fprintf(stderr,"APP FAIL after %d: %s\n",checks,e.reason.UTF8String);return 1;}
 }}
-
