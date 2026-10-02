@@ -25,6 +25,7 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 - (NSArray *)documentsChecking:(void (^)(void))check;
 - (NSDictionary *)head:(NSDictionary *)document;
 - (NSData *)download:(NSDictionary *)document;
+- (NSData *)downloadPlaylist:(NSDictionary *)library;
 - (NSDictionary *)upload:(NSData *)data path:(NSString *)path previous:(NSDictionary *)previous;
 - (void)loadSession;
 - (void)saveSession;
@@ -48,6 +49,7 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 @property(nonatomic, readonly) NSUInteger summaryHits;
 - (NSArray *)inventory;
 - (NSArray *)plan:(NSArray *)remoteDocuments;
+@property(nonatomic,copy) void (^rowCompared)(NSDictionary *row);
 - (NSData *)readDocument:(NSString *)path;
 - (void)acknowledge:(NSDictionary *)document expectedLocalHash:(NSString *)hash;
 - (void)restoreAcknowledgement:(NSDictionary *)document previous:(NSDictionary *)previous expectedLocalHash:(NSString *)hash;
@@ -68,5 +70,6 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 // Release the folder lock before switching/reopening a profile. Do not reuse afterwards.
 - (void)close;
 @end
+
 
 

@@ -54,8 +54,18 @@ int main(int argc,const char *argv[]){@autoreleasepool{
         batch=[NSMutableArray array];for(NSUInteger i=0;i<4;i++){NSString *p=[NSString stringWithFormat:@"retry-%lu.pro6",(unsigned long)i];Check([a writeToFile:[library.sync.root stringByAppendingPathComponent:p] atomically:YES],@"retry fixture");}
         plan=[library refresh];for(NSUInteger i=0;i<4;i++)[batch addObject:Row(plan,[NSString stringWithFormat:@"retry-%lu.pro6",(unsigned long)i])];server.failPath=@"retry-1.pro6";blocked=NO;@try{[library transfer:batch receiving:NO progress:nil];}@catch(NSException *e){blocked=YES;}Check(blocked,@"partial failure reported");server.failPath=nil;
         plan=[library refresh];NSMutableArray *remaining=[NSMutableArray array];for(NSUInteger i=0;i<4;i++){NSDictionary *r=Row(plan,[NSString stringWithFormat:@"retry-%lu.pro6",(unsigned long)i]);if([r[@"status"] isEqual:@"upload"])[remaining addObject:r];else Check([r[@"status"] isEqual:@"same"],@"successful siblings preserved after failure");}Check(remaining.count==1 && [remaining[0][@"path"] isEqual:@"retry-1.pro6"],@"resume selects only failed document");Check([library transfer:remaining receiving:NO progress:nil]==1,@"retry succeeds");
+
+        __block NSUInteger published=0;__block BOOL interrupt=NO;library.rowsCompared=^(NSArray *rows){published+=rows.count;interrupt=YES;};
+        BOOL interrupted=NO;@try{[library refreshChecking:^{if(interrupt)YBRequire(NO,@"yield for user work");}];}@catch(NSException *e){interrupted=YES;}
+        Check(interrupted && published>0,@"rows stream before the remaining comparison finishes");library.rowsCompared=nil;
+        NSUInteger reads=library.sync.summaryReads;NSArray *resumed=[library refreshChecking:nil];Check(resumed.count>published && library.sync.summaryReads==reads,@"resumed comparison reuses verified local summaries");
+        NSString *conflictPath=@"resolve.pro6";NSData *left=Doc(@"Mac choice"),*right=Doc(@"server choice");Check([left writeToFile:[library.sync.root stringByAppendingPathComponent:conflictPath] atomically:YES],@"conflict local fixture");NSDictionary *remote=[web upload:right path:conflictPath previous:nil];NSDictionary *conflictRow=@{@"path":conflictPath,@"status":@"conflict",@"localHash":YBHash(left),@"remote":remote};
+        NSDictionary *resolved=[library resolveRow:conflictRow receiving:NO];Check([resolved[@"status"] isEqual:@"same"] && [[server download:resolved[@"remote"]] isEqual:left],@"explicit document Mac choice stores and verifies its baseline");
+        remote=[web upload:right path:conflictPath previous:resolved[@"remote"]];conflictRow=@{@"path":conflictPath,@"status":@"conflict",@"localHash":YBHash(left),@"remote":remote};resolved=[library resolveRow:conflictRow receiving:YES];Check([[library.sync readDocument:conflictPath] isEqual:right],@"explicit document server choice applies with backup");
+        BOOL staleBlocked=NO;@try{[library resolveRow:conflictRow receiving:NO];}@catch(NSException *e){staleBlocked=YES;}Check(staleBlocked,@"document decision rejects stale local content");
         Check([[server download:v2] isEqual:b],@"earlier server version retained");printf("Integrated app Worker checks passed: %d\n",checks);[library.sync close];Check([area hasPrefix:[NSTemporaryDirectory() stringByAppendingPathComponent:@"yebaeon-app-roundtrip-"]],@"cleanup scope");[NSFileManager.defaultManager removeItemAtPath:area error:NULL];return 0;
     }@catch(NSException *e){fprintf(stderr,"APP INTEGRATION FAIL: %s\n",e.reason.UTF8String);return 1;}
 }}
+
 
 

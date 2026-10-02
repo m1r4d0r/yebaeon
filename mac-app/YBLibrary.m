@@ -9,17 +9,21 @@
 @end
 @interface YBLibrary ()
 @property NSMutableDictionary *recentReports;
+@property NSMutableDictionary *comparisonCatalog;
+@property NSString *inventoryDigest;
 @end
 @implementation YBLibrary
 - (instancetype)initWithRoot:(NSString *)root profile:(NSString *)profile server:(YBServer *)server {
     if((self=[super init])) {_server=server;_sync=[[YBSync alloc] initWithRoot:root profile:profile origin:server.origin];}return self;
 }
 - (void)dealloc {[_sync close];}
-- (NSArray *)refresh {return [self refreshChecking:nil];}
+- (void)invalidateComparison {self.comparisonCatalog=nil;}
+- (void)noteComparedDocuments:(NSArray *)documents {for(NSDictionary *doc in documents)if(self.comparisonCatalog){YBValidateMetadata(doc);self.comparisonCatalog[doc[@"path"]]=doc;}}
+- (NSArray *)refresh {[self invalidateComparison];return [self refreshChecking:nil];}
 - (NSArray *)refreshChecking:(void (^)(void))check {
     void (^previous)(void)=self.sync.comparisonCheck;
     void (^boundary)(void)=^{if(check)check();if(self.operationCheckpoint)self.operationCheckpoint();if(check)check();};
-    self.sync.comparisonCheck=boundary;@try{return [self refreshBody:boundary];}@finally{self.sync.comparisonCheck=previous;self.sync.comparisonProgress=nil;}
+    self.sync.comparisonCheck=boundary;@try{return [self refreshBody:boundary];}@finally{self.sync.comparisonCheck=previous;self.sync.comparisonProgress=nil;self.sync.rowCompared=nil;}
 }
 - (NSArray *)refreshBody:(void (^)(void))check {
     if(check)check();
@@ -27,19 +31,23 @@
     NSArray *inventory=[self.sync inventory];
     NSString *identity=[NSString stringWithFormat:@"%@|%@|%@",self.sync.profile,self.sync.root,self.server.origin];
     NSData *body=[NSJSONSerialization dataWithJSONObject:@{@"deviceId":YBHash([identity dataUsingEncoding:NSUTF8StringEncoding]),@"documents":inventory} options:0 error:NULL];
-    if(check)check();[self.server request:@"/api/inventory" method:@"POST" body:body headers:@{@"Content-Type":@"application/json"} timeout:10];
+    if(check)check();NSMutableArray *signature=[NSMutableArray array];for(NSDictionary *entry in [inventory sortedArrayUsingDescriptors:@[[NSSortDescriptor sortDescriptorWithKey:@"originalPath" ascending:YES]]])[signature addObject:@[entry[@"originalPath"],entry[@"size"]]];NSString *digest=YBHash([NSJSONSerialization dataWithJSONObject:signature options:0 error:NULL]);if(![digest isEqual:self.inventoryDigest]){[self.server request:@"/api/inventory" method:@"POST" body:body headers:@{@"Content-Type":@"application/json"} timeout:10];self.inventoryDigest=digest;}
     if(check)check();
     if(self.phaseChanged)self.phaseChanged([NSString stringWithFormat:@"② 문서 %lu개와 서버 변경 비교 중",(unsigned long)inventory.count]);
     __block NSUInteger compared=0;if(self.comparisonProgress)self.comparisonProgress(0,inventory.count);
     __weak YBLibrary *weakSelf=self;self.sync.comparisonProgress=^{compared++;if(weakSelf.comparisonProgress)weakSelf.comparisonProgress(compared,inventory.count);};
     NSUInteger readsBefore=self.sync.summaryReads,hitsBefore=self.sync.summaryHits;NSDate *started=NSDate.date;
     NSMutableArray *result=[NSMutableArray array];NSISO8601DateFormatter *dates=[NSISO8601DateFormatter new];
-    for(NSDictionary *row in [self.sync plan:[self.server documentsChecking:check]]) {@autoreleasepool {
+    if(!self.comparisonCatalog){NSArray *catalog=[self.server documentsChecking:check];NSMutableDictionary *map=[NSMutableDictionary dictionary];for(NSDictionary *doc in catalog)map[doc[@"path"]]=doc;self.comparisonCatalog=map;}
+    NSMutableArray *partial=[NSMutableArray array];__block NSTimeInterval lastPublish=0;
+    self.sync.rowCompared=^(NSDictionary *row){[partial addObject:row];NSTimeInterval now=NSDate.date.timeIntervalSince1970;if(partial.count>=32 || now-lastPublish>.2){if(self.rowsCompared)self.rowsCompared([partial copy]);[partial removeAllObjects];lastPublish=now;}};
+    for(NSDictionary *row in [self.sync plan:self.comparisonCatalog.allValues]) {@autoreleasepool {
         if(check)check();NSMutableDictionary *copy=[row mutableCopy];NSDate *modified=[NSFileManager.defaultManager attributesOfItemAtPath:[self.sync.root stringByAppendingPathComponent:row[@"path"]] error:NULL][NSFileModificationDate];if(modified)copy[@"modifiedTime"]=@(modified.timeIntervalSince1970);
         NSString *value=row[@"lastDateUsed"];NSDate *date=[dates dateFromString:value ?: @""];
         if(date){copy[@"lastDateUsed"]=value;copy[@"lastUsedTime"]=@(date.timeIntervalSince1970);}
         [result addObject:copy];
     }}
+    if(partial.count && self.rowsCompared)self.rowsCompared([partial copy]);
     NSMutableArray *reports=[NSMutableArray array];for(NSDictionary *r in result){id remote=r[@"remote"];if([remote isKindOfClass:NSDictionary.class]) [reports addObject:@{@"kind":@"document",@"id":remote[@"id"],@"node":@"",@"serverHash":remote[@"sha256"],@"status":r[@"status"] ?: @"unknown"}];}
     if(check)check();[self reportSyncItems:reports];NSLog(@"Sync compare: documents=%lu reads=%lu cacheHits=%lu seconds=%.3f",(unsigned long)result.count,(unsigned long)(self.sync.summaryReads-readsBefore),(unsigned long)(self.sync.summaryHits-hitsBefore),-started.timeIntervalSinceNow);return result;
 }
@@ -86,7 +94,7 @@
             [queue waitUntilAllOperationsAreFinished];NSMutableArray *failures=[NSMutableArray array];
             for(YBUploadJob *job in jobs) {
                 if(job.failure){[failures addObject:[NSString stringWithFormat:@"%@: %@",job.row[@"path"],job.failure]];continue;}
-                @try {[self.sync acknowledge:job.saved expectedLocalHash:job.row[@"localHash"]];[reports addObject:@{@"kind":@"document",@"id":job.saved[@"id"],@"node":@"",@"serverHash":job.saved[@"sha256"],@"status":@"same"}];count++;if(progress)progress(job.row[@"path"],count);}
+                @try {[self.sync acknowledge:job.saved expectedLocalHash:job.row[@"localHash"]];[self noteComparedDocuments:@[job.saved]];[reports addObject:@{@"kind":@"document",@"id":job.saved[@"id"],@"node":@"",@"serverHash":job.saved[@"sha256"],@"status":@"same"}];count++;if(progress)progress(job.row[@"path"],count);}
                 @catch(NSException *error){[failures addObject:[NSString stringWithFormat:@"%@: 서버 저장 후 로컬 기록 실패. 다시 비교하세요. %@",job.row[@"path"],error.reason]];}
             }
             [self reportSyncItems:reports];YBRequire(failures.count==0,[failures componentsJoinedByString:@"\n"]);
@@ -110,7 +118,7 @@
             if([status isEqual:@"same"]) [self.sync acknowledge:remote expectedLocalHash:hash];
             else if(receiving) {
                 NSData *data=[self.server download:remote];NSDictionary *head=[self.server head:remote];YBRequire([head[@"version"] isEqual:remote[@"version"]],@"받는 동안 서버 문서가 변경됐습니다. 다시 비교해 주세요.");
-                [self.sync apply:data document:remote expectedLocalHash:hash];
+                [self.sync apply:data document:remote expectedLocalHash:hash];[self noteComparedDocuments:@[remote]];
             } else {
                 NSData *data=[self.sync readDocument:path];YBRequire(hash && [YBHash(data) isEqual:hash],@"선택 후 로컬 문서가 바뀌었습니다. 다시 비교해 주세요.");
                 YBRequire([YBDisposition(hash,remote,self.sync.entries[path]) isEqual:@"upload"],@"문서의 동기화 기준이 달라졌습니다. 다시 비교해 주세요.");
@@ -123,7 +131,27 @@
     @finally {[self.sync endBackupBatch:completed];[self reportSyncItems:reports];}
     return count;
 }
+
+- (NSDictionary *)resolveRow:(NSDictionary *)row receiving:(BOOL)receiving {
+    [self.sync assertReady];YBRequire(!self.sync.presenterRunning(),@"PP6를 종료한 뒤 문서 충돌을 해결하세요.");YBRequire(!row[@"error"],@"경로/제외 오류는 먼저 해결해야 합니다.");
+    NSString *path=YBPath(row[@"path"]),*expected=row[@"localHash"]==NSNull.null ? nil : row[@"localHash"];NSDictionary *remote=[row[@"remote"] isKindOfClass:NSDictionary.class] ? row[@"remote"] : nil;NSData *local=[self.sync readDocument:path];
+    YBRequire((!local && !expected) || [YBHash(local) isEqual:expected],@"비교 후 Mac 문서가 바뀌었습니다.");YBRequire(receiving ? remote!=nil : local!=nil,@"선택한 쪽의 문서가 없습니다.");
+    if(remote){NSDictionary *head=[self.server head:remote];YBRequire([head[@"version"] isEqual:remote[@"version"]] && [head[@"sha256"] isEqual:remote[@"sha256"]],@"비교 후 서버 문서가 바뀌었습니다.");}
+    NSData *incoming=remote ? [self.server download:remote] : nil;NSString *folder=[@"document-resolutions/" stringByAppendingString:NSUUID.UUID.UUIDString];
+    if(local)YBWriteSafeFile(self.sync.profile,[folder stringByAppendingString:@"/local.pro6"],local,0600,nil);if(incoming)YBWriteSafeFile(self.sync.profile,[folder stringByAppendingString:@"/server.pro6"],incoming,0600,nil);
+    NSMutableDictionary *record=[@{@"row":row,@"direction":receiving ? @"server" : @"mac",@"status":@"prepared",@"previousBaseline":self.sync.entries[path] ?: NSNull.null} mutableCopy];
+    void (^save)(void)=^{YBWriteSafeFile(self.sync.profile,[folder stringByAppendingString:@"/job.json"],[NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingPrettyPrinted error:NULL],0600,nil);};save();
+    @try {
+        YBRequire(!self.sync.presenterRunning(),@"PP6가 실행됐습니다.");NSDictionary *saved=remote;
+        if(receiving){NSDictionary *head=[self.server head:remote];YBRequire([head[@"version"] isEqual:remote[@"version"]] && [head[@"sha256"] isEqual:remote[@"sha256"]],@"백업 중 서버 문서가 변경됐습니다.");BOOL complete=NO;[self.sync beginBackupBatch:@"documents" playlistJob:nil];@try{if([expected isEqual:remote[@"sha256"]])[self.sync acknowledge:remote expectedLocalHash:expected];else [self.sync apply:incoming document:remote expectedLocalHash:expected];complete=YES;}@finally{[self.sync endBackupBatch:complete];}}
+        else {YBRequire([YBHash([self.sync readDocument:path]) isEqual:expected],@"백업 후 Mac 문서가 변경됐습니다.");if(![expected isEqual:remote[@"sha256"]])saved=[self.server upload:local path:path previous:remote];NSDictionary *verified=[self.server head:saved];YBRequire([verified[@"version"] isEqual:saved[@"version"]] && [verified[@"sha256"] isEqual:expected],@"서버 저장 검증 실패");[self.sync acknowledge:saved expectedLocalHash:expected];}
+        record[@"status"]=@"complete";record[@"saved"]=saved;save();[self noteComparedDocuments:@[saved]];
+        return @{@"path":path,@"status":@"same",@"localHash":saved[@"sha256"],@"remote":saved};
+    }@catch(NSException *error){record[@"status"]=@"incomplete";record[@"error"]=error.reason ?: @"중단";save();@throw;}
+}
+
 @end
+
 
 
 

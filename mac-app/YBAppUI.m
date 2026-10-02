@@ -84,7 +84,7 @@ NSString *YBProfilePath(NSString *root,NSString *origin) {NSString *identity=[NS
     BOOL (^cancelled)(void)=^BOOL{return self.generation!=generation;};
     dispatch_async(self.queue,^{@autoreleasepool {
         id result=nil;NSString *error=nil;@try{if(!cancelled()){[self checkpoint];if(!cancelled())result=task(cancelled);}}@catch(NSException *e){error=e.reason;}
-        dispatch_async(dispatch_get_main_queue(),^{if(self.generation==generation){self.backgroundActive=NO;[self resumeForNextOperation:NO];}completion(cancelled() ? nil : result,cancelled() ? @"사용자 작업을 우선하여 나머지 점검을 멈췄습니다. 필요하면 서버와 비교를 눌러 주세요." : error);});
+        dispatch_async(dispatch_get_main_queue(),^{if(self.generation==generation){self.backgroundActive=NO;[self resumeForNextOperation:NO];}completion(cancelled() ? nil : result,cancelled() ? @"사용자 작업을 우선합니다. 끝나면 나머지 점검을 자동으로 이어갑니다." : error);});
     }});
 }
 - (void)run:(id (^)(void))task completion:(void (^)(id,NSString *))completion {[self runPausable:NO task:task completion:completion];}
@@ -93,7 +93,7 @@ NSString *YBProfilePath(NSString *root,NSString *origin) {NSString *identity=[NS
     self.generation++;self.backgroundActive=NO;[self resumeForNextOperation:pausable];self.message=@"작업 준비 중";self.busy=YES;if(self.busyChanged)self.busyChanged(YES);
     dispatch_async(self.queue,^{@autoreleasepool {
         id result=nil;NSString *error=nil;@try {[self checkpoint];result=task();}@catch(NSException *e){error=e.reason ?: @"작업을 완료하지 못했습니다.";}
-        dispatch_async(dispatch_get_main_queue(),^{self.busy=NO;[self resumeForNextOperation:NO];self.message=nil;if(self.busyChanged)self.busyChanged(NO);completion(result,error);});
+        dispatch_async(dispatch_get_main_queue(),^{self.busy=NO;[self resumeForNextOperation:NO];self.message=nil;if(self.busyChanged)self.busyChanged(NO);completion(result,error);if(!self.busy && self.idle)self.idle();});
     }});
 }
 @end
@@ -129,3 +129,4 @@ NSString *YBDisplayDate(id value) {
     NSString *prefix=[cal isDate:date inSameDayAsDate:today] ? @"오늘 " : [cal isDate:date inSameDayAsDate:yesterday] ? @"어제 " : @"";
     f.dateFormat=prefix.length ? @"a h:mm" : @"yyyy.MM.dd a h:mm";return [prefix stringByAppendingString:[f stringFromDate:date]];
 }
+

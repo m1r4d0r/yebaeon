@@ -28,6 +28,9 @@
 @property(nonatomic) NSURL *playlistFile;
 @property BOOL updatingSelection;
 @property BOOL backgroundScheduled;
+@property BOOL backgroundRunning;
+@property BOOL backgroundNeedsResume;
+@property NSUInteger comparisonEpoch;
 @property NSTextField *summaryLabel;
 @property NSTextField *selectionHint;
 @property NSTextField *transferCount;
@@ -127,31 +130,54 @@
     }];
 }
 - (void)attachComparisonProgress:(YBLibrary *)library {
+    NSUInteger epoch=self.comparisonEpoch;
     __weak YBDocumentsController *weakSelf=self;
-    library.phaseChanged=^(NSString *message){dispatch_async(dispatch_get_main_queue(),^{if(weakSelf.checkStateChanged)weakSelf.checkStateChanged(@"전체 문서 점검",0,0,YES);weakSelf.work.message=message;});};
-    library.comparisonProgress=^(NSUInteger done,NSUInteger total){dispatch_async(dispatch_get_main_queue(),^{if(weakSelf.checkStateChanged)weakSelf.checkStateChanged(@"전체 문서 점검",done,total,YES);});};
+    library.phaseChanged=^(NSString *message){dispatch_async(dispatch_get_main_queue(),^{if(weakSelf.comparisonEpoch!=epoch || (weakSelf.backgroundRunning && weakSelf.work.busy))return;if(weakSelf.checkStateChanged)weakSelf.checkStateChanged(@"전체 문서 점검",0,0,YES);weakSelf.work.message=message;});};
+    library.comparisonProgress=^(NSUInteger done,NSUInteger total){dispatch_async(dispatch_get_main_queue(),^{if(weakSelf.comparisonEpoch!=epoch || (weakSelf.backgroundRunning && weakSelf.work.busy))return;if(weakSelf.checkStateChanged)weakSelf.checkStateChanged(@"전체 문서 점검",done,total,YES);});};
 }
 - (void)endComparisonProgress:(NSString *)error {
     if(self.checkStateChanged)self.checkStateChanged(error ? @"전체 문서 점검 미완료" : @"전체 문서 점검 끝",self.rows.count,self.rows.count,NO);
 }
+- (void)mergeComparedRows:(NSArray *)rows {
+    NSMutableDictionary *map=[NSMutableDictionary dictionary];for(NSDictionary *row in self.rows)map[row[@"path"]]=row;for(NSDictionary *row in rows)map[row[@"path"]]=row;
+    NSSet *checked=[self.checked copy];[self acceptRows:map.allValues];[self.checked unionSet:checked];[self filter];
+}
+- (void)acceptPriorityComparisons:(NSArray *)comparisons {
+    self.comparisonEpoch++;NSMutableDictionary *rows=[NSMutableDictionary dictionary];
+    for(NSDictionary *c in comparisons)for(NSDictionary *row in c[@"rows"]){NSDictionary *previous=rows[row[@"path"]];if(previous && ![previous isEqual:row]){NSMutableDictionary *conflict=[row mutableCopy];conflict[@"status"]=@"conflict";conflict[@"error"]=@"공유 문서가 비교 도중 바뀌었습니다. 다시 비교하세요.";rows[row[@"path"]]=conflict;}else rows[row[@"path"]]=row;}
+    [self mergeComparedRows:rows.allValues];self.statusLabel.stringValue=[NSString stringWithFormat:@"연결 문서 %lu개 확인 · 나머지는 자동 점검",(unsigned long)rows.count];
+    self.backgroundScheduled=NO;self.backgroundNeedsResume=YES;
+}
+- (void)resumeBackgroundIfNeeded {if(self.backgroundNeedsResume && !self.work.busy && !self.backgroundRunning)[self backgroundCompare];}
 - (void)backgroundCompare {
-    if(self.backgroundScheduled || self.work.busy)return;self.backgroundScheduled=YES;if(self.checkStateChanged)self.checkStateChanged(@"전체 문서 점검",0,0,YES);
-    self.statusLabel.stringValue=@"나머지 문서 백그라운드 점검 중 · 재생목록 받기를 사용할 수 있습니다.";
+    if(self.backgroundRunning || self.work.busy || (self.backgroundScheduled && !self.backgroundNeedsResume))return;
+    self.backgroundScheduled=YES;self.backgroundRunning=YES;self.backgroundNeedsResume=NO;NSUInteger epoch=++self.comparisonEpoch;
+    self.statusLabel.stringValue=@"확인한 문서는 바로 사용 가능 · 나머지 문서 자동 점검 중";
+    __block BOOL yielded=NO;
     [self.work runBackground:^id(BOOL (^cancelled)(void)){
-        void (^check)(void)=^{YBRequire(!cancelled(),@"사용자 작업을 우선하여 점검을 중지했습니다.");};check();YBLibrary *library=[self connectedLibrary];[self attachComparisonProgress:library];@try{return [library refreshChecking:check];}@finally{library.phaseChanged=nil;library.comparisonProgress=nil;}
+        void (^check)(void)=^{if(cancelled()){yielded=YES;YBRequire(NO,@"사용자 작업에 점검을 양보합니다.");}};check();YBLibrary *library=[self connectedLibrary];[self attachComparisonProgress:library];
+        library.rowsCompared=^(NSArray *rows){dispatch_async(dispatch_get_main_queue(),^{if(self.comparisonEpoch==epoch && !self.work.busy)[self mergeComparedRows:rows];});};
+        @try{return [library refreshChecking:check];}@finally{yielded=yielded || cancelled();library.rowsCompared=nil;library.phaseChanged=nil;library.comparisonProgress=nil;}
     } completion:^(NSArray *rows,NSString *error){
-        if(error){self.statusLabel.stringValue=[@"나머지 문서 점검 미완료 · " stringByAppendingString:error];[self endComparisonProgress:error];return;}
+        self.backgroundRunning=NO;
+        if(self.comparisonEpoch!=epoch){[self resumeBackgroundIfNeeded];return;}
+        if(yielded || (error && [error hasPrefix:@"사용자 작업"])){
+            self.backgroundNeedsResume=YES;if(self.comparisonEpoch==epoch)self.statusLabel.stringValue=@"사용자 작업 후 나머지 문서 자동 점검을 이어갑니다.";[self resumeBackgroundIfNeeded];return;
+        }
+        if(self.comparisonEpoch!=epoch){[self resumeBackgroundIfNeeded];return;}
+        if(error){self.backgroundNeedsResume=NO;self.statusLabel.stringValue=[@"나머지 문서 점검 미완료 · 다시 비교: " stringByAppendingString:error];[self endComparisonProgress:error];return;}
         [self acceptRows:rows];[self endComparisonProgress:nil];if(self.comparisonFinished)self.comparisonFinished();
     }];
 }
 - (void)refresh:(id)sender {
+    self.comparisonEpoch++;self.backgroundNeedsResume=NO;
     self.statusLabel.stringValue=@"서버와 문서를 비교하고 있습니다…";if(self.checkStateChanged)self.checkStateChanged(@"전체 문서 점검",0,0,YES);
     [self.work runPausable:YES task:^id {
         [self ensureSessionLoaded];NSDictionary *session=[self.server request:@"/api/session" method:@"GET" body:nil headers:nil];
         YBRequire([session[@"authenticated"] boolValue],@"먼저 ‘입장 / 이름 변경’에서 공용 비밀번호로 입장해 주세요.");
         YBLibrary *library=[self connectedLibrary];[self attachComparisonProgress:library];NSArray *rows=nil;@try{rows=[library refresh];}@finally{library.phaseChanged=nil;library.comparisonProgress=nil;}YBSavePreferences(@"last-server-comparison.json",@{@"at":[NSDate.date description],@"root":self.documentsRoot,@"documents":@(rows.count),@"automatic":@NO});return @{@"rows":rows,@"name":session[@"name"] ?: @"",@"pending":@(library.sync.pendingTransactions.count)};
     } completion:^(NSDictionary *result,NSString *error) {
-        if(error){[self acceptRows:@[]];self.statusLabel.stringValue=@"비교하지 못했습니다. 입장 상태와 폴더를 확인해 주세요.";[self endComparisonProgress:error];YBAlert(@"문서 비교",error);return;}
+        if(error){self.statusLabel.stringValue=@"비교하지 못했습니다. 입장 상태와 폴더를 확인해 주세요.";[self endComparisonProgress:error];YBAlert(@"문서 비교",error);return;}
         [self acceptRows:result[@"rows"]];self.sessionLabel.stringValue=[NSString stringWithFormat:@"%@ 연결됨",result[@"name"]];if(self.sessionChanged)self.sessionChanged(self.sessionLabel.stringValue);
         if([result[@"pending"] unsignedIntegerValue])self.statusLabel.stringValue=@"중단된 적용이 있습니다. 복구 기록을 먼저 확인하세요.";[self endComparisonProgress:nil];if(self.comparisonFinished)self.comparisonFinished();
     }];
@@ -177,6 +203,7 @@
     }];
 }
 - (void)logout:(id)sender {
+    self.comparisonEpoch++;self.backgroundNeedsResume=NO;self.backgroundScheduled=YES;
     [self.work run:^id { [self ensureSessionLoaded];[self.server request:@"/api/session" method:@"DELETE" body:nil headers:nil];[self.server forgetSession];return @YES; } completion:^(id result,NSString *error) {
         if(error){YBAlert(@"로그아웃",error);return;}[self acceptRows:@[]];self.sessionLabel.stringValue=@"로그아웃됨";if(self.sessionChanged)self.sessionChanged(self.sessionLabel.stringValue);
     }];
@@ -230,7 +257,7 @@
         for(NSDictionary *row in self.rows){NSMutableDictionary *copy=[row mutableCopy];NSDictionary *saved=entries[row[@"path"]];if([completed containsObject:row[@"path"]] && saved){copy[@"remote"]=saved;copy[@"localHash"]=saved[@"sha256"];copy[@"status"]=@"same";}[rows addObject:copy];}
         return @{@"count":@(count),@"rows":rows,@"warning":warning};
     } completion:^(NSDictionary *result,NSString *error) {
-        self.transferActive=NO;self.progress.hidden=YES;self.transferCount.hidden=YES;self.selectionHint.hidden=NO;[self acceptRows:result[@"rows"] ?: @[]];
+        self.transferActive=NO;self.progress.hidden=YES;self.transferCount.hidden=YES;self.selectionHint.hidden=NO;if(result)[self acceptRows:result[@"rows"]];
         if(error){self.statusLabel.stringValue=[NSString stringWithFormat:@"전송 미완료 · %.0f/%lu 완료 · 오류 있음 · 복구 기록 확인 후 다시 비교",self.progress.doubleValue,(unsigned long)selected.count];YBAlert(@"문서 송수신 중단",error);return;}
         self.statusLabel.stringValue=[NSString stringWithFormat:@"%@개 완료했습니다. %@",result[@"count"],[result[@"warning"] length] ? @"목록을 다시 비교해 주세요." : @"전송한 문서 상태를 반영했습니다. 다른 변경은 ‘서버와 비교’로 확인하세요."];
         if([result[@"warning"] length])YBAlert(@"송수신은 완료했습니다.",result[@"warning"]);
@@ -265,8 +292,15 @@
             [text appendString:@"\n분석은 기존 Core 기준입니다. 원본 바이트가 다르면 화면 차이 집계가 0이어도 동기화 상태가 달라질 수 있습니다.\n"];
         } else [text appendString:local ? @"이 문서는 Mac에만 있습니다.\n" : @"서버에만 있는 문서입니다. 받기를 선택하면 새 파일로 추가합니다.\n"];
         return text;
-    } completion:^(NSString *result,NSString *error) {if(error)YBAlert(@"내용 비교",error);else YBShowText(@"문서 내용 비교",result);}];
+    } completion:^(NSString *result,NSString *error) {
+        if(error){YBAlert(@"내용 비교",error);return;}NSAlert *alert=[NSAlert new];alert.messageText=@"문서 내용 비교 · 버전 선택";alert.informativeText=@"선택한 쪽의 전체 문서(본문·서식·미디어 참조)를 사용합니다. 공유하는 다른 예배에도 반영됩니다.";
+        NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,720,350)];scroll.hasVerticalScroller=YES;NSTextView *text=[[NSTextView alloc] initWithFrame:scroll.bounds];text.editable=NO;text.string=result;text.textContainer.widthTracksTextView=YES;text.verticallyResizable=YES;text.autoresizingMask=NSViewWidthSizable;scroll.documentView=text;alert.accessoryView=scroll;
+        [alert addButtonWithTitle:@"Mac 내용 사용"];[alert addButtonWithTitle:@"서버 내용 사용"];[alert addButtonWithTitle:@"닫기"];alert.buttons[0].enabled=row[@"localHash"]!=NSNull.null;alert.buttons[1].enabled=[row[@"remote"] isKindOfClass:NSDictionary.class];NSModalResponse answer=[alert runModal];if(answer!=NSAlertFirstButtonReturn && answer!=NSAlertSecondButtonReturn)return;BOOL receiving=answer==NSAlertSecondButtonReturn;
+        if(!YBConfirm(@"이 문서의 기준을 맞출까요?",[NSString stringWithFormat:@"%@\n양쪽 원본을 백업하고 %@ 내용으로 맞춥니다. PP6를 종료해 주세요.",path,receiving ? @"서버" : @"Mac"],@"백업 후 적용"))return;
+        [self.work run:^id{return [[self connectedLibrary] resolveRow:row receiving:receiving];} completion:^(NSDictionary *saved,NSString *failure){if(failure){YBAlert(@"문서 해결 미완료",failure);return;}[self mergeComparedRows:@[saved]];if(self.priorityRequested)self.priorityRequested();}];
+    }];
 }
 - (void)backups:(id)sender {if(!self.work.busy && self.showRecovery)self.showRecovery();}
 @end
+
 

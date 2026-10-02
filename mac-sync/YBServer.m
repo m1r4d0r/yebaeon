@@ -144,5 +144,13 @@ static NSString *Query(NSString *value) {
     YBRequire(status==errSecSuccess,@"키체인에 입장 정보를 저장하지 못했습니다. 이번 실행에서는 사용할 수 있습니다.");
 }
 - (void)forgetSession { OSStatus status=SecItemDelete((__bridge CFDictionaryRef)[self keychainQuery]); YBRequire(status==errSecSuccess || status==errSecItemNotFound,@"키체인 입장 정보를 지우지 못했습니다."); self.cookie=nil; }
+- (NSData *)downloadPlaylist:(NSDictionary *)library {
+    NSString *identifier=library[@"id"],*hash=library[@"sha256"];NSNumber *version=library[@"version"];
+    YBRequire([identifier isKindOfClass:NSString.class] && [identifier rangeOfString:@"^[0-9a-f-]{36}$" options:NSRegularExpressionSearch].location!=NSNotFound && [hash isKindOfClass:NSString.class] && version.integerValue>0,@"재생목록 메타데이터 오류");
+    NSData *data=[self transfer:[NSString stringWithFormat:@"/api/playlists/%@/raw?version=%@",identifier,version] method:@"GET" body:nil headers:nil].data;
+    YBRequire([YBHash(data) isEqual:hash],@"서버 재생목록 백업 해시가 다릅니다.");return data;
+}
+
 @end
+
 

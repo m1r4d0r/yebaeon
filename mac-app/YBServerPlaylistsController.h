@@ -12,6 +12,9 @@
 - (void)publish:(id)sender;
 - (void)restore:(id)sender;
 - (void)rootChanged;
+@property(nonatomic,copy) void (^showDocuments)(void);
+- (void)resetServer:(id)sender;
 @end
+
 
 

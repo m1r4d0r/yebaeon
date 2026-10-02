@@ -12,7 +12,12 @@
 - (NSDictionary *)compare:(NSString *)libraryID node:(NSString *)nodeID hashCache:(NSMutableDictionary *)hashCache;
 - (NSString *)receiveComparisons:(NSArray *)comparisons progress:(void (^)(NSString *message))progress;
 - (NSString *)receive:(NSDictionary *)comparison progress:(void (^)(NSString *message))progress;
+// Explicit user decisions. Ordinary receive continues to reject conflicts.
+- (NSString *)receiveChoosingServer:(NSDictionary *)comparison progress:(void (^)(NSString *message))progress;
+- (NSDictionary *)prepareMacReset:(NSDictionary *)comparison progress:(void (^)(NSString *message))progress;
+- (NSDictionary *)applyMacReset:(NSDictionary *)prepared progress:(void (^)(NSString *message))progress;
 - (NSArray *)jobs;
 - (void)restoreJob:(NSString *)identifier;
 @end
+
 

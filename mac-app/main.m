@@ -12,6 +12,7 @@
 @property NSWindow *window;
 @property NSTabView *tabs;
 @property NSView *tabBar;
+@property NSSegmentedControl *navigation;
 @property NSTextField *status;
 @property YBWork *work;
 @property NSMapTable *controlStates;
@@ -63,11 +64,13 @@
     self.documents.priorityRequested=^{[weakSelf.serverPlaylists refresh:nil];};
     self.serverPlaylists.comparisonFinished=^{weakSelf.lastCompared=[weakSelf clock];[weakSelf updateConnection];};
     self.serverPlaylists.priorityFinished=^{[weakSelf.documents backgroundCompare];};
+    self.serverPlaylists.showDocuments=^{weakSelf.navigation.selectedSegment=1;[weakSelf selectTab:weakSelf.navigation];};
     self.documents.showRecovery=^{[weakSelf.serverPlaylists restore:nil];};
     self.serverPlaylists.targetChanged=^(NSString *path){[weakSelf updateSettings];};
     NSMenu *file=[NSMenu new],*tools=[NSMenu new];NSMenuItem *fileItem=[NSMenuItem new],*toolsItem=[NSMenuItem new];[menu addItem:fileItem];[menu addItem:toolsItem];fileItem.submenu=file;toolsItem.submenu=tools;file.title=@"파일";tools.title=@"도구";
     NSMenuItem *login=[application insertItemWithTitle:@"입장 / 이름 변경…" action:@selector(login:) keyEquivalent:@"" atIndex:0];login.target=self.documents;NSMenuItem *logout=[application insertItemWithTitle:@"로그아웃" action:@selector(logout:) keyEquivalent:@"" atIndex:1];logout.target=self.documents;
     NSMenuItem *publish=[file addItemWithTitle:@"원본 재생목록과 문서 등록…" action:@selector(publish:) keyEquivalent:@""];publish.target=self.serverPlaylists;NSMenuItem *recover=[file addItemWithTitle:@"복구 기록…" action:@selector(restore:) keyEquivalent:@""];recover.target=self.serverPlaylists;
+    NSMenuItem *reset=[tools addItemWithTitle:@"이 Mac 기준으로 서버 다시 맞추기…" action:@selector(resetServer:) keyEquivalent:@""];reset.target=self.serverPlaylists;
     NSMenuItem *legacy=[tools addItemWithTitle:@"로컬 재생목록 비교…" action:@selector(showLocal:) keyEquivalent:@""];legacy.target=self;
     self.connectionBar=[[YBPanel alloc] initWithFrame:NSMakeRect(0,frame.size.height-44,frame.size.width,44)];self.connectionBar.autoresizingMask=NSViewWidthSizable|NSViewMinYMargin;
     self.status=YBLabel(@"서버 연결 확인 중…",NSZeroRect,12,YES);[self.connectionBar addSubview:self.status];
@@ -81,14 +84,16 @@
     self.tabs=[[NSTabView alloc] initWithFrame:NSMakeRect(0,0,frame.size.width,frame.size.height-90)];self.tabs.tabViewType=NSNoTabsNoBorder;self.tabs.drawsBackground=NO;self.tabs.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
     self.tabBar=[[NSView alloc] initWithFrame:NSMakeRect(14,frame.size.height-84,frame.size.width-28,36)];self.tabBar.autoresizingMask=NSViewWidthSizable|NSViewMinYMargin;[self.window.contentView addSubview:self.tabBar];
     NSArray *labels=@[@"재생목록",@"문서",@"미디어"],*views=@[self.serverPlaylists.view,self.documents.view,self.media.view];
+    self.navigation=[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0,1,312,32)];self.navigation.segmentCount=3;self.navigation.trackingMode=NSSegmentSwitchTrackingSelectOne;self.navigation.segmentStyle=NSSegmentStyleRounded;self.navigation.target=self;self.navigation.action=@selector(selectTab:);
+    for(NSInteger i=0;i<3;i++){[self.navigation setLabel:labels[i] forSegment:i];[self.navigation setWidth:100 forSegment:i];}self.navigation.selectedSegment=0;[self.tabBar addSubview:self.navigation];
     for(NSUInteger i=0;i<labels.count;i++) {
-        NSButton *tabButton=YBButton(labels[i],NSMakeRect(i*104,0,100,32),self,@selector(selectTab:));tabButton.tag=i;tabButton.buttonType=NSButtonTypePushOnPushOff;tabButton.state=i==0 ? NSControlStateValueOn : NSControlStateValueOff;[self.tabBar addSubview:tabButton];
         NSTabViewItem *item=[[NSTabViewItem alloc] initWithIdentifier:labels[i]];item.label=labels[i];NSView *panel=views[i];panel.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;item.view=panel;[self.tabs addTabViewItem:item];
     }
     self.compareButton=YBButton(@"서버와 비교",NSMakeRect(self.tabBar.bounds.size.width-210,0,210,32),self,@selector(compare:));self.compareButton.font=[NSFont boldSystemFontOfSize:13];self.compareButton.autoresizingMask=NSViewMinXMargin;self.compareButton.tag=-1;[self.tabBar addSubview:self.compareButton];
     [self.window.contentView addSubview:self.tabs];
     self.observedControls=[NSMutableArray array];
     for(NSArray *spec in @[@[self.documents,@"applyButton.enabled"],@[self.serverPlaylists,@"receiveButton.enabled"],@[self.serverPlaylists,@"receiveAllButton.enabled"],@[self.documents,@"statusLabel.stringValue"],@[self.serverPlaylists,@"status.stringValue"],@[self.media,@"mediaLabel.stringValue"]]){[spec[0] addObserver:self forKeyPath:spec[1] options:0 context:NULL];[self.observedControls addObject:spec];}
+    self.work.idle=^{[weakSelf.documents resumeBackgroundIfNeeded];};
     self.work.messageChanged=^{[weakSelf updateConnection];};self.work.pauseChanged=^{[weakSelf updateConnection];};
     self.work.busyChanged=^(BOOL busy) {
         YBAppDelegate *app=weakSelf;[app enableView:app.serverPlaylists.view enabled:!busy];[app enableView:app.playlist.view enabled:!busy];[app enableView:app.documents.view enabled:!busy];[app enableView:app.media.view enabled:!busy];
@@ -101,7 +106,7 @@
 #endif
 }
 - (NSString *)clock {NSDateFormatter *f=[NSDateFormatter new];f.dateFormat=@"HH:mm";f.timeZone=[NSTimeZone timeZoneWithName:@"Asia/Seoul"];return [f stringFromDate:NSDate.date];}
-- (void)selectTab:(NSButton *)sender {if(sender.tag<0)return;[self.tabs selectTabViewItemAtIndex:sender.tag];for(NSButton *button in self.tabBar.subviews)if(button.tag>=0)button.state=button.tag==sender.tag ? NSControlStateValueOn : NSControlStateValueOff;[self updateConnection];}
+- (void)selectTab:(NSSegmentedControl *)sender {NSInteger index=sender.selectedSegment;if(index<0 || index>=self.tabs.numberOfTabViewItems)return;[self.tabs selectTabViewItemAtIndex:index];[self updateConnection];}
 - (void)compare:(id)sender {if(self.work.busy)return;if([self.tabs.selectedTabViewItem.identifier isEqual:@"재생목록"])[self.serverPlaylists refresh:sender];else [self.documents refresh:sender];}
 - (void)observeValueForKeyPath:(NSString *)path ofObject:(id)object change:(NSDictionary *)change context:(void *)context {if(object==self.documents && [path isEqual:@"statusLabel.stringValue"] && !self.work.busy){NSString *message=[self.documents valueForKeyPath:@"statusLabel.stringValue"];if([message containsString:@"미완료"] || [message containsString:@"못"] || [message containsString:@"중단"] || [message containsString:@"완료했습니다"])self.checkMessage=message;}[self updateConnection];if(object==self.media)[self updateSettings];}
 - (void)dealloc {for(NSArray *spec in self.observedControls)[spec[0] removeObserver:self forKeyPath:spec[1]];}
@@ -141,7 +146,7 @@
     if(self.work.busy)return;
     if(!self.settingsSheet){
         self.settingsSheet=[[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,800,430) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];self.settingsSheet.title=@"설정";self.settingsSheet.releasedWhenClosed=NO;
-        NSView *v=self.settingsSheet.contentView;[v addSubview:YBLabel(@"설정",NSMakeRect(24,376,300,30),22,YES)];
+        self.settingsSheet.contentView=[[YBCanvas alloc] initWithFrame:self.settingsSheet.contentView.bounds];NSView *v=self.settingsSheet.contentView;[v addSubview:YBLabel(@"설정",NSMakeRect(24,376,300,30),22,YES)];
         NSArray *names=@[@"재생목록 파일",@"문서 폴더",@"미디어 폴더",@"백업 폴더",@"입장"];
         NSMutableArray *values=[NSMutableArray array];for(NSUInteger i=0;i<names.count;i++){CGFloat y=322-i*57;[v addSubview:YBLabel(names[i],NSMakeRect(24,y,128,25),13,YES)];NSTextField *value=YBLabel(@"",NSMakeRect(158,y,i==2 || i==4 ? 330 : 476,25),12,NO);[v addSubview:value];[values addObject:value];}
         self.playlistPath=values[0];self.documentPath=values[1];self.mediaPath=values[2];self.backupPath=values[3];self.entryLabel=values[4];
@@ -167,5 +172,6 @@
 - (BOOL)windowShouldClose:(NSWindow *)window {return [self applicationShouldTerminate:NSApp]==NSTerminateNow;}
 @end
 int main(int argc,const char *argv[]) {@autoreleasepool {NSApplication *app=NSApplication.sharedApplication;YBAppDelegate *delegate=[YBAppDelegate new];app.delegate=delegate;[app setActivationPolicy:NSApplicationActivationPolicyRegular];[app run];}return 0;}
+
 
 

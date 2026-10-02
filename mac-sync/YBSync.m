@@ -327,16 +327,18 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
                 return;
             }
             YBRequire(!local[p],@"같은 이름으로 정규화되는 로컬 문서가 있습니다.");
-            registerPath(p);NSString *hash=[self documentSummary:p][@"hash"];
-            YBRequire(hash!=nil,@"목록을 읽는 동안 문서가 이동됐습니다. 다시 비교해 주세요.");local[p]=hash;if(self.comparisonProgress)self.comparisonProgress();
+            registerPath(p);local[p]=@YES;if(self.comparisonCheck)self.comparisonCheck();
         }});
     } @finally { close(directory); }
     NSDictionary *baselines=self.entries;
     NSMutableSet *paths=[NSMutableSet setWithArray:remote.allKeys]; [paths addObjectsFromArray:local.allKeys]; [paths addObjectsFromArray:baselines.allKeys];
     NSMutableArray *rows=[NSMutableArray array];
     for(NSString *p in [paths.allObjects sortedArrayUsingSelector:@selector(compare:)]) {
+        if(self.comparisonCheck)self.comparisonCheck();
+        if(local[p]){NSString *hash=[self documentSummary:p][@"hash"];YBRequire(hash!=nil,@"목록을 읽는 동안 문서가 이동됐습니다. 다시 비교해 주세요.");local[p]=hash;}
         NSString *status=YBDisposition(local[p],remote[p],baselines[p]);
         [rows addObject:@{@"path":p,@"status":status,@"localHash":YBNull(local[p]),@"remote":YBNull(remote[p]),@"lastDateUsed":local[p] ? (self.summaryCache[p][@"lastDateUsed"] ?: @"") : @""}];
+        if(self.rowCompared)self.rowCompared(rows.lastObject);if(self.comparisonProgress)self.comparisonProgress();
     }
     [rows addObjectsFromArray:excluded];
     return [rows sortedArrayUsingDescriptors:@[[NSSortDescriptor sortDescriptorWithKey:@"path" ascending:YES]]];
@@ -517,4 +519,5 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
 - (void)recover:(NSString *)identifier { [self undo:identifier restore:NO]; }
 - (void)restore:(NSString *)identifier { [self undo:identifier restore:YES]; }
 @end
+
 
