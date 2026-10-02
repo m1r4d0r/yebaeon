@@ -236,3 +236,5 @@ P0 [PR #17](https://github.com/m1r4d0r/yebaeon/pull/17)은 `fc7d3c7`로 병합�
 
 - 첫 PR #20 Studio CI 36990336202는 Node55개·전체 리소스 dry-run 통과 후 Chromium 최초 진입에서 실패했다. 새 dialog DOM이 cloud.js 뒤에 위치해 onclick 등록 시 null을 참조하는 제품 오류였다. dialog를 스크립트 앞으로 옮겨 초기화 순서를 수정한다. Mac CI36990336307은 성공했다. 후속 브라우저 검증은 아래 최종 기록을 따른다.
 - 최초 브랜치 등록에 update_ref를 사용해 존재하지 않는 ref 422, 이어 PR head invalid 422가 발생했다. create_branch로 준비한 커밋을 등록한 뒤 PR #20 생성에 성공했다. 소스/운영 DB에는 실패한 호출의 변경이 없다.
+
+PR #20 최종 소스 e1859ba: Studio36990716206(Node55개·전체 리소스 dry-run·Chromium), Mac36990716232 성공. 첫 Studio36990336202의 dialog DOM 초기화 순서 오류는 수정 후 재검증했다. fc119d8 병합·운영 배포36991037736 성공, 운영 cloud.js와 검증 파일 해시 일치. 상세 모사 읽기량/사용 방법/실기 미완료는 SYNC-STUDIO-FOLLOWUP-PLAN.md의 PR #20 기록을 따른다. 운영 DB 한도 해제 및 실제 교회 수신은 별도다.
