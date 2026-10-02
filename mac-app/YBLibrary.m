@@ -17,7 +17,9 @@
 - (void)dealloc {[_sync close];}
 - (NSArray *)refresh {return [self refreshChecking:nil];}
 - (NSArray *)refreshChecking:(void (^)(void))check {
-    self.sync.comparisonCheck=check;@try{return [self refreshBody:check];}@finally{self.sync.comparisonCheck=nil;}
+    void (^previous)(void)=self.sync.comparisonCheck;
+    void (^boundary)(void)=^{if(check)check();if(self.operationCheckpoint)self.operationCheckpoint();if(check)check();};
+    self.sync.comparisonCheck=boundary;@try{return [self refreshBody:boundary];}@finally{self.sync.comparisonCheck=previous;self.sync.comparisonProgress=nil;}
 }
 - (NSArray *)refreshBody:(void (^)(void))check {
     if(check)check();
@@ -28,6 +30,8 @@
     if(check)check();[self.server request:@"/api/inventory" method:@"POST" body:body headers:@{@"Content-Type":@"application/json"} timeout:10];
     if(check)check();
     if(self.phaseChanged)self.phaseChanged([NSString stringWithFormat:@"② 문서 %lu개와 서버 변경 비교 중",(unsigned long)inventory.count]);
+    __block NSUInteger compared=0;if(self.comparisonProgress)self.comparisonProgress(0,inventory.count);
+    self.sync.comparisonProgress=^{compared++;if(self.comparisonProgress)self.comparisonProgress(compared,inventory.count);};
     NSUInteger readsBefore=self.sync.summaryReads,hitsBefore=self.sync.summaryHits;NSDate *started=NSDate.date;
     NSMutableArray *result=[NSMutableArray array];NSISO8601DateFormatter *dates=[NSISO8601DateFormatter new];
     for(NSDictionary *row in [self.sync plan:[self.server documentsChecking:check]]) {@autoreleasepool {
@@ -60,6 +64,7 @@
     id activity=[NSProcessInfo.processInfo beginActivityWithOptions:NSActivityUserInitiated|NSActivityIdleSystemSleepDisabled reason:@"예배온 문서 업로드"];
     @try {
         for(NSUInteger offset=0;offset<rows.count;offset+=4) {@autoreleasepool {
+            if(self.operationCheckpoint)self.operationCheckpoint();
             [self.sync assertReady];YBRequire(!self.sync.presenterRunning(),@"ProPresenter가 실행됐습니다. 작업을 중단했습니다.");
             NSMutableArray *jobs=[NSMutableArray array],*reports=[NSMutableArray array];
             for(NSUInteger i=offset;i<MIN(offset+4,rows.count);i++) {

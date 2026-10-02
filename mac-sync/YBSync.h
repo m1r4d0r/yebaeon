@@ -42,6 +42,7 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 @property(nonatomic) BOOL playlistOperationActive;
 - (instancetype)initWithRoot:(NSString *)root profile:(NSString *)profile origin:(NSString *)origin;
 @property(nonatomic,copy) void (^comparisonCheck)(void);
+@property(nonatomic,copy) void (^comparisonProgress)(void);
 - (NSDictionary *)documentSummary:(NSString *)path;
 @property(nonatomic, readonly) NSUInteger summaryReads;
 @property(nonatomic, readonly) NSUInteger summaryHits;

@@ -328,7 +328,7 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
             }
             YBRequire(!local[p],@"같은 이름으로 정규화되는 로컬 문서가 있습니다.");
             registerPath(p);NSString *hash=[self documentSummary:p][@"hash"];
-            YBRequire(hash!=nil,@"목록을 읽는 동안 문서가 이동됐습니다. 다시 비교해 주세요.");local[p]=hash;
+            YBRequire(hash!=nil,@"목록을 읽는 동안 문서가 이동됐습니다. 다시 비교해 주세요.");local[p]=hash;if(self.comparisonProgress)self.comparisonProgress();
         }});
     } @finally { close(directory); }
     NSDictionary *baselines=self.entries;

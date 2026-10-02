@@ -6,6 +6,7 @@
 @property(nonatomic,copy) void (^rootChanged)(NSString *root);
 @property(nonatomic,copy) void (^sessionChanged)(NSString *status);
 @property(nonatomic,copy) void (^comparisonFinished)(void);
+@property(nonatomic,copy) void (^checkStateChanged)(NSString *message, NSUInteger done, NSUInteger total, BOOL active);
 @property(nonatomic,copy) void (^showRecovery)(void);
 - (void)setPlaylistFile:(NSURL *)url;
 - (void)refresh:(id)sender;

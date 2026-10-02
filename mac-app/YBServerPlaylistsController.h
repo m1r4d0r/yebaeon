@@ -4,6 +4,8 @@
 - (instancetype)initWithWork:(YBWork *)work documents:(YBDocumentsController *)documents;
 @property(nonatomic,copy) void (^targetChanged)(NSString *path);
 @property(nonatomic,copy) void (^priorityFinished)(void);
+@property(nonatomic,copy) void (^comparisonFinished)(void);
+- (void)openBackupFolder:(id)sender;
 - (NSString *)targetPath;
 - (void)chooseFile:(id)sender;
 - (void)refresh:(id)sender;

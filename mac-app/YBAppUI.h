@@ -18,6 +18,14 @@ FOUNDATION_EXPORT NSString *YBProfilePath(NSString *root, NSString *origin);
 
 @interface YBWork : NSObject
 @property(nonatomic, readonly) BOOL busy;
+@property(atomic, readonly) BOOL backgroundActive;
+@property(atomic, readonly) BOOL pauseRequested;
+@property(atomic, readonly) BOOL paused;
+@property(atomic, readonly) BOOL pausable;
+@property(nonatomic, copy) void (^pauseChanged)(void);
+- (void)togglePause:(id)sender;
+- (void)checkpoint;
+- (void)runPausable:(BOOL)pausable task:(id (^)(void))task completion:(void (^)(id result, NSString *error))completion;
 @property(nonatomic, copy) NSString *message;
 @property(nonatomic, copy) void (^messageChanged)(void);
 @property(nonatomic, copy) void (^busyChanged)(BOOL busy);
@@ -27,5 +35,6 @@ FOUNDATION_EXPORT NSString *YBProfilePath(NSString *root, NSString *origin);
 
 
 @interface YBPanel : NSView
+@property(nonatomic,copy) void (^frameLayout)(NSSize size);
 @end
 FOUNDATION_EXPORT NSString *YBDisplayDate(id value);

@@ -23,7 +23,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
 - (NSString *)key:(NSDictionary *)plan {return [NSString stringWithFormat:@"%@/%@",plan[@"library"][@"id"],plan[@"playlist"][@"id"]];}
 - (NSArray *)libraries {
     NSMutableArray *all=[NSMutableArray array];NSString *after=@"";NSMutableSet *seen=[NSMutableSet set];
-    for(;;){NSDictionary *page=[self.library.server request:[@"/api/playlists?after=" stringByAppendingString:Query(after)] method:@"GET" body:nil headers:nil];YBRequire([page[@"libraries"] isKindOfClass:NSArray.class],@"재생목록 목록이 올바르지 않습니다.");[all addObjectsFromArray:page[@"libraries"]];id next=page[@"next"];if(!next || next==NSNull.null)break;YBRequire([next isKindOfClass:NSString.class] && ![seen containsObject:next],@"재생목록 다음 페이지 오류");[seen addObject:next];after=next;}return all;
+    for(;;){if(self.library.operationCheckpoint)self.library.operationCheckpoint();NSDictionary *page=[self.library.server request:[@"/api/playlists?after=" stringByAppendingString:Query(after)] method:@"GET" body:nil headers:nil];YBRequire([page[@"libraries"] isKindOfClass:NSArray.class],@"재생목록 목록이 올바르지 않습니다.");[all addObjectsFromArray:page[@"libraries"]];id next=page[@"next"];if(!next || next==NSNull.null)break;YBRequire([next isKindOfClass:NSString.class] && ![seen containsObject:next],@"재생목록 다음 페이지 오류");[seen addObject:next];after=next;}return all;
 }
 - (void)rememberFile:(NSDictionary *)remote local:(NSData *)local {
     NSMutableDictionary *state=self.state;
@@ -84,8 +84,9 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     NSDictionary *result=[self.library.server request:[NSString stringWithFormat:@"/api/playlists?path=%@&root=%@",Query(self.target.lastPathComponent),Query(sourceRoot)] method:@"POST" body:before headers:@{@"Content-Type":@"application/xml; charset=utf-8"}];NSDictionary *library=result[@"library"];
     YBRequire([library[@"sha256"] isEqual:YBHash(before)],@"서버에 등록한 재생목록 원본이 다릅니다.");
     NSMutableSet *paths=[NSMutableSet set];NSMutableArray *failures=[NSMutableArray array];for(NSDictionary *node in nodes)for(NSDictionary *cue in node[@"items"])if([cue[@"tag"] isEqual:@"RVDocumentCue"]) {NSString *path=YBPlaylistReference(cue[@"attrs"][@"filePath"],sourceRoot);if(path)[paths addObject:path];else [failures addObject:[NSString stringWithFormat:@"문서 폴더와 연결되지 않음: %@",cue[@"attrs"][@"filePath"] ?: @""]];}
-    NSMutableDictionary *remote=[NSMutableDictionary dictionary];for(NSDictionary *doc in [self.library.server documents])remote[doc[@"path"]]=doc;
+    NSMutableDictionary *remote=[NSMutableDictionary dictionary];for(NSDictionary *doc in [self.library.server documentsChecking:self.library.operationCheckpoint])remote[doc[@"path"]]=doc;
     NSUInteger done=0;for(NSString *path in [paths.allObjects sortedArrayUsingSelector:@selector(compare:)]) {
+        if(self.library.operationCheckpoint)self.library.operationCheckpoint();
         if(progress)progress([NSString stringWithFormat:@"문서 등록 %lu/%lu · %@",(unsigned long)done+1,(unsigned long)paths.count,path]);
         @try {YBRequire(!sync.presenterRunning(),@"ProPresenter가 실행됐습니다.");NSData *data=[sync readDocument:path];YBRequire(data!=nil,@"Mac 문서 폴더에서 찾지 못했습니다.");NSDictionary *existing=remote[path],*saved=nil;
             if(existing){YBRequire([existing[@"sha256"] isEqual:YBHash(data)],@"서버 문서와 다릅니다. 문서 탭에서 비교해 주세요.");saved=[self.library.server head:existing];YBRequire([saved[@"sha256"] isEqual:YBHash(data)],@"서버 문서가 변경됐습니다.");}

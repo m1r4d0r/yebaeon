@@ -28,6 +28,10 @@
 @property(nonatomic) NSURL *playlistFile;
 @property BOOL updatingSelection;
 @property BOOL backgroundScheduled;
+@property NSTextField *summaryLabel;
+@property NSTextField *selectionHint;
+@property NSTextField *transferCount;
+@property BOOL transferActive;
 @end
 @implementation YBDocumentsController
 - (instancetype)initWithWork:(YBWork *)work {
@@ -40,10 +44,8 @@
     }return self;
 }
 - (void)buildView {
-    NSView *v=[[YBPanel alloc] initWithFrame:NSMakeRect(0,0,1060,720)];self.view=v;
+    YBPanel *v=[[YBPanel alloc] initWithFrame:NSMakeRect(0,0,1060,720)];self.view=v;
     self.rootLabel=YBLabel(self.documentsRoot,NSZeroRect,12,NO);self.sessionLabel=YBLabel(@"연결 안 됨",NSZeroRect,12,NO);
-    [v addSubview:YBLabel(@"문서",NSMakeRect(24,670,250,28),22,YES)];
-    [v addSubview:YBButton(@"서버와 비교",NSMakeRect(876,666,160,34),self,@selector(refresh:))];
     self.direction=[[NSSegmentedControl alloc] initWithFrame:NSMakeRect(24,620,700,32)];self.direction.segmentCount=5;self.direction.trackingMode=NSSegmentSwitchTrackingSelectOne;self.direction.selectedSegment=0;self.direction.target=self;self.direction.action=@selector(directionChanged:);NSArray *labels=@[@"전체",@"받기",@"보내기",@"충돌",@"제외"];for(NSInteger i=0;i<5;i++){[self.direction setLabel:labels[i] forSegment:i];[self.direction setWidth:132 forSegment:i];}[v addSubview:self.direction];
     self.order=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(810,620,226,32) pullsDown:NO];[self.order addItemsWithTitles:@[@"최근 사용순",@"이름순"]];self.order.target=self;self.order.action=@selector(orderChanged:);[v addSubview:self.order];
     self.usedOnly=YBButton(@"재생목록에서 쓰는 문서만",NSMakeRect(24,580,300,28),self,@selector(filterChanged:));self.usedOnly.buttonType=NSSwitchButton;[v addSubview:self.usedOnly];
@@ -51,15 +53,35 @@
     self.table=YBTable(v,NSMakeRect(24,155,1012,410),@[@[@"check",@"☐",@38],@[@"status",@"상태",@104],@[@"path",@"문서",@265],@[@"uses",@"쓰는 예배",@75],@[@"lastUsed",@"최근 사용일",@145],@[@"modified",@"Mac 수정",@145],@[@"author",@"서버 저장 · 작업자",@210]],self);
     self.table.allowsMultipleSelection=YES;self.table.target=self;self.table.doubleAction=@selector(preview:);NSMenu *menu=[NSMenu new];NSMenuItem *item=[menu addItemWithTitle:@"문서 내용 비교" action:@selector(preview:) keyEquivalent:@""];item.target=self;self.table.menu=menu;
     for(NSTableColumn *column in self.table.tableColumns)if(![column.identifier isEqual:@"check"]){NSString *key=[@{@"lastUsed":@"lastUsedTime",@"modified":@"modifiedTime",@"author":@"remote.updatedAt"} objectForKey:column.identifier] ?: column.identifier;column.sortDescriptorPrototype=[NSSortDescriptor sortDescriptorWithKey:key ascending:[column.identifier isEqual:@"path"]];}
-    self.progress=[[NSProgressIndicator alloc] initWithFrame:NSMakeRect(24,130,1012,12)];self.progress.indeterminate=NO;self.progress.minValue=0;self.progress.maxValue=1;[v addSubview:self.progress];
-    self.statusLabel=YBLabel(@"서버와 비교해 받기·보내기 방향을 선택하세요.",NSMakeRect(24,100,1012,25),12,NO);[v addSubview:self.statusLabel];
-    [v addSubview:YBButton(@"복구 기록…",NSMakeRect(24,35,140,36),self,@selector(backups:))];
-    self.allButton=YBButton(@"전체 선택 ⌘A",NSMakeRect(178,35,156,36),self,@selector(selectVisible:));[v addSubview:self.allButton];[v addSubview:YBButton(@"선택 해제",NSMakeRect(345,35,120,36),self,@selector(clearSelection:))];
+    self.progress=[[NSProgressIndicator alloc] initWithFrame:NSMakeRect(24,130,1012,12)];self.progress.indeterminate=NO;self.progress.minValue=0;self.progress.maxValue=1;self.progress.hidden=YES;[v addSubview:self.progress];
+    self.statusLabel=YBLabel(@"서버와 비교해 받기·보내기 방향을 선택하세요.",NSMakeRect(24,100,1012,25),12,NO);self.statusLabel.hidden=YES;[v addSubview:self.statusLabel];
+    self.summaryLabel=YBLabel(self.statusLabel.stringValue,NSZeroRect,12,NO);self.summaryLabel.textColor=[NSColor colorWithCalibratedRed:.42 green:.42 blue:.42 alpha:1];[v addSubview:self.summaryLabel];
+    self.selectionHint=YBLabel(@"",NSZeroRect,12,NO);self.selectionHint.textColor=self.summaryLabel.textColor;[v addSubview:self.selectionHint];
+    self.transferCount=YBLabel(@"",NSZeroRect,11,NO);self.transferCount.hidden=YES;[v addSubview:self.transferCount];
+    NSButton *recovery=YBButton(@"복구 기록…",NSZeroRect,self,@selector(backups:));[v addSubview:recovery];
+    self.allButton=YBButton(@"전체 선택 ⌘A",NSMakeRect(178,35,156,36),self,@selector(selectVisible:));[v addSubview:self.allButton];NSButton *clear=YBButton(@"선택 해제",NSZeroRect,self,@selector(clearSelection:));[v addSubview:clear];
+    NSTextField *divider=YBLabel(@"│",NSZeroRect,17,NO);divider.textColor=self.summaryLabel.textColor;[v addSubview:divider];
 
-    self.applyButton=YBButton(@"방향을 선택하세요",NSMakeRect(826,35,210,36),self,@selector(applySelected:));self.applyButton.keyEquivalent=@"\r";[v addSubview:self.applyButton];[self updateSelection];
+    self.applyButton=YBButton(@"방향을 선택하세요",NSMakeRect(826,35,210,36),self,@selector(applySelected:));self.applyButton.font=[NSFont boldSystemFontOfSize:13];[v addSubview:self.applyButton];[self updateSelection];
+    __weak YBDocumentsController *weakSelf=self;
+    v.frameLayout=^(NSSize size){YBDocumentsController *c=weakSelf;CGFloat w=size.width,h=size.height,m=14;
+        BOOL wide=w>=1280;CGFloat filterWidth=470;CGFloat y=h-36;
+        c.direction.frame=NSMakeRect(m,y,filterWidth,30);for(NSInteger i=0;i<5;i++)[c.direction setWidth:(filterWidth-10)/5 forSegment:i];
+        c.usedOnly.frame=NSMakeRect(wide ? m+filterWidth+12 : m,wide ? y : y-36,208,28);
+        c.order.frame=NSMakeRect(w-m-138,wide ? y : y-36,138,30);
+        CGFloat searchX=wide ? m+filterWidth+232 : m+224;
+        c.search.frame=NSMakeRect(searchX,wide ? y+1 : y-35,w-m-150-searchX,26);
+        CGFloat top=wide ? y-10 : y-46;c.table.enclosingScrollView.frame=NSMakeRect(m,90,w-2*m,MAX(80,top-90));
+        c.summaryLabel.frame=NSMakeRect(m,62,w-2*m,22);
+        recovery.frame=NSMakeRect(m,14,126,32);divider.frame=NSMakeRect(m+133,17,16,25);
+        c.allButton.frame=NSMakeRect(m+156,14,138,32);clear.frame=NSMakeRect(m+302,14,106,32);
+        c.applyButton.frame=NSMakeRect(w-m-190,14,190,32);
+        c.selectionHint.frame=NSMakeRect(m+422,19,MAX(0,w-2*m-622),22);c.selectionHint.alignment=NSTextAlignmentRight;
+        c.progress.frame=NSMakeRect(w-m-320,36,116,8);c.transferCount.frame=NSMakeRect(w-m-320,15,116,18);
+    };v.frameLayout(v.bounds.size);
 }
 - (NSString *)selectedDirection {return self.direction.selectedSegment==1 ? @"download" : self.direction.selectedSegment==2 ? @"upload" : nil;}
-- (void)updateSelection {NSString *direction=[self selectedDirection];self.applyButton.title=direction ? [NSString stringWithFormat:@"%@ %lu개",[direction isEqual:@"download"] ? @"받기" : @"보내기",(unsigned long)self.checked.count] : @"방향을 선택하세요";self.applyButton.enabled=direction && self.checked.count && !self.work.busy;self.allButton.enabled=direction && !self.work.busy;}
+- (void)updateSelection {NSString *direction=[self selectedDirection];self.applyButton.title=direction ? [NSString stringWithFormat:@"%@ %lu개",[direction isEqual:@"download"] ? @"받기" : @"보내기",(unsigned long)self.checked.count] : @"방향을 선택하세요";self.applyButton.enabled=direction && self.checked.count && !self.work.busy;self.allButton.enabled=direction && !self.work.busy;self.selectionHint.stringValue=direction && self.checked.count ? [NSString stringWithFormat:@"%lu개 · %@",(unsigned long)self.checked.count,[direction isEqual:@"download"] ? @"서버에서 이 Mac으로" : @"이 Mac에서 서버로"] : @"";self.selectionHint.toolTip=self.selectionHint.stringValue;}
 - (void)directionChanged:(id)sender {[self.checked removeAllObjects];[self filter];}
 - (void)filterChanged:(id)sender {[self.checked removeAllObjects];[self filter];}
 - (void)applySelected:(id)sender {NSString *direction=[self selectedDirection];if(direction)[self transfer:[direction isEqual:@"download"]];}
@@ -68,7 +90,9 @@
 - (void)tableView:(NSTableView *)table didClickTableColumn:(NSTableColumn *)column {if([column.identifier isEqual:@"check"])[self selectVisible:nil];}
 - (void)tableViewSelectionDidChange:(NSNotification *)note {if(self.updatingSelection||self.work.busy)return;[self.checked removeAllObjects];NSString *direction=[self selectedDirection];[self.table.selectedRowIndexes enumerateIndexesUsingBlock:^(NSUInteger index,BOOL *stop){if(index<self.visibleRows.count){NSDictionary *row=self.visibleRows[index];if([row[@"status"] isEqual:direction] && !row[@"error"])[self.checked addObject:row[@"path"]];}}];self.updatingSelection=YES;[self.table reloadData];self.updatingSelection=NO;[self updateSelection];}
 - (YBLibrary *)connectedLibrary {
-    if(!self.library)self.library=[[YBLibrary alloc] initWithRoot:self.documentsRoot profile:YBProfilePath(self.documentsRoot,self.server.origin) server:self.server];
+    if(!self.library){self.library=[[YBLibrary alloc] initWithRoot:self.documentsRoot profile:YBProfilePath(self.documentsRoot,self.server.origin) server:self.server];
+        __weak YBWork *work=self.work;self.library.operationCheckpoint=^{[work checkpoint];};self.library.sync.comparisonCheck=self.library.operationCheckpoint;
+    }
     return self.library;
 }
 - (void)ensureSessionLoaded {if(!self.sessionLoaded){[self.server loadSession];self.sessionLoaded=YES;}}
@@ -76,7 +100,7 @@
     self.rows=rows ?: @[];[self.checked removeAllObjects];[self sortRows];[self filter];
     NSMutableDictionary *count=[NSMutableDictionary dictionary];for(NSDictionary *r in self.rows)count[r[@"status"]]=@([count[r[@"status"]] integerValue]+1);
     for(NSInteger i=0;i<5;i++){NSString *key=@[@"all",@"download",@"upload",@"conflict",@"excluded"][i];NSUInteger n=i==0 ? self.rows.count : 0;if(i)for(NSDictionary *r in self.rows)if(i==4 ? [r[@"error"] length]>0 : !r[@"error"] && [r[@"status"] isEqual:key])n++;[self.direction setLabel:[NSString stringWithFormat:@"%@ %lu",@[@"전체",@"받기",@"보내기",@"충돌",@"제외"][i],(unsigned long)n] forSegment:i];}
-    self.statusLabel.stringValue=[NSString stringWithFormat:@"전체 %lu · 받기 %@ · 보내기 %@ · 일치 %@ · 충돌 %@",(unsigned long)self.rows.count,count[@"download"] ?: @0,count[@"upload"] ?: @0,count[@"same"] ?: @0,count[@"conflict"] ?: @0];
+    self.statusLabel.stringValue=[NSString stringWithFormat:@"전체 %lu · 받기 %@ · 보내기 %@ · 일치 %@ · 충돌 %@",(unsigned long)self.rows.count,count[@"download"] ?: @0,count[@"upload"] ?: @0,count[@"same"] ?: @0,count[@"conflict"] ?: @0];self.summaryLabel.stringValue=self.statusLabel.stringValue;
 }
 - (void)sortRows {
     BOOL recent=self.order.indexOfSelectedItem==0;
@@ -94,7 +118,7 @@
 - (void)controlTextDidChange:(NSNotification *)note {[self filterChanged:nil];}
 - (void)startupCompare {
     self.statusLabel.stringValue=@"재생목록과 연결 문서를 먼저 확인합니다.";
-    [self.work run:^id{
+    [self.work runPausable:YES task:^id{
         [self ensureSessionLoaded];NSMutableDictionary *session=[[self.server request:@"/api/session" method:@"GET" body:nil headers:nil] mutableCopy];BOOL directory=NO;session[@"noFolder"]=@(![NSFileManager.defaultManager fileExistsAtPath:self.documentsRoot isDirectory:&directory] || !directory);return session;
     } completion:^(NSDictionary *session,NSString *error){
         if(error || ![session[@"authenticated"] boolValue]){if(self.sessionChanged)self.sessionChanged(@"입장 필요 / 연결 확인");self.statusLabel.stringValue=error ?: @"입장한 뒤 비교할 수 있습니다.";return;}
@@ -102,26 +126,34 @@
         if([session[@"noFolder"] boolValue]){self.statusLabel.stringValue=@"문서 폴더를 선택한 뒤 비교해 주세요.";return;}if(self.priorityRequested)self.priorityRequested();else [self backgroundCompare];
     }];
 }
+- (void)attachComparisonProgress:(YBLibrary *)library {
+    __weak YBDocumentsController *weakSelf=self;
+    library.phaseChanged=^(NSString *message){dispatch_async(dispatch_get_main_queue(),^{if(weakSelf.checkStateChanged)weakSelf.checkStateChanged(@"전체 문서 점검",0,0,YES);weakSelf.work.message=message;});};
+    library.comparisonProgress=^(NSUInteger done,NSUInteger total){dispatch_async(dispatch_get_main_queue(),^{if(weakSelf.checkStateChanged)weakSelf.checkStateChanged(@"전체 문서 점검",done,total,YES);});};
+}
+- (void)endComparisonProgress:(NSString *)error {
+    if(self.checkStateChanged)self.checkStateChanged(error ? @"전체 문서 점검 미완료" : @"전체 문서 점검 끝",self.rows.count,self.rows.count,NO);
+}
 - (void)backgroundCompare {
-    if(self.backgroundScheduled || self.work.busy)return;self.backgroundScheduled=YES;
+    if(self.backgroundScheduled || self.work.busy)return;self.backgroundScheduled=YES;if(self.checkStateChanged)self.checkStateChanged(@"전체 문서 점검",0,0,YES);
     self.statusLabel.stringValue=@"나머지 문서 백그라운드 점검 중 · 재생목록 받기를 사용할 수 있습니다.";
     [self.work runBackground:^id(BOOL (^cancelled)(void)){
-        void (^check)(void)=^{YBRequire(!cancelled(),@"사용자 작업을 우선하여 점검을 중지했습니다.");};check();YBLibrary *library=[self connectedLibrary];return [library refreshChecking:check];
+        void (^check)(void)=^{YBRequire(!cancelled(),@"사용자 작업을 우선하여 점검을 중지했습니다.");};check();YBLibrary *library=[self connectedLibrary];[self attachComparisonProgress:library];@try{return [library refreshChecking:check];}@finally{library.phaseChanged=nil;library.comparisonProgress=nil;}
     } completion:^(NSArray *rows,NSString *error){
-        if(error){self.statusLabel.stringValue=[@"나머지 문서 점검 미완료 · " stringByAppendingString:error];return;}
-        [self acceptRows:rows];if(self.comparisonFinished)self.comparisonFinished();
+        if(error){self.statusLabel.stringValue=[@"나머지 문서 점검 미완료 · " stringByAppendingString:error];[self endComparisonProgress:error];return;}
+        [self acceptRows:rows];[self endComparisonProgress:nil];if(self.comparisonFinished)self.comparisonFinished();
     }];
 }
 - (void)refresh:(id)sender {
-    self.statusLabel.stringValue=@"서버와 문서를 비교하고 있습니다…";
-    [self.work run:^id {
+    self.statusLabel.stringValue=@"서버와 문서를 비교하고 있습니다…";if(self.checkStateChanged)self.checkStateChanged(@"전체 문서 점검",0,0,YES);
+    [self.work runPausable:YES task:^id {
         [self ensureSessionLoaded];NSDictionary *session=[self.server request:@"/api/session" method:@"GET" body:nil headers:nil];
         YBRequire([session[@"authenticated"] boolValue],@"먼저 ‘입장 / 이름 변경’에서 공용 비밀번호로 입장해 주세요.");
-        YBLibrary *library=[self connectedLibrary];library.phaseChanged=^(NSString *message){dispatch_async(dispatch_get_main_queue(),^{self.statusLabel.stringValue=message;self.work.message=message;});};NSArray *rows=[library refresh];library.phaseChanged=nil;YBSavePreferences(@"last-server-comparison.json",@{@"at":[NSDate.date description],@"root":self.documentsRoot,@"documents":@(rows.count),@"automatic":@NO});return @{@"rows":rows,@"name":session[@"name"] ?: @"",@"pending":@(library.sync.pendingTransactions.count)};
+        YBLibrary *library=[self connectedLibrary];[self attachComparisonProgress:library];NSArray *rows=nil;@try{rows=[library refresh];}@finally{library.phaseChanged=nil;library.comparisonProgress=nil;}YBSavePreferences(@"last-server-comparison.json",@{@"at":[NSDate.date description],@"root":self.documentsRoot,@"documents":@(rows.count),@"automatic":@NO});return @{@"rows":rows,@"name":session[@"name"] ?: @"",@"pending":@(library.sync.pendingTransactions.count)};
     } completion:^(NSDictionary *result,NSString *error) {
-        if(error){[self acceptRows:@[]];self.statusLabel.stringValue=@"비교하지 못했습니다. 입장 상태와 폴더를 확인해 주세요.";YBAlert(@"문서 비교",error);return;}
+        if(error){[self acceptRows:@[]];self.statusLabel.stringValue=@"비교하지 못했습니다. 입장 상태와 폴더를 확인해 주세요.";[self endComparisonProgress:error];YBAlert(@"문서 비교",error);return;}
         [self acceptRows:result[@"rows"]];self.sessionLabel.stringValue=[NSString stringWithFormat:@"%@ 연결됨",result[@"name"]];if(self.sessionChanged)self.sessionChanged(self.sessionLabel.stringValue);
-        if([result[@"pending"] unsignedIntegerValue])self.statusLabel.stringValue=@"중단된 적용이 있습니다. 복구 기록을 먼저 확인하세요.";if(self.comparisonFinished)self.comparisonFinished();
+        if([result[@"pending"] unsignedIntegerValue])self.statusLabel.stringValue=@"중단된 적용이 있습니다. 복구 기록을 먼저 확인하세요.";[self endComparisonProgress:nil];if(self.comparisonFinished)self.comparisonFinished();
     }];
 }
 - (void)login:(id)sender {
@@ -188,17 +220,17 @@
     if(names.count>15)details=[details stringByAppendingFormat:@"\n… 외 %lu개",(unsigned long)names.count-15];
     NSString *message=[NSString stringWithFormat:@"%@\n\n문서 폴더: %@\n%@\n일치하는 문서는 동기화 기준만 기록합니다.",details,self.documentsRoot,receiving ? @"원본 백업 후 적용합니다. PP6를 종료해 주세요." : @"최대 4개씩 병렬 업로드합니다. 선택한 정렬 순서로 처리하고 성공 기록은 순서대로 저장합니다. 업로드 중 자동 잠자기를 방지합니다. PP6를 종료해 주세요."];
     if(!YBConfirm([NSString stringWithFormat:@"%lu개 문서를 %@까요?",(unsigned long)selected.count,receiving ? @"받을" : @"보낼"],message,receiving ? @"백업 후 받기" : @"서버로 보내기"))return;
-    self.progress.indeterminate=NO;self.progress.maxValue=selected.count;self.progress.doubleValue=0;self.statusLabel.stringValue=@"전송 준비 중 · 완료 0";
-    [self.work run:^id {
+    self.transferActive=YES;self.progress.hidden=NO;self.transferCount.hidden=NO;self.selectionHint.hidden=YES;self.transferCount.stringValue=[NSString stringWithFormat:@"0 / %lu",(unsigned long)selected.count];self.progress.indeterminate=NO;self.progress.maxValue=selected.count;self.progress.doubleValue=0;self.statusLabel.stringValue=@"전송 준비 중 · 완료 0";
+    [self.work runPausable:!receiving task:^id {
         YBLibrary *library=[self connectedLibrary];NSUInteger count=[library transfer:selected receiving:receiving progress:^(NSString *path,NSUInteger done) {
-            dispatch_async(dispatch_get_main_queue(),^{self.progress.doubleValue=done;self.work.message=done==selected.count ? @"전송 완료 · 상태 확인 마무리" : [NSString stringWithFormat:@"문서 %@ %lu/%lu",receiving ? @"받기" : @"보내기",(unsigned long)done,(unsigned long)selected.count];NSDateFormatter *clock=[NSDateFormatter new];clock.dateFormat=@"HH:mm:ss";clock.timeZone=[NSTimeZone timeZoneWithName:@"Asia/Seoul"];self.statusLabel.stringValue=[NSString stringWithFormat:@"%@ %lu/%lu · 마지막 성공 %@ · %@",receiving ? @"받는 중" : @"보내는 중",(unsigned long)done,(unsigned long)selected.count,[clock stringFromDate:NSDate.date],path];});
+            dispatch_async(dispatch_get_main_queue(),^{self.progress.doubleValue=done;self.transferCount.stringValue=[NSString stringWithFormat:@"%lu / %lu",(unsigned long)done,(unsigned long)selected.count];self.work.message=done==selected.count ? @"전송 완료 · 상태 확인 마무리" : [NSString stringWithFormat:@"문서 %@ %lu/%lu",receiving ? @"받기" : @"보내기",(unsigned long)done,(unsigned long)selected.count];NSDateFormatter *clock=[NSDateFormatter new];clock.dateFormat=@"HH:mm:ss";clock.timeZone=[NSTimeZone timeZoneWithName:@"Asia/Seoul"];self.statusLabel.stringValue=[NSString stringWithFormat:@"%@ %lu/%lu · 마지막 성공 %@ · %@",receiving ? @"받는 중" : @"보내는 중",(unsigned long)done,(unsigned long)selected.count,[clock stringFromDate:NSDate.date],path];});
         }];
         NSString *warning=receiving ? (library.sync.backupWarning ?: @"") : @"";
         NSMutableArray *rows=[NSMutableArray array];NSDictionary *entries=library.sync.entries;NSMutableSet *completed=[NSMutableSet set];for(NSDictionary *row in selected)[completed addObject:row[@"path"]];
         for(NSDictionary *row in self.rows){NSMutableDictionary *copy=[row mutableCopy];NSDictionary *saved=entries[row[@"path"]];if([completed containsObject:row[@"path"]] && saved){copy[@"remote"]=saved;copy[@"localHash"]=saved[@"sha256"];copy[@"status"]=@"same";}[rows addObject:copy];}
         return @{@"count":@(count),@"rows":rows,@"warning":warning};
     } completion:^(NSDictionary *result,NSString *error) {
-        [self acceptRows:result[@"rows"] ?: @[]];
+        self.transferActive=NO;self.progress.hidden=YES;self.transferCount.hidden=YES;self.selectionHint.hidden=NO;[self acceptRows:result[@"rows"] ?: @[]];
         if(error){self.statusLabel.stringValue=[NSString stringWithFormat:@"전송 미완료 · %.0f/%lu 완료 · 오류 있음 · 복구 기록 확인 후 다시 비교",self.progress.doubleValue,(unsigned long)selected.count];YBAlert(@"문서 송수신 중단",error);return;}
         self.statusLabel.stringValue=[NSString stringWithFormat:@"%@개 완료했습니다. %@",result[@"count"],[result[@"warning"] length] ? @"목록을 다시 비교해 주세요." : @"전송한 문서 상태를 반영했습니다. 다른 변경은 ‘서버와 비교’로 확인하세요."];
         if([result[@"warning"] length])YBAlert(@"송수신은 완료했습니다.",result[@"warning"]);
