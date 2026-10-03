@@ -42,7 +42,7 @@ export function splitTemplates(bytes) {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const publicFiles = Object.freeze([
-  'ppt-import.js', 'ppt-import.css', 'hwp-binary.js', 'bulletin-parser.js', 'bulletin-documents.js', 'bulletin.js', 'bulletin.css', 'responsive.js', 'responsive.css', 'index.html', 'favicon.svg', 'favicon.ico', 'style.css', 'fonts.css', 'pp6.js',
+  'ppt-import.js', 'ppt-import.css', 'hwp-binary.js', 'bulletin-parser.js', 'bulletin-documents.js', 'bulletin.js', 'bulletin.css', 'responsive.js', 'studio-drag.js', 'responsive.css', 'index.html', 'favicon.svg', 'favicon.ico', 'style.css', 'fonts.css', 'pp6.js',
   'fonts.js', 'studio-workflow.js', 'layout-editor.js', 'render.js', 'selection.js', 'editor-history.js', 'bible-format.js', 'shortcuts.js', 'app.js', 'drafts.js', 'cloud.js', 'usage.js', 'playlists.js', 'resources.js', 'library-actions.js', 'status.html', 'status.js', 'status.css', '_headers'
 ]);
 
