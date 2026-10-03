@@ -69,9 +69,11 @@ NSDictionary *YBImagePreparationReport(NSString *root,NSArray *mediaRoots,void (
                 BOOL exists=source.length && [NSFileManager.defaultManager fileExistsAtPath:source];
                 if(exists){status=@"exact-external";for(NSString *folder in mediaRoots)if([source hasPrefix:[folder stringByAppendingString:@"/"]])status=@"exact-managed";}
                 row[@"sourcePath"]=source ?: reference[@"source"] ?: @"";row[@"resolution"]=exists ? @{@"status":status,@"resolvedPath":source} : @{@"status":status};
+                if(source)row[@"basename"]=source.lastPathComponent;
                 // PP6 may store a still image in RVVideoElement. Classify by
                 // the referenced filename first; unknown types stay unresolved.
-                NSString *extension=(source ?: reference[@"source"] ?: @"").pathExtension.lowercaseString;
+                NSString *sourceName=source ?: reference[@"source"] ?: @"";
+                NSString *extension=sourceName.pathExtension.lowercaseString;
                 BOOL stillImage=[@[@"jpg",@"jpeg",@"png",@"gif",@"bmp",@"tif",@"tiff",@"heic",@"heif",@"webp",@"psd",@"pdf"] containsObject:extension];
                 BOOL video=[@[@"mov",@"mp4",@"m4v",@"avi",@"mkv",@"wmv",@"webm",@"mpg",@"mpeg"] containsObject:extension];
                 if(video){row[@"status"]=@"video-local-only";row[@"transferState"]=@"영상 제외";[rows addObject:row];excludedVideos++;continue;}
