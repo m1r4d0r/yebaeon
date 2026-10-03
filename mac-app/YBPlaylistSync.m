@@ -172,9 +172,19 @@ static NSString *MediaExtension(NSString *type){return @{@"image/jpeg":@"jpg",@"
 - (NSDictionary *)compare:(NSString *)libraryID node:(NSString *)nodeID hashCache:(NSMutableDictionary *)hashCache {
     YBSync *sync=self.library.sync;(void)sync.entries;NSDictionary *p=[self manifest:libraryID node:nodeID];NSData *before=YBReadPlaylist(self.target);
     NSMutableArray *rows=[NSMutableArray array],*issues=[NSMutableArray array];NSMutableSet *paths=[NSMutableSet set];
-    for(NSDictionary *item in p[@"items"])if(Value(item[@"issue"]))[issues addObject:[NSString stringWithFormat:@"%@ · %@",item[@"name"],item[@"issue"]]];
+    for(NSDictionary *item in p[@"items"])if(Value(item[@"issue"]))[issues addObject:[NSString stringWithFormat:@"%@ · %@",item[@"name"],[item[@"issue"] isEqual:@"missing"] ? @"서버 문서 없음 · Mac 문서 보내기 확인" : item[@"issue"]]];
     for(NSDictionary *doc in p[@"documents"]){NSString *path=doc[@"path"];YBRequire(![paths containsObject:path],@"중복 문서 계획");[paths addObject:path];id cached=hashCache[path];if(!cached){cached=Null([sync documentSummary:path][@"hash"]);hashCache[path]=cached;}NSString *hash=Value(cached),*status=YBDisposition(hash,doc,sync.entries[path]);[rows addObject:@{@"path":path,@"status":status,@"localHash":Null(hash),@"remote":doc}];if(![@[@"download",@"same"] containsObject:status])[issues addObject:[NSString stringWithFormat:@"%@ · Mac 수정/충돌: 문서 탭에서 비교해 주세요.",path]];}
     NSDictionary *node=YBPlaylistNode(before,nodeID),*base=self.state[@"entries"][[self key:p]];NSString *localHash=YBHash(Data(node[@"raw"])),*xml=nil;BOOL orderChanged=NO;
+    for(NSDictionary *item in p[@"items"]){
+        if(![item[@"issue"] isEqual:@"missing"])continue;
+        NSString *path=item[@"path"];
+        if(!path.length)continue;
+        if([paths containsObject:path])continue;
+        [paths addObject:path];id cached=hashCache[path];if(!cached){cached=Null([sync documentSummary:path][@"hash"]);hashCache[path]=cached;}
+        NSString *hash=Value(cached);NSMutableDictionary *row=[@{@"path":path,@"status":hash ? @"upload" : @"missing",@"localHash":Null(hash),@"remote":NSNull.null} mutableCopy];
+        if(!hash)row[@"error"]=@"Mac과 서버에 문서 파일이 없습니다. 재생목록 참조만 남아 있습니다.";
+        [rows addObject:row];
+    }
     if([p[@"ready"] boolValue]){xml=YBPlaylistLocalXML(p,sync.root);NSString *desiredHash=YBHash(Data(xml));orderChanged=!Equal(localHash,desiredHash);
         BOOL safe=Equal(localHash,desiredHash) || (base && Equal(localHash,base[@"localHash"])) || (!base && (!node || Equal(localHash,p[@"playlist"][@"sha256"])));
         if(!safe)[issues addObject:@"Mac 재생목록도 수정됐거나 최초 기준이 없습니다. 원본 파일을 등록한 Mac에서 비교해 주세요."];
@@ -312,10 +322,10 @@ static NSString *MediaExtension(NSString *type){return @{@"image/jpeg":@"jpg",@"
     YBWriteSafeFile(sync.profile,[folder stringByAppendingString:@"/local.pro6pl"],local,0600,nil);YBWriteSafeFile(sync.profile,[folder stringByAppendingString:@"/desired.pro6pl"],desired,0600,nil);
     if(server)YBWriteSafeFile(sync.profile,[folder stringByAppendingString:@"/server.pro6pl"],server,0600,nil);
     [self writeJSON:sync.entries path:[folder stringByAppendingString:@"/document-baselines.json"]];[self writeJSON:self.state path:[folder stringByAppendingString:@"/playlist-baselines.json"]];
-    NSMutableArray *rows=[NSMutableArray array],*serverOnly=[NSMutableArray array];NSUInteger index=0,changed=0;
+    NSMutableArray *rows=[NSMutableArray array],*serverOnly=[NSMutableArray array],*missing=[NSMutableArray array];NSUInteger index=0,changed=0;
     for(NSString *path in [paths.allObjects sortedArrayUsingSelector:@selector(compare:)]){@autoreleasepool{
         if(self.library.operationCheckpoint)self.library.operationCheckpoint();YBRequire(!sync.presenterRunning(),@"PP6가 실행되어 준비를 중단했습니다.");if(progress)progress([NSString stringWithFormat:@"백업 준비 %lu/%lu · %@",(unsigned long)index+1,(unsigned long)paths.count,path]);
-        NSData *bytes=[sync readDocument:path];YBRequire(bytes!=nil,[@"Mac에 연결 문서가 없습니다: " stringByAppendingString:path]);NSString *hash=YBHash(bytes);NSDictionary *doc=remotes[path];
+        NSData *bytes=[sync readDocument:path];if(!bytes){[missing addObject:path];if(remotes[path])[serverOnly addObject:remotes[path]];continue;}NSString *hash=YBHash(bytes);NSDictionary *doc=remotes[path];
         YBWriteSafeFile(sync.profile,[NSString stringWithFormat:@"%@/local-%lu.pro6",folder,(unsigned long)index],bytes,0600,nil);
         if(doc){NSData *old=[hash isEqual:doc[@"sha256"]] ? bytes : [self.library.server download:doc];YBWriteSafeFile(sync.profile,[NSString stringWithFormat:@"%@/server-%lu.pro6",folder,(unsigned long)index],old,0600,nil);}
         if(![hash isEqual:doc[@"sha256"]])changed++;
@@ -323,7 +333,7 @@ static NSString *MediaExtension(NSString *type){return @{@"image/jpeg":@"jpg",@"
     }}
     if(!nodeID)for(NSDictionary *doc in catalog)if(![paths containsObject:doc[@"path"]]){[serverOnly addObject:doc];}
     YBRequire([YBReadPlaylist(self.target) isEqual:local],@"백업 도중 재생목록이 변경됐습니다.");
-    NSMutableDictionary *job=[@{@"id":identifier,@"status":@"prepared",@"createdAt":@(NSDate.date.timeIntervalSince1970),@"root":sync.root,@"target":self.target.path,@"origin":self.library.server.origin,@"beforeHash":YBHash(local),@"desiredHash":YBHash(desired),@"library":Null(remote),@"sourceRoot":sourceRoot,@"rows":rows,@"serverOnly":serverOnly,@"serverOnlyPlaylists":serverOnlyPlaylists,@"nodes":selectedIDs,@"all":@(!nodeID),@"changed":@(changed),@"completed":[NSMutableArray array]} mutableCopy];
+    NSMutableDictionary *job=[@{@"id":identifier,@"status":@"prepared",@"createdAt":@(NSDate.date.timeIntervalSince1970),@"root":sync.root,@"target":self.target.path,@"origin":self.library.server.origin,@"beforeHash":YBHash(local),@"desiredHash":YBHash(desired),@"library":Null(remote),@"sourceRoot":sourceRoot,@"rows":rows,@"missingReferences":missing,@"serverOnly":serverOnly,@"serverOnlyPlaylists":serverOnlyPlaylists,@"nodes":selectedIDs,@"all":@(!nodeID),@"changed":@(changed),@"completed":[NSMutableArray array]} mutableCopy];
     if(structure)job[@"structureFingerprint"]=structure[@"fingerprint"];
     [self writeJSON:job path:[folder stringByAppendingString:@"/job.json"]];return job;
 }
