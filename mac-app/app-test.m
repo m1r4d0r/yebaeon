@@ -260,7 +260,7 @@ int main(void) {@autoreleasepool {
             }
         }
         [app.documents setValue:@0 forKeyPath:@"direction.selectedSegment"];[app.documents performSelector:@selector(directionChanged:) withObject:nil];app.navigation.selectedSegment=1;[app selectTab:app.navigation];
-        Check([app.compareButton.keyEquivalent isEqual:@"\r"] && ![[app.documents valueForKey:@"applyButton"] isEnabled],@"all filter keeps transfer disabled and compare default");
+        Check([[[app.documents valueForKey:@"applyButton"] keyEquivalent] isEqual:@"\r"] && [[app.documents valueForKey:@"applyButton"] isEnabled],@"all filter offers direction selection as the default action");
         [app showSettings:nil];Check(app.settingsSheet.sheetParent==app.window,@"settings is attached sheet");Check(app.window.defaultButtonCell==nil,@"parent has no default while sheet is open");Check(app.settingsSheet.defaultButtonCell==app.settingsClose.cell,@"sheet default cell is close");Check([app.settingsClose.keyEquivalent isEqual:@"\r"],[NSString stringWithFormat:@"sheet close owns Return (key=%@)",app.settingsClose.keyEquivalent]);CheckButtons(app.settingsSheet.contentView);
         Check([app.documentPath.stringValue isEqual:app.documents.documentsRoot],@"settings path is actual current path");
         BOOL sawPlaylist=NO,sawRoot=NO,sawLogin=NO,sawLogout=NO,sawMedia=NO,sawBackup=NO;
@@ -272,7 +272,7 @@ int main(void) {@autoreleasepool {
         for(NSView *v in app.settingsSheet.contentView.subviews)if([v isKindOfClass:NSButton.class] && v!=app.settingsClose)Check(![(NSButton *)v isEnabled],@"busy locks all setting mutations");
         [app.work togglePause:nil];dispatch_semaphore_signal(held);PumpUntil(^BOOL{return app.work.paused;},3);[app updateConnection];Check(!heldDone && [app.pauseButton.title isEqual:@"재개"],@"pause waits at safe boundary and offers resume");
         [app.work togglePause:nil];PumpUntil(^BOOL{return heldDone;},3);Check(app.settingsButton.enabled && !app.work.pauseRequested,@"resume completes and restores controls");[app closeSettings:nil];PumpUntil(^BOOL{return !app.settingsSheet.sheetParent;},3);[app updateDefaultButton];
-        Check(!app.settingsSheet.sheetParent && [app.compareButton.keyEquivalent isEqual:@"\r"],@"closing sheet restores correct default");
+        Check(!app.settingsSheet.sheetParent && [[[app.documents valueForKey:@"applyButton"] keyEquivalent] isEqual:@"\r"],@"closing sheet restores document selection action as default");
         Check([YBDisplayDate(@"2026-10-01T23:43:12.456Z") containsString:@"8:43"],@"server date is converted to Seoul without milliseconds");
 
         YBWork *progressWork=[YBWork new];YBProgressController *progressUI=[[YBProgressController alloc] initWithWork:progressWork];YBProgressLibrary *fake=[YBProgressLibrary new];fake.gate=dispatch_semaphore_create(0);fake.syntheticRows=rows;progressUI.fake=fake;
