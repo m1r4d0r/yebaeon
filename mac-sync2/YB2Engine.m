@@ -78,8 +78,8 @@ static id JSON(NSData *data) { return data ? [NSJSONSerialization JSONObjectWith
             // 서버가 아는 폴더 표기(~/…)와 이 Mac의 절대경로 둘 다 같은 문서로 본다.
             NSString *reference = YBPlaylistReference(attrs[@"filePath"], sourceRoot) ?: YBPlaylistReference(attrs[@"filePath"], self.root);
             [parts addObject:[@"d:" stringByAppendingString:reference ?: [@"?" stringByAppendingString:attrs[@"filePath"] ?: @""]]];
-        } else if ([tag isEqual:@"RVHeaderCue"]) [parts addObject:[@"h:" stringByAppendingString:attrs[@"displayName"] ?: @"구분"]];
-        else [parts addObject:[@"x:" stringByAppendingString:attrs[@"displayName"] ?: @"이름 없음"]];
+        } else if ([tag isEqual:@"RVHeaderCue"]) [parts addObject:[@"h:" stringByAppendingString:[attrs[@"displayName"] length] ? attrs[@"displayName"] : @"구분"]];
+        else [parts addObject:[@"x:" stringByAppendingString:[attrs[@"displayName"] length] ? attrs[@"displayName"] : @"이름 없음"]];
     }
     return [parts componentsJoinedByString:@"\n"];
 }
@@ -149,12 +149,13 @@ static id JSON(NSData *data) { return data ? [NSJSONSerialization JSONObjectWith
             NSMutableArray *documents = [NSMutableArray array], *macChanged = [NSMutableArray array], *macOnly = [NSMutableArray array];
             for (NSDictionary *doc in plan[@"documents"]) {
                 NSString *path = doc[@"path"], *localHash = [self localHash:path];
+                NSDictionary *knownDoc = [self.receipt document:path];
                 if (localHash && [localHash isEqual:doc[@"sha256"]]) {
                     long long size = 0, mtime = 0; [self statPath:path size:&size mtime:&mtime];
-                    [self.receipt rememberDocument:path version:doc[@"version"] sha:localHash size:size mtime:mtime];
+                    BOOL unchanged = knownDoc && [knownDoc[@"version"] isEqual:doc[@"version"]] && [knownDoc[@"size"] longLongValue] == size && [knownDoc[@"mtime"] longLongValue] == mtime;
+                    if (!unchanged) [self.receipt rememberDocument:path version:doc[@"version"] sha:localHash size:size mtime:mtime];
                     continue;
                 }
-                NSDictionary *knownDoc = [self.receipt document:path];
                 BOOL macEdited = localHash != nil && knownDoc != nil && ![knownDoc[@"sha"] isEqual:localHash];
                 BOOL serverSame = knownDoc != nil && [knownDoc[@"version"] isEqual:doc[@"version"]];
                 if (macEdited && serverSame) { [macOnly addObject:path]; continue; }   // Mac에서만 고침: 건드리지 않는다. 올리기는 다음 판.
@@ -198,7 +199,7 @@ static id JSON(NSData *data) { return data ? [NSJSONSerialization JSONObjectWith
 - (NSDictionary *)apply:(NSArray *)rows {
     YBRequire(!self.presenterRunning(), @"ProPresenter를 종료한 뒤 적용해 주세요.");
     YBRequire(self.library != nil && self.comparedPlaylistHash != nil, @"먼저 비교해 주세요.");
-    YBRequire(![NSFileManager.defaultManager fileExistsAtPath:self.journalPath], @"끝나지 않은 적용이 있습니다. 앱을 다시 실행하면 마무리합니다.");
+    if ([NSFileManager.defaultManager fileExistsAtPath:self.journalPath]) [self finishInterruptedApply];   // 지난번에 끝내지 못한 것부터 마무리한다.
     NSData *before = YBReadPlaylist(self.playlistURL);
     YBRequire([YBHash(before) isEqual:self.comparedPlaylistHash], @"비교한 뒤 재생목록 파일이 바뀌었습니다. 다시 비교해 주세요.");
 
@@ -215,29 +216,28 @@ static id JSON(NSData *data) { return data ? [NSJSONSerialization JSONObjectWith
     for (NSDictionary *row in rows) {
         if (![row[@"status"] isEqual:@"receive"]) continue;
         NSDictionary *plan = row[@"plan"]; NSString *name = row[@"name"];
+        // 예배 하나의 준비가 중간에 실패하면 그 예배의 것은 하나도 journal에 넣지 않는다.
+        NSMutableArray *rowDocs = [NSMutableArray array]; NSMutableDictionary *rowSeen = [NSMutableDictionary dictionary]; NSData *rowAfter = after;
         @try {
-            NSUInteger counter = 0;
             for (NSDictionary *doc in row[@"documents"]) {
                 NSString *path = doc[@"path"];
-                if (seenPaths[path]) continue;   // 여러 예배가 같은 문서를 쓰면 한 번만 받는다.
+                if (seenPaths[path] || rowSeen[path]) continue;   // 여러 예배가 같은 문서를 쓰면 한 번만 받는다.
                 [self report:[NSString stringWithFormat:@"%@ · 문서 받는 중 · %@", name, path]];
                 NSData *data = [self.server download:doc];
-                NSString *staged = [NSString stringWithFormat:@"%@-%lu.pro6", row[@"nodeID"], (unsigned long)counter++];
+                NSString *staged = [NSString stringWithFormat:@"%lu.pro6", (unsigned long)(stagedDocs.count + rowDocs.count)];
                 YBWriteSafeFile(stageRoot, staged, data, 0600, nil);
                 NSDictionary *record = @{@"path": path, @"staged": staged, @"sha": doc[@"sha256"], @"version": doc[@"version"]};
-                [stagedDocs addObject:record]; seenPaths[path] = record;
+                [rowDocs addObject:record]; rowSeen[path] = record;
             }
-            if ([row[@"orderChanged"] boolValue]) {
-                NSString *xml = YBPlaylistLocalXML(plan, self.root);
-                after = YBPlaylistReplacing(after, row[@"nodeID"], xml);
-            }
+            if ([row[@"orderChanged"] boolValue]) rowAfter = YBPlaylistReplacing(rowAfter, row[@"nodeID"], YBPlaylistLocalXML(plan, self.root));
+            [stagedDocs addObjectsFromArray:rowDocs]; [seenPaths addEntriesFromDictionary:rowSeen]; after = rowAfter;
             [nodeRecords addObject:@{@"key": row[@"key"], @"name": name, @"serverSha": plan[@"playlist"][@"sha256"], @"fingerprint": row[@"serverFingerprint"]}];
             [applied addObject:name];
         } @catch (NSException *e) {
             failed[name] = e.reason ?: @"준비 실패";
         }
     }
-    if (!stagedDocs.count && [after isEqual:before] && !nodeRecords.count) return @{@"applied": @[], @"failed": failed, @"backup": @""};
+    if (!stagedDocs.count && [after isEqual:before] && !nodeRecords.count) { [NSFileManager.defaultManager removeItemAtPath:stageRoot error:NULL]; return @{@"applied": @[], @"failed": failed, @"backup": @""}; }
 
     NSString *afterStaged = nil;
     if (![after isEqual:before]) { afterStaged = @"after.pro6pl"; YBWriteSafeFile(stageRoot, afterStaged, after, 0600, nil); }
@@ -295,6 +295,10 @@ static id JSON(NSData *data) { return data ? [NSJSONSerialization JSONObjectWith
     if (![journal isKindOfClass:NSDictionary.class]) return nil;
     YBRequire([journal[@"root"] isEqual:self.root] && [journal[@"playlist"] isEqual:self.playlistURL.path], @"중단된 적용의 폴더가 지금 설정과 다릅니다. 설정을 되돌리거나 apply-journal.json을 확인하세요.");
     NSString *applyID = journal[@"id"];
+    NSString *stage = [self.profile stringByAppendingPathComponent:[@"stage/" stringByAppendingString:applyID]];
+    if (![NSFileManager.defaultManager fileExistsAtPath:stage]) {   // 준비 파일이 없으면 마무리할 것도 없다. 다음 비교가 다시 받는다.
+        [NSFileManager.defaultManager removeItemAtPath:self.journalPath error:NULL]; return nil;
+    }
     [self performJournal:journal stageRoot:[self.profile stringByAppendingPathComponent:[@"stage/" stringByAppendingString:applyID]] backupRoot:[self backupRoot:applyID]];
     return [NSString stringWithFormat:@"지난번에 중단된 적용을 마무리했습니다: %@", [journal[@"applied"] componentsJoinedByString:@", "]];
 }

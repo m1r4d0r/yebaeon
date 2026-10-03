@@ -183,6 +183,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 - (void)setBusy:(BOOL)busy {
     _busy = busy;
     self.compareButton.enabled = !busy;
+    [self.table reloadData];
     [self refreshApplyButton];
 }
 - (void)refreshPresenterState {
@@ -250,6 +251,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 #pragma mark - 설정 변경
 
 - (void)chooseRoot:(id)sender {
+    if (self.busy) return;
     NSOpenPanel *panel = [NSOpenPanel openPanel]; panel.canChooseDirectories = YES; panel.canChooseFiles = NO; panel.allowsMultipleSelection = NO;
     panel.message = @"ProPresenter 문서 폴더를 고르세요"; panel.directoryURL = [NSURL fileURLWithPath:self.root];
     if ([panel runModal] != NSModalResponseOK) return;
@@ -257,6 +259,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     [self rebuildEngine]; [self compareNow:nil];
 }
 - (void)choosePlaylist:(id)sender {
+    if (self.busy) return;
     NSOpenPanel *panel = [NSOpenPanel openPanel]; panel.canChooseDirectories = NO; panel.canChooseFiles = YES; panel.allowsMultipleSelection = NO;
     panel.allowedFileTypes = @[@"pro6pl"]; panel.message = @"기본 .pro6pl 파일을 고르세요"; panel.directoryURL = self.playlistURL.URLByDeletingLastPathComponent;
     if ([panel runModal] != NSModalResponseOK) return;
@@ -297,14 +300,14 @@ static NSString *StatusText(NSDictionary *row) {
     return at.length ? [NSString stringWithFormat:@"%@ · %@", by ?: @"", [at stringByReplacingOccurrencesOfString:@"T" withString:@" "]] : @"";
 }
 - (void)tableView:(NSTableView *)table setObjectValue:(id)value forTableColumn:(NSTableColumn *)column row:(NSInteger)index {
-    if (![column.identifier isEqual:@"checked"]) return;
+    if (self.busy || ![column.identifier isEqual:@"checked"]) return;
     NSMutableDictionary *row = self.rows[index];
     if ([row[@"status"] isEqual:@"receive"]) row[@"checked"] = @([value boolValue]);
     [self refreshApplyButton];
 }
 - (void)tableView:(NSTableView *)table willDisplayCell:(id)cell forTableColumn:(NSTableColumn *)column row:(NSInteger)index {
     NSDictionary *row = self.rows[index];
-    if ([column.identifier isEqual:@"checked"]) [cell setEnabled:[row[@"status"] isEqual:@"receive"]];
+    if ([column.identifier isEqual:@"checked"]) [cell setEnabled:!self.busy && [row[@"status"] isEqual:@"receive"]];
     if ([column.identifier isEqual:@"status"] && [cell isKindOfClass:NSTextFieldCell.class]) {
         NSString *status = row[@"status"];
         [cell setTextColor:[status isEqual:@"receive"] ? [NSColor colorWithCalibratedRed:0.10 green:0.35 blue:0.75 alpha:1] : [status isEqual:@"hold"] ? [NSColor colorWithCalibratedRed:0.75 green:0.35 blue:0.10 alpha:1] : NSColor.disabledControlTextColor];
@@ -313,7 +316,7 @@ static NSString *StatusText(NSDictionary *row) {
 - (BOOL)tableView:(NSTableView *)table shouldSelectRow:(NSInteger)index { return NO; }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)app {
-    if (self.busy) { self.statusLabel.stringValue = @"작업이 끝나면 종료합니다"; return NSTerminateCancel; }
+    if (self.busy) { self.statusLabel.stringValue = @"작업 중에는 종료할 수 없습니다. 끝난 뒤 다시 종료해 주세요."; return NSTerminateCancel; }
     return NSTerminateNow;
 }
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app { return YES; }
