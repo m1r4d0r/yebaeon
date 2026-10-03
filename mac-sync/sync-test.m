@@ -26,7 +26,7 @@ int main(void) { @autoreleasepool {
         Check([YBDisposition(YBHash(a),v2,v1) isEqual:@"download"],@"remote changed");
         Check([YBDisposition(YBHash(b),v1,v1) isEqual:@"upload"],@"local changed");
         Check([YBDisposition(YBHash(c),v2,v1) isEqual:@"conflict"],@"both changed");
-        Check([YBDisposition(YBHash(a),nil,v1) isEqual:@"conflict"],@"no server recreation");
+        Check([YBDisposition(YBHash(a),nil,v1) isEqual:@"upload"],@"missing server document can be explicitly uploaded with old baseline");
         Check([YBDisposition(nil,v2,v1) isEqual:@"download"],@"local deletion does not propagate");
         Check([YBDisposition(YBHash(b),v2,v1) isEqual:@"same"],@"converged changes");
         {

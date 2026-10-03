@@ -60,7 +60,7 @@ void YBValidateMetadata(NSDictionary *doc) {
     YBRequire([v isKindOfClass:NSNumber.class] && v.doubleValue>=1 && v.doubleValue<=9007199254740991.0 && v.doubleValue==v.longLongValue && [s isKindOfClass:NSNumber.class] && s.doubleValue>=1 && s.doubleValue<=YBMax && s.doubleValue==s.longLongValue, @"문서 버전 또는 크기가 올바르지 않습니다.");
 }
 NSString *YBDisposition(NSString *local, NSDictionary *remote, NSDictionary *base) {
-    if (!remote) return base ? @"conflict" : @"upload";
+    if (!remote) return @"upload";
     if (base && ![base[@"id"] isEqual:remote[@"id"]]) return @"conflict";
     if (!local) return @"download";
     if ([local isEqual:remote[@"sha256"]]) return @"same";

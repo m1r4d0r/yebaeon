@@ -8,6 +8,8 @@
 @property(nonatomic,copy) void (^comparisonFinished)(void);
 @property(nonatomic,copy) void (^checkStateChanged)(NSString *message, NSUInteger done, NSUInteger total, BOOL active);
 @property(nonatomic,copy) void (^showRecovery)(void);
+- (void)updateSelection;
+- (void)showComparisonDocuments:(NSDictionary *)comparison;
 - (void)setPlaylistFile:(NSURL *)url;
 - (void)refresh:(id)sender;
 - (void)resetHistory:(id)sender;

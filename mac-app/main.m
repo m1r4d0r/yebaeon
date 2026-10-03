@@ -100,7 +100,7 @@
     self.work.messageChanged=^{[weakSelf updateConnection];};self.work.pauseChanged=^{[weakSelf updateConnection];};
     self.work.busyChanged=^(BOOL busy) {
         YBAppDelegate *app=weakSelf;[app enableView:app.serverPlaylists.view enabled:!busy];[app enableView:app.playlist.view enabled:!busy];[app enableView:app.documents.view enabled:!busy];[app enableView:app.media.view enabled:!busy];
-        app.settingsButton.enabled=!busy;if(app.settingsSheet){[app enableView:app.settingsSheet.contentView enabled:!busy];app.settingsClose.enabled=YES;}[app updateConnection];
+        if(!busy)[app.documents updateSelection];app.settingsButton.enabled=!busy;if(app.settingsSheet){[app enableView:app.settingsSheet.contentView enabled:!busy];app.settingsClose.enabled=YES;}[app updateConnection];
     };
     [self updateConnection];
     [self.window makeKeyAndOrderFront:nil];
