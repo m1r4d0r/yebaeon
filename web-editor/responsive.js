@@ -6,7 +6,7 @@
  const studio=document.querySelector('.studio'),editing=document.querySelector('.editing-column'),tabs=document.querySelector('.view-tabs');
  let page='playlists',searchOpen=false,multiple=false,drag=null,suppressClickUntil=0,composing=false,pendingPage=null;
  const homes=new Map();
- for(const node of [$('documentsPane'),tabs,$('cloudSave'),$('saveScope'),$('serverStatus')]){const marker=document.createComment('responsive home');node.before(marker);homes.set(node,marker);}
+ for(const node of [$('documentsPane'),tabs,$('cloudSave'),$('saveScope'),$('serverStatus'),$('playlistHistory'),$('playlistSummary')]){const marker=document.createComment('responsive home');node.before(marker);homes.set(node,marker);}
  const heading=document.createElement('header');heading.className='responsive-heading';heading.innerHTML='<div class="responsive-title"><button id="responsiveBack" type="button"></button><strong id="responsiveTitle"></strong></div><div id="responsiveSave"></div>';
  studio.prepend(heading);
  const nav=document.createElement('nav');nav.className='responsive-nav';nav.setAttribute('aria-label','작업 화면');
@@ -55,12 +55,18 @@
   window.YebaeonSave?.update();
  }
  function viewport(){const v=window.visualViewport;document.body.classList.toggle('responsive-keyboard',!!v&&innerHeight-v.height>150);document.documentElement.style.setProperty('--responsive-height',(v?.height||innerHeight)+'px');document.documentElement.style.setProperty('--keyboard-offset',Math.max(0,innerHeight-(v?.height||innerHeight)-(v?.offsetTop||0))+'px');}
+ const playlistHistoryLabel=$('playlistHistory').textContent;
+ function historyLayout(){
+  if(phone()){$('accountMenu').prepend($('playlistHistory'),$('playlistSummary'));$('playlistHistory').textContent='현재 순서 이력';}
+  else{for(const node of [$('playlistHistory'),$('playlistSummary')])homes.get(node).after(node);$('playlistHistory').textContent=playlistHistoryLabel;}
+ }
  function layout(){
   if($('quickDialog').open)$('quickDialog').close();
   if(compact()){$('responsiveSearchSlot').append($('documentsPane'));editing.insertBefore(tabs,tools);$('responsiveSave').append($('cloudSave'),$('saveScope'));$('accountMenu').prepend($('serverStatus'));}
   else{closeSearch(false);properties(false);for(const [node,marker] of homes)marker.after(node);}
-  viewport();update();decorate();
+  historyLayout();viewport();update();decorate();
  }
+ $('playlistHistory').addEventListener('click',()=>{$('accountMenu').hidden=true;$('cloudAccount').setAttribute('aria-expanded','false');});
  $('responsiveBack').onclick=()=>navigate(page==='edit'?'order':'playlists');fab.onclick=search;$('responsiveSearchClose').onclick=()=>closeSearch();
  $('responsiveQuick').onclick=()=>E.quick();$('responsiveProperties').onclick=()=>properties(!document.body.classList.contains('responsive-properties'));
  $('responsiveMultiple').onclick=()=>{multiple=!multiple;$('responsiveMultiple').setAttribute('aria-pressed',String(multiple));$('responsiveMultiple').textContent=multiple?'선택 완료':'여러 장';};
@@ -92,7 +98,7 @@
  for(const event of ['yebaeonrender','yebaeonselection','yebaeonorderhistory','yebaeoncloudsaved','yebaeonsession'])window.addEventListener(event,()=>queueMicrotask(update));
  window.addEventListener('yebaeonplaylistopen',()=>{if(compact())navigate('order');});
  window.addEventListener('yebaeonclouddocument',()=>{if(compact())navigate('edit');});
- matchMedia('(max-width:1100px)').addEventListener('change',layout);matchMedia('(max-width:700px)').addEventListener('change',()=>{closeSearch(false);documentInfo(false);update();});
+ matchMedia('(max-width:1100px)').addEventListener('change',layout);matchMedia('(max-width:700px)').addEventListener('change',()=>{closeSearch(false);documentInfo(false);historyLayout();update();});
  window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);window.addEventListener('resize',viewport);
  window.YebaeonResponsive={compact,search,navigate,page:()=>page};layout();decorate();
 })();

@@ -46,3 +46,9 @@
  .responsive-nav{padding:2px 8px calc(2px + env(safe-area-inset-bottom,0px));gap:4px}.responsive-nav button{min-height:36px;padding:3px 6px;font-size:11px}
  .editor-footer{padding:5px 10px;gap:4px}.editor-footer button{min-height:30px;font-size:11px;padding:4px 7px}.editor-footer #status{font-size:10px}.draft-state{font-size:10px;padding:0 10px 3px}
 }
+
+@media(max-width:700px){
+ .library-column>.playlist-footer{display:none}
+ #accountMenu{max-height:calc(var(--responsive-height,100dvh) - 52px);overflow-y:auto}
+ #accountMenu #playlistSummary{display:block;padding:0 10px 8px;color:var(--muted);font-size:10px;line-height:1.5;overflow-wrap:anywhere;border-bottom:1px solid var(--line);margin-bottom:4px}
+}
