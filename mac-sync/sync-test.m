@@ -45,6 +45,11 @@ int main(void) { @autoreleasepool {
             struct stat st; stat([s.root stringByAppendingPathComponent:nfd].fileSystemRepresentation,&st); Check((st.st_mode&0777)==0640,@"mode retained");
             Check([s.entries[path][@"version"] isEqual:@2] && s.pendingTransactions.count==0,@"commit updates baseline");
             [s restore:transaction]; Check([[s readDocument:path] isEqual:a] && [s.entries[path][@"version"] isEqual:@1],@"restore original and baseline");
+            NSData *installed=XML(@"rewritten local media path");NSString *mediaTransaction=[s applyInstalledData:installed serverData:b document:v2 expectedLocalHash:YBHash(a)];
+            Check([[s readDocument:path] isEqual:installed] && [s.entries[path][@"sha256"] isEqual:YBHash(b)] && [s.entries[path][@"localHash"] isEqual:YBHash(installed)],@"rewritten document keeps distinct local and server hashes");
+            Check([YBDisposition(YBHash(installed),v2,s.entries[path]) isEqual:@"same"],@"unchanged rewritten document is synchronized");
+            NSData *edited=XML(@"user edit after media install");Put(s.root,path,edited);Check([YBDisposition(YBHash(edited),v2,s.entries[path]) isEqual:@"upload"],@"later local edit is detected against installed baseline");
+            Put(s.root,path,installed);[s restore:mediaTransaction];Check([[s readDocument:path] isEqual:a] && [s.entries[path][@"version"] isEqual:@1],@"media rewrite transaction restores the original and baseline");
             Reject(^{YBSync *other=Engine(area); (void)other;},@"same root locked");
             s.presenterRunning=^BOOL{return YES;}; Reject(^{[s apply:b document:v2 expectedLocalHash:YBHash(a)];},@"PP6 running blocks apply");
             s.presenterRunning=^BOOL{return NO;}; Reject(^{[s apply:c document:v2 expectedLocalHash:YBHash(a)];},@"bad download hash");
@@ -99,7 +104,7 @@ int main(void) { @autoreleasepool {
         {
             YBSync *s=Engine(NewArea(base)); Put(s.root,path,a); [s acknowledge:v1 expectedLocalHash:YBHash(a)];
             s.checkpoint=^(NSString *point){if([point isEqual:@"replaced"])YBRequire(NO,@"interrupt");};
-            Reject(^{[s apply:b document:v2 expectedLocalHash:YBHash(a)];},@"interrupt for concurrent edit");
+            NSData *installed=XML(@"rewritten image path");Reject(^{[s applyInstalledData:installed serverData:b document:v2 expectedLocalHash:YBHash(a)];},@"interrupt for concurrent edit after media rewrite");
             Put(s.root,path,c); Reject(^{[s recover:s.pendingTransactions[0][@"id"]];},@"recovery refuses third content"); Check([[s readDocument:path] isEqual:c],@"third content preserved");
         }
         {
@@ -164,4 +169,3 @@ int main(void) { @autoreleasepool {
         [NSFileManager.defaultManager removeItemAtPath:base error:NULL]; return 0;
     } @catch(NSException *e) { fprintf(stderr,"FAIL after %d checks: %s (%s)\n",checks,e.reason.UTF8String,base.UTF8String); return 1; }
 } }
-

@@ -1,4 +1,5 @@
 #import "YBMediaController.h"
+#import "YBLibrary.h"
 #import "../mac-sync/PP6Core.h"
 #import "../mac-sync/YBSync.h"
 NSDictionary *YBMediaReport(NSString *documentsRoot,NSArray *mediaRoots) {
@@ -19,6 +20,7 @@ static NSString *MediaStatus(NSString *status) {return @{@"exact-managed":@"연�
 @interface YBMediaController () <NSTableViewDataSource,NSTableViewDelegate,NSSearchFieldDelegate>
 @property(nonatomic,readwrite) NSView *view;
 @property(nonatomic) NSString *documentsRoot;
+@property(nonatomic) NSString *receiveRoot;
 @property NSMutableArray *roots;
 @property YBWork *work;
 @property NSTextField *rootLabel;
@@ -33,7 +35,7 @@ static NSString *MediaStatus(NSString *status) {return @{@"exact-managed":@"연�
 @implementation YBMediaController
 - (instancetype)initWithWork:(YBWork *)work documentsRoot:(NSString *)root {
     if((self=[super init])) {self.work=work;self.documentsRoot=root;self.visibleRows=@[];
-        NSArray *saved=YBPreferences(@"media-settings.json")[@"roots"];self.roots=[NSMutableArray array];
+        NSDictionary *settings=YBPreferences(@"media-settings.json");NSArray *saved=settings[@"roots"];self.receiveRoot=settings[@"receiveRoot"];self.roots=[NSMutableArray array];
         if([saved isKindOfClass:NSArray.class])for(id path in saved)if([path isKindOfClass:NSString.class] && [path isAbsolutePath])[self.roots addObject:path];
         if(!self.roots.count)[self.roots addObjectsFromArray:@[@"/Users/Shared/Renewed Vision Media",@"/Users/Shared/ProCG Content"]];[self buildView];
     }return self;
@@ -45,22 +47,68 @@ static NSString *MediaStatus(NSString *status) {return @{@"exact-managed":@"연�
     self.search=[[NSSearchField alloc] initWithFrame:NSMakeRect(24,542,414,28)];self.search.placeholderString=@"배경 파일명 또는 문서 검색";self.search.delegate=self;[v addSubview:self.search];
     self.problemsOnly=[[NSButton alloc] initWithFrame:NSMakeRect(455,542,247,28)];self.problemsOnly.buttonType=NSSwitchButton;self.problemsOnly.title=@"연결 확인이 필요한 항목만";self.problemsOnly.target=self;self.problemsOnly.action=@selector(filterAction:);[v addSubview:self.problemsOnly];
     NSButton *scan=YBButton(@"이미지 전송 대상 확인",NSZeroRect,self,@selector(scan:));[v addSubview:scan];
+    NSButton *receiveFolder=YBButton(@"수신 이미지 폴더",NSZeroRect,self,@selector(chooseReceiveRoot:));[v addSubview:receiveFolder];
     self.table=YBTable(v,NSMakeRect(24,143,1012,383),@[@[@"status",@"연결 상태",@172],@[@"basename",@"사용한 미디어",@315],@[@"document",@"문서",@331],@[@"slide",@"슬라이드",@90],@[@"background",@"배경",@60]],self);self.table.allowsMultipleSelection=NO;
     self.statusLabel=YBLabel(@"문서 탭과 같은 문서 폴더를 점검합니다.",NSMakeRect(24,108,1012,25),13,NO);[v addSubview:self.statusLabel];
-    NSTextField *note=YBLabel(@"전체 문서의 참조 이미지 · 같은 내용은 한 번 계산 · 영상 제외 · 아직 서버에 전송하지 않습니다.",NSMakeRect(24,78,1012,24),12,NO);note.textColor=NSColor.secondaryLabelColor;[v addSubview:note];
+    NSTextField *note=YBLabel(@"전체 문서의 참조 이미지 · 내용 hash로 중복 제거 · 영상 제외 · 준비 확인 후 전송",NSMakeRect(24,78,1012,24),12,NO);note.textColor=NSColor.secondaryLabelColor;[v addSubview:note];
     NSButton *details=YBButton(@"선택 항목 자세히",NSZeroRect,self,@selector(details:));[v addSubview:details];
     NSButton *reveal=YBButton(@"Finder에서 보기",NSZeroRect,self,@selector(reveal:));[v addSubview:reveal];
     NSButton *export=YBButton(@"점검 결과 저장",NSZeroRect,self,@selector(exportReport:));[v addSubview:export];
+    NSButton *send=YBButton(@"이미지 서버 전송",NSZeroRect,self,@selector(uploadToServer:));[v addSubview:send];
     NSButton *connections=YBButton(@"이동한 파일 찾기",NSZeroRect,self,@selector(scanConnections:));[v addSubview:connections];
     __weak YBMediaController *weakSelf=self;
     v.frameLayout=^(NSSize size){YBMediaController *c=weakSelf;CGFloat w=size.width,h=size.height,m=14;
         c.search.frame=NSMakeRect(m,h-36,w-500,26);c.problemsOnly.frame=NSMakeRect(w-474,h-38,260,28);scan.frame=NSMakeRect(w-204,h-40,190,32);
         c.table.enclosingScrollView.frame=NSMakeRect(m,112,w-2*m,MAX(80,h-160));c.statusLabel.frame=NSMakeRect(m,82,w-2*m,24);note.frame=NSMakeRect(m,55,w-2*m,24);
-        details.frame=NSMakeRect(m,14,166,32);reveal.frame=NSMakeRect(m+176,14,150,32);connections.frame=NSMakeRect(m+336,14,166,32);export.frame=NSMakeRect(w-m-170,14,170,32);
+        details.frame=NSMakeRect(m,14,140,32);reveal.frame=NSMakeRect(m+148,14,130,32);connections.frame=NSMakeRect(m+286,14,150,32);receiveFolder.frame=NSMakeRect(m+444,14,126,32);send.frame=NSMakeRect(w-m-274,14,134,32);export.frame=NSMakeRect(w-m-132,14,132,32);
     };v.frameLayout(v.bounds.size);
 }
+- (NSString *)mediaJournalKeyForReport:(NSDictionary *)report server:(YBServer *)server {
+    NSMutableArray *signature=[NSMutableArray array];for(NSDictionary *asset in report[@"uniqueAssets"])[signature addObject:@[asset[@"sha256"],asset[@"size"]]];
+    NSData *data=[NSJSONSerialization dataWithJSONObject:@{ @"origin":server.origin,@"root":self.documentsRoot.stringByStandardizingPath,@"assets":signature } options:0 error:NULL];return YBHash(data);
+}
+- (void)saveMediaJournal:(NSDictionary *)journal {
+    NSString *dir=YBPreferencesDirectory();NSError *error=nil;BOOL ok=[NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:&error];
+    NSMutableDictionary *jobs=[YBPreferences(@"media-transfer-journal.json") mutableCopy];[jobs addEntriesFromDictionary:journal];NSData *data=[NSJSONSerialization dataWithJSONObject:jobs options:NSJSONWritingPrettyPrinted error:&error];YBRequire(ok&&data&&[data writeToFile:[dir stringByAppendingPathComponent:@"media-transfer-journal.json"] options:NSDataWritingAtomic error:&error],error.localizedDescription ?: @"전송 재개 기록을 저장하지 못했습니다.");
+}
+- (void)uploadToServer:(id)sender {
+    if(!self.report || ![self.report[@"prepared"] boolValue]){YBAlert(@"전송 전에 전체 확인이 필요합니다.",@"‘이미지 전송 대상 확인’을 실행해 누락·미지원 항목이 없는지 확인하세요.");return;}
+    if(!self.libraryProvider){YBAlert(@"서버 연결을 사용할 수 없습니다.",@"문서 탭에서 서버에 입장한 뒤 다시 시도하세요.");return;}
+    NSDictionary *report=self.report;YBLibrary *library=self.libraryProvider();if(!library)return;
+    if(!YBConfirm(@"확인된 이미지 전송",[NSString stringWithFormat:@"전체 문서에서 참조한 고유 이미지 %@개 (%@)를 %@에 전송하고 현재 서버 문서와 참조를 연결합니다. 기존 내용 hash는 재사용합니다.",report[@"assets"],[NSByteCountFormatter stringFromByteCount:[report[@"uniqueBytes"] longLongValue] countStyle:NSByteCountFormatterCountStyleFile],library.server.origin],@"전송 시작"))return;
+    self.statusLabel.stringValue=@"서버 이미지 존재 여부를 확인하고 전송을 시작합니다…";
+    [self.work runPausable:YES task:^id{
+        NSString *journalKey=[self mediaJournalKeyForReport:report server:library.server];NSMutableDictionary *journal=[YBPreferences(@"media-transfer-journal.json")[journalKey] mutableCopy];
+        if(!journal)journal=[@{@"jobId":NSUUID.UUID.UUIDString,@"key":journalKey,@"origin":library.server.origin,@"documentsRoot":self.documentsRoot,@"createdAt":NSDate.date.description,@"completedHashes":[NSMutableDictionary dictionary],@"completedReferences":[NSMutableDictionary dictionary]} mutableCopy];
+        NSMutableDictionary *completedHashes=[journal[@"completedHashes"] mutableCopy] ?: [NSMutableDictionary dictionary],*completedRefs=[journal[@"completedReferences"] mutableCopy] ?: [NSMutableDictionary dictionary];
+        NSMutableArray *hashes=[NSMutableArray array];for(NSDictionary *asset in report[@"uniqueAssets"])[hashes addObject:asset[@"sha256"]];NSMutableDictionary *present=[NSMutableDictionary dictionary];
+        for(NSUInteger i=0;i<hashes.count;i+=100){[self.work checkpoint];for(NSDictionary *asset in [library.server mediaAssets:[hashes subarrayWithRange:NSMakeRange(i,MIN((NSUInteger)100,hashes.count-i))]])present[asset[@"sha256"]]=asset;}
+        NSMutableDictionary *assetByHash=[NSMutableDictionary dictionary];for(NSDictionary *asset in report[@"uniqueAssets"])assetByHash[asset[@"sha256"]]=asset;
+        NSUInteger completed=0;for(NSString *hash in hashes){[self.work checkpoint];NSDictionary *asset=assetByHash[hash];unsigned long long size=[asset[@"size"] unsignedLongLongValue];
+            NSDictionary *serverAsset=present[hash];if(serverAsset)YBRequire([serverAsset[@"size"] unsignedLongLongValue]==size,@"같은 SHA-256으로 크기가 다른 서버 이미지가 있습니다. 전송을 중지했습니다.");BOOL verified=NO;if(serverAsset)verified=[completedHashes[hash] boolValue] || [library.server mediaContentExists:hash size:size];
+            if(!verified){NSData *bytes=YBReadPreparedImage([asset[@"paths"] firstObject],hash,size,^{[self.work checkpoint];});[library.server uploadMedia:bytes sha256:hash];YBRequire([library.server mediaContentExists:hash size:size],@"전송 응답 뒤 서버 원본을 확인하지 못했습니다. 다시 실행해 이어가세요.");}
+            completedHashes[hash]=@YES;journal[@"completedHashes"]=completedHashes;[self saveMediaJournal:@{journalKey:journal}];completed++;
+            dispatch_async(dispatch_get_main_queue(),^{self.statusLabel.stringValue=[NSString stringWithFormat:@"이미지 %@/%lu · SHA-256 확인 완료",@(completed),(unsigned long)hashes.count];});
+        }
+        NSArray *remoteDocs=[library.server documentsChecking:^{[self.work checkpoint];}];NSMutableDictionary *remoteByPath=[NSMutableDictionary dictionary];for(NSDictionary *doc in remoteDocs)remoteByPath[doc[@"path"]]=doc;
+        NSMutableDictionary *rowsByDocument=[NSMutableDictionary dictionary];for(NSDictionary *row in report[@"rows"]){NSString *path=row[@"document"],*hash=row[@"sha256"];if(!path||!hash||![row[@"transferState"] isEqual:@"원본 확인"])continue;NSMutableArray *rows=rowsByDocument[path];if(!rows){rows=[NSMutableArray array];rowsByDocument[path]=rows;}[rows addObject:row];}
+        NSMutableArray *pending=[NSMutableArray array];NSUInteger linked=0;
+        for(NSString *path in [rowsByDocument.allKeys sortedArrayUsingSelector:@selector(compare:)]){[self.work checkpoint];NSDictionary *doc=remoteByPath[path];if(!doc||![doc[@"sha256"] isEqual:report[@"documentHashes"][path]]){[pending addObject:path];continue;}
+            NSString *refKey=[NSString stringWithFormat:@"%@/%@",doc[@"id"],doc[@"version"]];if([completedRefs[refKey] boolValue]){linked++;continue;}
+            NSMutableDictionary *unique=[NSMutableDictionary dictionary],*identityCounts=[NSMutableDictionary dictionary];for(NSDictionary *row in rowsByDocument[path]){NSString *identity=[NSString stringWithFormat:@"%@\n%@\n%@\n%@\n%@",row[@"slide"],row[@"kind"] ?: @"",row[@"uuid"] ?: @"",row[@"position"] ?: @"",row[@"source"] ?: @""];NSUInteger ordinal=[identityCounts[identity] unsignedIntegerValue];identityCounts[identity]=@(ordinal+1);NSString *identifier=YBHash([[identity stringByAppendingFormat:@"\n%lu",(unsigned long)ordinal] dataUsingEncoding:NSUTF8StringEncoding]);unique[identifier]=@{@"id":identifier,@"sha256":row[@"sha256"],@"source":row[@"source"] ?: @"",@"slide":row[@"slide"] ?: @0};}
+            NSArray *references=unique.allValues;[library.server registerMediaReferences:references document:doc];completedRefs[refKey]=@YES;journal[@"completedReferences"]=completedRefs;[self saveMediaJournal:@{journalKey:journal}];linked++;
+        }
+        return @{@"uploaded":@(completed),@"linked":@(linked),@"pending":pending,@"totalAssets":@(hashes.count),@"journalKey":journalKey};
+    } completion:^(NSDictionary *result,NSString *error){
+        if(error){self.statusLabel.stringValue=@"이미지 전송이 중단됐습니다. 재개 기록을 보존했습니다.";YBAlert(@"이미지 전송 미완료",error);return;}
+        NSMutableDictionary *updated=[self.report mutableCopy];updated[@"serverVerified"]=@([result[@"pending"] count]==0);self.report=updated;
+        self.statusLabel.stringValue=[NSString stringWithFormat:@"이미지 %@/%@ 확인 · 문서 참조 %@개 연결 · 서버 미등록/변경 문서 %@개 보류",result[@"uploaded"],result[@"totalAssets"],result[@"linked"],@([result[@"pending"] count])];
+        if([result[@"pending"] count])YBShowText(@"문서 참조는 대기 중",[NSString stringWithFormat:@"이미지는 서버에서 확인했지만 다음 문서는 서버에 없거나 현재 원본과 달라 참조를 연결하지 않았습니다. 문서를 서버에 맞춘 뒤 이미지 전송을 다시 실행하세요.\n\n%@",[result[@"pending"] componentsJoinedByString:@"\n"]]);
+    }];
+}
 - (void)setDocumentsRoot:(NSString *)root {_documentsRoot=root;self.rootLabel.stringValue=[@"문서 폴더: " stringByAppendingString:root];self.report=nil;[self filter];self.statusLabel.stringValue=@"문서 폴더가 바뀌었습니다. 다시 점검하세요.";}
-- (void)changedRoots {self.mediaLabel.stringValue=[self.roots componentsJoinedByString:@"  ·  "];self.report=nil;[self filter];self.statusLabel.stringValue=@"검색 폴더가 바뀌었습니다. 다시 점검하세요.";YBSavePreferences(@"media-settings.json",@{@"roots":self.roots});}
+- (void)changedRoots {self.mediaLabel.stringValue=[self.roots componentsJoinedByString:@"  ·  "];self.report=nil;[self filter];self.statusLabel.stringValue=@"검색 폴더가 바뀌었습니다. 다시 점검하세요.";NSMutableDictionary *settings=[YBPreferences(@"media-settings.json") mutableCopy];settings[@"roots"]=self.roots;YBSavePreferences(@"media-settings.json",settings);}
+- (void)chooseReceiveRoot:(id)sender {NSString *path=YBChooseFolder(@"서버에서 받은 이미지를 설치할 폴더",self.receiveRoot);if(!path)return;self.receiveRoot=path;NSMutableDictionary *settings=[YBPreferences(@"media-settings.json") mutableCopy];settings[@"receiveRoot"]=path;YBSavePreferences(@"media-settings.json",settings);self.statusLabel.stringValue=[@"수신 폴더: " stringByAppendingString:path];}
 - (void)addRoot:(id)sender {NSString *path=YBChooseFolder(@"미디어를 찾을 폴더 추가",self.roots.lastObject);if(path && ![self.roots containsObject:path]){[self.roots addObject:path];[self changedRoots];}}
 - (void)defaultRoots:(id)sender {self.roots=[@[@"/Users/Shared/Renewed Vision Media",@"/Users/Shared/ProCG Content"] mutableCopy];[self changedRoots];}
 - (void)scan:(id)sender {
@@ -108,4 +156,3 @@ static NSString *MediaStatus(NSString *status) {return @{@"exact-managed":@"연�
     NSError *error=nil;NSData *data=[NSJSONSerialization dataWithJSONObject:self.report options:NSJSONWritingPrettyPrinted error:&error];if(!data || ![data writeToURL:panel.URL options:NSDataWritingAtomic error:&error])YBAlert(@"저장하지 못했습니다.",error.localizedDescription);
 }
 @end
-

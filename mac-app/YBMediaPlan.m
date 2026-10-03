@@ -45,6 +45,17 @@ static BOOL StillCurrent(NSDictionary *identity) {
     return st.st_size==[identity[@"size"] longLongValue] && st.st_dev==[identity[@"device"] longLongValue] && st.st_ino==[identity[@"inode"] unsignedLongLongValue] && st.st_mtimespec.tv_sec==[identity[@"mtime"][0] longLongValue] && st.st_mtimespec.tv_nsec==[identity[@"mtime"][1] longLongValue] && st.st_ctimespec.tv_sec==[identity[@"ctime"][0] longLongValue] && st.st_ctimespec.tv_nsec==[identity[@"ctime"][1] longLongValue];
 }
 
+NSData *YBReadPreparedImage(NSString *path,NSString *expectedHash,unsigned long long expectedSize,void (^check)(void)) {
+    YBRequire(expectedSize>0 && expectedSize<=32ULL*1024*1024, @"이미지는 32 MiB 이하만 전송할 수 있습니다.");
+    int fd=open(path.fileSystemRepresentation,O_RDONLY|O_NOFOLLOW|O_NONBLOCK);YBRequire(fd>=0,@"원본 이미지를 안전하게 열지 못했습니다.");
+    @try{struct stat before,after,named;YBRequire(fstat(fd,&before)==0&&S_ISREG(before.st_mode)&&before.st_size==expectedSize,@"점검 후 이미지가 바뀌었거나 일반 파일이 아닙니다.");
+        CC_SHA256_CTX context;CC_SHA256_Init(&context);NSMutableData *data=[NSMutableData dataWithCapacity:(NSUInteger)expectedSize];unsigned char buffer[1024*256];
+        for(;;){if(check)check();ssize_t n=read(fd,buffer,sizeof(buffer));if(n<0&&errno==EINTR)continue;YBRequire(n>=0,@"이미지를 읽는 중 오류가 발생했습니다.");if(!n)break;[data appendBytes:buffer length:(NSUInteger)n];CC_SHA256_Update(&context,buffer,(CC_LONG)n);}
+        YBRequire(fstat(fd,&after)==0&&lstat(path.fileSystemRepresentation,&named)==0&&S_ISREG(named.st_mode)&&named.st_dev==before.st_dev&&named.st_ino==before.st_ino&&after.st_size==before.st_size&&after.st_mtimespec.tv_sec==before.st_mtimespec.tv_sec&&after.st_mtimespec.tv_nsec==before.st_mtimespec.tv_nsec&&after.st_ctimespec.tv_sec==before.st_ctimespec.tv_sec&&after.st_ctimespec.tv_nsec==before.st_ctimespec.tv_nsec,@"전송 중 이미지 원본이 바뀌었습니다.");
+        unsigned char digest[CC_SHA256_DIGEST_LENGTH];CC_SHA256_Final(digest,&context);NSMutableString *actual=[NSMutableString string];for(NSUInteger i=0;i<sizeof(digest);i++)[actual appendFormat:@"%02x",digest[i]];YBRequire([actual isEqual:expectedHash]&&data.length==expectedSize,@"점검 후 이미지 내용이 달라졌습니다. 다시 확인하세요.");return data;
+    }@finally{close(fd);}
+}
+
 NSDictionary *YBImagePreparationReport(NSString *root,NSArray *mediaRoots,void (^check)(void)) {
     BOOL directory=NO;YBRequire([NSFileManager.defaultManager fileExistsAtPath:root isDirectory:&directory] && directory,@"설정에서 문서 폴더를 선택하세요.");
     NSArray *allPaths=DocumentPaths(root);
@@ -80,7 +91,7 @@ NSDictionary *YBImagePreparationReport(NSString *root,NSArray *mediaRoots,void (
                 row[@"status"]=status;row[@"transferState"]=@"확인 필요";
                 if(!stillImage){row[@"error"]=@"이미지 형식을 확인해야 합니다. 알 수 없는 형식은 전송 대상으로 확정하지 않습니다.";[rows addObject:row];continue;}
                 if([@[@"exact-managed",@"exact-external",@"exact-package"] containsObject:status]){
-                    @try{NSDictionary *identity=files[source];if(!identity){identity=MediaIdentity(source,check);files[source]=identity;}YBRequire(StillCurrent(identity),@"확인 중 미디어가 바뀌었습니다.");row[@"sha256"]=identity[@"sha256"];row[@"size"]=identity[@"size"];row[@"transferState"]=@"원본 확인";
+                    @try{YBRequire([reference[@"source"] length]<=4096,@"문서의 원본 경로가 참조 API 최대 길이 4096자를 넘습니다.");NSDictionary *identity=files[source];if(!identity){identity=MediaIdentity(source,check);files[source]=identity;}YBRequire([identity[@"size"] unsignedLongLongValue]<=32ULL*1024*1024,@"이미지가 32 MiB를 넘어 현재 단일 업로드 범위 밖입니다.");YBRequire(StillCurrent(identity),@"확인 중 미디어가 바뀌었습니다.");row[@"sha256"]=identity[@"sha256"];row[@"size"]=identity[@"size"];row[@"transferState"]=@"원본 확인";
                         NSMutableDictionary *asset=assets[identity[@"sha256"]];if(!asset){asset=[@{@"sha256":identity[@"sha256"],@"size":identity[@"size"],@"paths":[NSMutableSet set],@"documents":[NSMutableSet set],@"references":@0} mutableCopy];assets[identity[@"sha256"]]=asset;}[asset[@"paths"] addObject:source];[asset[@"documents"] addObject:path];asset[@"references"]=@([asset[@"references"] unsignedIntegerValue]+1);
                     }@catch(NSException *e){row[@"transferState"]=@"읽기 실패";row[@"error"]=e.reason ?: @"미디어 확인 실패";}
                 }

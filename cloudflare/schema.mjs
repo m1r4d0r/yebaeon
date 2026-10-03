@@ -11,6 +11,10 @@ export const schema = [
   `CREATE TABLE IF NOT EXISTS yebaeon_catalog_imports (snapshot TEXT PRIMARY KEY, imported_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS yebaeon_document_search (document_id TEXT NOT NULL, version INTEGER NOT NULL, search_text TEXT NOT NULL, error TEXT, PRIMARY KEY(document_id,version))`,
   `CREATE TABLE IF NOT EXISTS yebaeon_reference_cache (library_id TEXT PRIMARY KEY, version INTEGER NOT NULL, refs TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS yebaeon_media_assets (sha256 TEXT PRIMARY KEY, object_key TEXT NOT NULL UNIQUE, size INTEGER NOT NULL, content_type TEXT NOT NULL, protected INTEGER NOT NULL DEFAULT 1, revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS yebaeon_media_references (document_id TEXT NOT NULL, document_version INTEGER NOT NULL, reference_id TEXT NOT NULL, asset_sha256 TEXT NOT NULL, source TEXT NOT NULL, slide_index INTEGER NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(document_id,document_version,reference_id))`,
+  `CREATE INDEX IF NOT EXISTS yebaeon_media_refs_asset ON yebaeon_media_references(asset_sha256)`,
+  `CREATE INDEX IF NOT EXISTS yebaeon_media_refs_document ON yebaeon_media_references(document_id,document_version)`,
   `CREATE TABLE IF NOT EXISTS yebaeon_document_usage (document_id TEXT NOT NULL, version INTEGER NOT NULL, last_used TEXT, error TEXT, PRIMARY KEY(document_id,version))`,
   `CREATE TABLE IF NOT EXISTS yebaeon_sync_status (session_id TEXT PRIMARY KEY, author TEXT NOT NULL, connected_at TEXT NOT NULL, compared_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS yebaeon_playlists (
@@ -85,6 +89,5 @@ export function ensureSchema(db) {
   }
   return pending.get(db);
 }
-
 
 
