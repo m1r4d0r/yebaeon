@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import worker from '../cloudflare/worker.mjs';
-import { build, publicFiles } from '../scripts/build.mjs';
+import { build, publicFiles, generatedPublicFiles } from '../scripts/build.mjs';
 
 test('publication includes only app assets, even with private local fixtures', async () => {
   const prefix = join(tmpdir(), 'yebaeon-build-test-');
@@ -19,7 +19,7 @@ test('publication includes only app assets, even with private local fixtures', a
     await writeFile(join(folder, 'web-editor', 'private.pro6'), 'PRIVATE DOCUMENT');
     const outputDir = join(folder, 'dist');
     await build({ sourceRoot: folder, outputDir });
-    assert.deepEqual((await readdir(outputDir)).sort(), [...publicFiles].sort());
+    assert.deepEqual((await readdir(outputDir)).sort(), [...publicFiles,...generatedPublicFiles].sort());
     assert.equal(await readFile(join(outputDir, 'shortcuts.js'), 'utf8'), 'shortcuts.js');
     await writeFile(join(outputDir, 'unexpected.pro6'), 'PRIVATE LEFTOVER');
     await assert.rejects(build({ sourceRoot: folder, outputDir }), /Unexpected files/);

@@ -1,3 +1,4 @@
+import {buildPPT} from './build-ppt.mjs';
 import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
@@ -41,10 +42,11 @@ export function splitTemplates(bytes) {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const publicFiles = Object.freeze([
-  'hwp-binary.js', 'bulletin-parser.js', 'bulletin-documents.js', 'bulletin.js', 'bulletin.css', 'responsive.js', 'responsive.css', 'index.html', 'favicon.svg', 'favicon.ico', 'style.css', 'fonts.css', 'pp6.js',
+  'ppt-import.js', 'ppt-import.css', 'hwp-binary.js', 'bulletin-parser.js', 'bulletin-documents.js', 'bulletin.js', 'bulletin.css', 'responsive.js', 'responsive.css', 'index.html', 'favicon.svg', 'favicon.ico', 'style.css', 'fonts.css', 'pp6.js',
   'fonts.js', 'studio-workflow.js', 'layout-editor.js', 'render.js', 'selection.js', 'editor-history.js', 'bible-format.js', 'shortcuts.js', 'app.js', 'drafts.js', 'cloud.js', 'usage.js', 'playlists.js', 'resources.js', 'library-actions.js', 'status.html', 'status.js', 'status.css', '_headers'
 ]);
 
+export const generatedPublicFiles=Object.freeze(['ppt-engine.js','ppt-LICENSES.txt']);
 export async function build({ sourceRoot = root, outputDir = join(root, 'dist') } = {}) {
   // Read an explicit list: the local source folder may contain private fixtures.
   const contents = await Promise.all(publicFiles.map(async name => {
@@ -52,6 +54,7 @@ export async function build({ sourceRoot = root, outputDir = join(root, 'dist') 
     if (!(await lstat(source)).isFile()) throw new Error(`Expected a regular source file: ${name}`);
     return [name, await readFile(source)];
   }));
+  contents.push(...await buildPPT());
   let resources = [];
   let catalogBytes;
   try { catalogBytes = await readFile(join(sourceRoot, 'church-resources/catalog.json'), 'utf8'); } catch (error) { if(error.code !== 'ENOENT') throw error; }
@@ -88,7 +91,7 @@ export async function build({ sourceRoot = root, outputDir = join(root, 'dist') 
   if (!(await lstat(outputDir)).isDirectory()) throw new Error('Output must be a regular directory.');
   const entries = await readdir(outputDir, { withFileTypes: true });
   // Never publish unexpected leftovers or follow symlinks in the output folder.
-  if (entries.some(entry => entry.name === 'resources' ? !entry.isDirectory() || !resources.length : !entry.isFile() || !publicFiles.includes(entry.name))) {
+  if (entries.some(entry => entry.name === 'resources' ? !entry.isDirectory() || !resources.length : !entry.isFile() || !publicFiles.includes(entry.name) && !generatedPublicFiles.includes(entry.name))) {
     throw new Error('Unexpected files in the output directory. Use an empty dist directory.');
   }
   await Promise.all(contents.map(([name, bytes]) => writeFile(join(outputDir, name), bytes)));
@@ -98,7 +101,7 @@ export async function build({ sourceRoot = root, outputDir = join(root, 'dist') 
     if (entries.some(x => !x.isFile() || !resources.some(([name]) => name === x.name))) throw new Error('Unexpected resource files');
     await Promise.all(resources.map(([name, bytes]) => writeFile(join(target, name), bytes)));
   }
-  return [...publicFiles, ...resources.map(([name]) => 'resources/' + name)];
+  return [...publicFiles,...generatedPublicFiles, ...resources.map(([name]) => 'resources/' + name)];
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
