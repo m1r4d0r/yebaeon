@@ -15,6 +15,11 @@
  document.querySelector('.library-column').prepend(side);side.querySelectorAll('button').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
  const tools=document.createElement('div');tools.className='responsive-editor-tools';tools.innerHTML='<span id="responsiveSelection"></span><button id="responsiveMultiple" type="button" aria-pressed="false">여러 장</button><button id="responsiveQuick" type="button">글 수정</button><button id="responsiveProperties" type="button" aria-expanded="false">레이어·속성</button><button id="responsiveMore" type="button" aria-label="슬라이드 작업 더보기">•••</button>';
  $('editorBody').before(tools);
+ // Keep infrequent document controls available without consuming the phone canvas.
+ const documentDetails=document.querySelector('.document-heading');documentDetails.id='responsiveDocumentDetails';
+ const documentToggle=document.createElement('button');documentToggle.id='responsiveDocumentInfo';documentToggle.className='responsive-document-toggle';documentToggle.type='button';documentToggle.textContent='문서 정보';documentToggle.setAttribute('aria-controls',documentDetails.id);documentToggle.setAttribute('aria-expanded','false');documentToggle.title='서식 · 버전 · 이력 · 검색 설정';tabs.append(documentToggle);
+ function documentInfo(open){document.body.classList.toggle('responsive-document-info',open&&phone());documentToggle.setAttribute('aria-expanded',String(open&&phone()));}
+ documentToggle.onclick=()=>documentInfo(!document.body.classList.contains('responsive-document-info'));
  const closeProperties=document.createElement('button');closeProperties.id='responsivePropertiesClose';closeProperties.className='responsive-only';closeProperties.textContent='속성 닫기';closeProperties.onclick=()=>properties(false);$('inspector').prepend(closeProperties);
  const fab=document.createElement('button');fab.id='responsiveSearch';fab.className='responsive-search-button';fab.type='button';fab.setAttribute('aria-label','문서 검색');fab.setAttribute('aria-expanded','false');fab.innerHTML='<span class="search-symbol" aria-hidden="true"></span>';studio.append(fab);
  const drawer=document.createElement('section');drawer.id='responsiveSearchDrawer';drawer.className='responsive-search-drawer';drawer.hidden=true;drawer.setAttribute('aria-label','순서에 문서 추가');
@@ -22,7 +27,7 @@
  const notice=document.createElement('p');notice.id='responsiveNotice';notice.className='responsive-notice';notice.setAttribute('role','status');notice.hidden=true;studio.append(notice);let noticeTimer;
  function tell(text){notice.textContent=text;notice.hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>notice.hidden=true,3500);}
  function properties(open){document.body.classList.toggle('responsive-properties',open&&compact());$('responsiveProperties').setAttribute('aria-expanded',String(open&&compact()));if(open)$('inspector').querySelector('button,input,select,textarea')?.focus();}
- function closeOverlays(){closeSearch(false);properties(false);if($('quickDialog').open)$('quickDialog').close();window.YebaeonResources?.closeBible();$('mediaDrawer').hidden=true;$('contextMenu').hidden=true;}
+ function closeOverlays(){documentInfo(false);closeSearch(false);properties(false);if($('quickDialog').open)$('quickDialog').close();window.YebaeonResources?.closeBible();$('mediaDrawer').hidden=true;$('contextMenu').hidden=true;}
  function navigate(value){if(window.YebaeonSave?.busy())return;if(composing){pendingPage=value;return;}closeOverlays();page=value;update();if(value==='edit'){E.selection.activate();}else if(value==='order')L.selection.activate();}
  function closeSearch(focus=true){cancelDrag();searchOpen=false;drawer.hidden=true;fab.setAttribute('aria-expanded','false');if(focus&&compact())fab.focus();}
  function search(){if(!compact()){$('libraryQuery').focus();return;}if(window.YebaeonSave?.busy())return;if(!L.selectedPlaylist()){tell('문서를 추가할 재생목록을 먼저 선택하세요.');navigate('playlists');return;}properties(false);if(phone())page='order';update();searchOpen=true;drawer.hidden=false;fab.setAttribute('aria-expanded','true');$('responsiveDrop').textContent='여기에 놓으면 순서 맨 아래에 추가';$('responsiveSearchStatus').textContent='검색 결과를 누르거나 손잡이를 끌어 추가하세요.';$('libraryQuery').focus();}
@@ -40,7 +45,7 @@
  function update(){
   const narrow=compact(),current=L.selectedPlaylist();document.body.classList.toggle('responsive',narrow);document.body.dataset.page=page;
   $('responsiveTitle').textContent=page==='playlists'?'재생목록':page==='order'?(current?.name||'순서'):E.state().name.replace(/\.pro6$/i,'');
-  $('responsiveBack').textContent=page==='edit'?'‹ '+(current?.name||'재생목록')+' 순서':page==='order'?'‹ 재생목록':'';$('responsiveBack').hidden=page==='playlists';
+  const backLabel=page==='edit'?(current?.name||'재생목록')+' 순서':'재생목록';$('responsiveBack').textContent=phone()?'‹':'‹ '+backLabel;$('responsiveBack').setAttribute('aria-label',backLabel+'로 돌아가기');$('responsiveBack').title=backLabel+'로 돌아가기';$('responsiveBack').hidden=page==='playlists';documentToggle.disabled=!E.ready();
   for(const b of document.querySelectorAll('.responsive-nav button,.responsive-side-tabs button')){const active=b.dataset.page===page;b.setAttribute('aria-pressed',String(active));}
   fab.hidden=!narrow||page==='playlists'||(phone()&&page!=='order');fab.disabled=!current?.editable;
   tools.hidden=E.view()==='reflow';$('responsiveSelection').textContent=E.ready()?(E.selection.values().length>1?E.selection.values().length+'장 선택':(E.selected()+1)+'번 선택'):'';
@@ -87,7 +92,7 @@
  for(const event of ['yebaeonrender','yebaeonselection','yebaeonorderhistory','yebaeoncloudsaved','yebaeonsession'])window.addEventListener(event,()=>queueMicrotask(update));
  window.addEventListener('yebaeonplaylistopen',()=>{if(compact())navigate('order');});
  window.addEventListener('yebaeonclouddocument',()=>{if(compact())navigate('edit');});
- matchMedia('(max-width:1100px)').addEventListener('change',layout);matchMedia('(max-width:700px)').addEventListener('change',()=>{closeSearch(false);update();});
+ matchMedia('(max-width:1100px)').addEventListener('change',layout);matchMedia('(max-width:700px)').addEventListener('change',()=>{closeSearch(false);documentInfo(false);update();});
  window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);window.addEventListener('resize',viewport);
  window.YebaeonResponsive={compact,search,navigate,page:()=>page};layout();decorate();
 })();

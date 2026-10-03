@@ -49,6 +49,10 @@ const assert=require('node:assert/strict');
  // Keep genuine drag/cancel coverage; subsequent activation uses mouse clicks on the same controls.
  await nav.locator('[data-page="playlists"]').click();await page.locator('#responsiveSearchDrawer').waitFor({state:'hidden'});await nav.locator('[data-page="order"]').click();assert.equal(await page.locator('#playlistItems .order-item').count(),4);
  await page.locator('#playlistItems .order-item').first().click();await page.waitForFunction(()=>YebaeonEditor.ready()&&YebaeonResponsive.page()==='edit');
+ const beforeInfo=requests.length;
+ assert.equal(await page.locator('.document-heading').isVisible(),false);
+ await page.locator('#responsiveDocumentInfo').click();assert.equal(await page.locator('#templateSelect').isVisible(),true);assert.equal(await page.locator('#cloudHistory').isVisible(),true);assert.equal(await page.locator('#documentPolicy').isVisible(),true);
+ await page.locator('#responsiveDocumentInfo').click();assert.equal(await page.locator('.document-heading').isVisible(),false);assert.equal(requests.length,beforeInfo,'document disclosure is local');
  const original=await page.evaluate(()=>YebaeonEditor.document().xml);
  await page.locator('#responsiveQuick').click();await page.locator('#quickInputs textarea').first().fill('반응형 편집\n한글 초안 보존');
  const beforeReturn=requests.length;await nav.locator('[data-page="order"]').click();await nav.locator('[data-page="edit"]').click();assert.equal(requests.length,beforeReturn);assert.match(await page.evaluate(()=>YebaeonEditor.document().xml),/RVPresentationDocument/);assert.notEqual(await page.evaluate(()=>YebaeonEditor.document().xml),original);
@@ -67,6 +71,7 @@ const assert=require('node:assert/strict');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`no horizontal overflow at ${width}`);
   assert.equal(await nav.isVisible(),width<=700);assert.equal(await page.locator('#cloudSave').count(),1);assert.equal(await page.locator('#libraryQuery').count(),1);
   if(width<=1100){assert.equal(await page.locator('#responsiveSave #cloudSave').count(),1);assert.equal(await page.locator('#accountMenu #serverStatus').count(),1);assert.equal(await page.locator('#responsiveSearchSlot #documentsPane').count(),1);}else{assert.equal(await page.locator('.editor-footer #cloudSave').count(),1);assert.equal(await page.locator('.topbar>#serverStatus').count(),1);assert.equal(await page.locator('.library-column #documentsPane').count(),1);}
+  if(width<=700){const bounds=await page.evaluate(()=>({editor:document.querySelector('#editorBody').getBoundingClientRect().top,nav:document.querySelector('.responsive-nav').getBoundingClientRect().height}));assert.ok(bounds.editor<190,`phone canvas starts near the top at ${width}`);assert.ok(bounds.nav<=48,'slim bottom navigation');}else{assert.equal(await page.locator('.document-heading').isVisible(),true);assert.equal(await page.locator('#responsiveDocumentInfo').isVisible(),false);}
   if([390,768,1440].includes(width))await page.screenshot({path:`artifacts/responsive-${width}.png`});
  }
  await page.setViewportSize({width:390,height:844});await nav.locator('[data-page="order"]').click();await page.locator('#playlistItems .responsive-order-menu').first().click();await page.getByRole('menuitem',{name:'아래로 이동',exact:true}).click();assert.equal(await page.evaluate(()=>YebaeonPlaylists.state().dirty),true);
