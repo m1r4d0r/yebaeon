@@ -24,7 +24,7 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
   let cookie, id;
 
   await t.test('private reads and writes require a session; unknown API stays JSON', async () => {
-    for (const path of ['/documents/11111111-1111-4111-a111-111111111111/usage', '/status', '/documents', '/documents/11111111-1111-4111-a111-111111111111/content', '/documents/11111111-1111-4111-a111-111111111111/versions']) {
+    for (const path of ['/dropbox/config', '/dropbox/list', '/dropbox/file?path=a.hwp', '/documents/11111111-1111-4111-a111-111111111111/usage', '/status', '/documents', '/documents/11111111-1111-4111-a111-111111111111/content', '/documents/11111111-1111-4111-a111-111111111111/versions']) {
       await code(await call(path), 401, 'login_required');
     }
     await code(await call('/documents?path=private.pro6', { method: 'POST', body: xml('private') }), 401);

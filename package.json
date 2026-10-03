@@ -19,6 +19,8 @@
     "wrangler": "4.144.0"
   },
   "dependencies": {
-    "fast-xml-parser": "5.11.2"
+    "cfb": "1.2.2",
+    "fast-xml-parser": "5.11.2",
+    "fflate": "0.8.2"
   }
 }
