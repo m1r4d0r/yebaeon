@@ -3,7 +3,7 @@
  let catalog=null,templates=[],bible=null,loading=null,draft=[],filter='all',editing=-1,buildSequence=0,templateApplySequence=0,mediaDrag=null,target=null,bibleView='slides';
  const templateLoads=new Map();
  const footer=document.querySelector('.editor-footer');
- const footerSpace=()=>document.documentElement.style.setProperty('--studio-footer-space',`${Math.max(0,innerHeight-footer.getBoundingClientRect().top)}px`);
+ const footerSpace=()=>document.documentElement.style.setProperty('--studio-footer-space',`${footer.getClientRects().length?Math.max(0,innerHeight-footer.getBoundingClientRect().top):0}px`);
  new ResizeObserver(footerSpace).observe(document.querySelector('.editing-column'));new ResizeObserver(footerSpace).observe(footer);window.addEventListener('resize',footerSpace);footerSpace();
  const knownFormats=new Map();let labelSequence=0;
  const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),n=>n.toString(16).padStart(2,'0')).join('');
