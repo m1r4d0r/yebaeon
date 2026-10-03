@@ -481,7 +481,7 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
 }
 - (NSString *)applyInstalledData:(NSData *)data serverData:(NSData *)serverData document:(NSDictionary *)doc expectedLocalHash:(NSString *)hash {
     [self assertReady]; [self closed]; YBValidateMetadata(doc); YBValidateDocument(data);YBValidateDocument(serverData);
-    YBRequire(serverData.length==[doc[@"size"] unsignedIntegerValue] && [YBHash(serverData) isEqual:doc[@"sha256"]],@"받은 서버 문서의 SHA-256 또는 크기가 다릅니다.");YBRequire(YBMatch(hash,@"^[0-9a-f]{64}$"),@"기존 문서 비교 hash가 올바르지 않습니다.");
+    YBRequire(serverData.length==[doc[@"size"] unsignedIntegerValue] && [YBHash(serverData) isEqual:doc[@"sha256"]],@"받은 서버 문서의 SHA-256 또는 크기가 다릅니다.");YBRequire(!hash || YBMatch(hash,@"^[0-9a-f]{64}$"),@"기존 문서 비교 hash가 올바르지 않습니다.");
     NSString *path=doc[@"path"]; mode_t mode=0600; NSData *before=YBRead(self.root,path,&mode);
     YBRequire(YBEqual(YBHash(before),hash),@"받기 전에 로컬 문서가 바뀌었습니다. 다시 비교해 주세요.");
     YBRequire([YBDisposition(hash,doc,self.entries[path]) isEqual:@"download"],@"자동으로 받을 수 없는 문서입니다. 충돌 상태를 확인해 주세요.");
