@@ -11,10 +11,10 @@ function indexedDBFixture() {
   const connection={createObjectStore(){},close(){},transaction(){
     let pending=0,tx={error:null},aborted=false;
     const request=(action)=>{
-      pending++;const listeners=[];const req={addEventListener(_,fn){listeners.push(fn);}};
+      pending++;const listeners=[];const req={readyState:'pending',addEventListener(_,fn){listeners.push(fn);}};
       setImmediate(()=>{
         if(fail){aborted=true;tx.error=new Error('quota exceeded');tx.onabort?.();return;}
-        req.result=action();req.onsuccess?.();listeners.forEach(fn=>fn());pending--;
+        req.result=action();req.readyState='done';req.onsuccess?.();listeners.forEach(fn=>fn());pending--;
         setImmediate(()=>{if(!pending&&!aborted)tx.oncomplete?.();});
       });return req;
     };
