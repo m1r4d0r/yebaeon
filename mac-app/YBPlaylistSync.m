@@ -1,6 +1,7 @@
 #import "YBPlaylistSync.h"
 #import "YBPlaylistIO.h"
 #import "YBPlaylistFormat.h"
+#import "YBMediaController.h"
 #import "../mac-sync/PP6Core.h"
 #import <fcntl.h>
 #import <unistd.h>
