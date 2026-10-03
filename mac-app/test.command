@@ -8,5 +8,5 @@ clang "${COMMON[@]}" -DYB_TESTING=1 "${SOURCES[@]}" mac-app/app-test.m -o mac-ap
 clang "${COMMON[@]}" mac-sync/YBSync.m mac-sync/YBServer.m mac-app/YBLibrary.m mac-app/app-integration.m -o mac-app/app-integration
 node mac-sync/test-server.mjs ./mac-app/app-integration
 
-clang "${COMMON[@]}" mac-sync/YBSync.m mac-sync/YBServer.m mac-app/YBLibrary.m mac-app/YBPlaylistIO.m mac-app/YBPlaylistFormat.m mac-app/YBPlaylistSync.m mac-app/playlist-integration.m -o mac-app/playlist-integration
+clang "${COMMON[@]}" mac-sync/YBSync.m mac-sync/YBServer.m mac-sync/PP6Core.m mac-app/YBLibrary.m mac-app/YBMediaPlan.m mac-app/YBPlaylistIO.m mac-app/YBPlaylistFormat.m mac-app/YBPlaylistSync.m mac-app/playlist-integration.m -o mac-app/playlist-integration
 node mac-sync/test-server.mjs ./mac-app/playlist-integration
