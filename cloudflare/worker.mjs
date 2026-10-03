@@ -1,3 +1,4 @@
+import { deviceSession, sync2Route } from './sync2.mjs';
 import {dropboxRoute} from './dropbox.mjs';
 import { measuredDB } from './db-cost.mjs';
 import {inventoryRoute} from './inventory.mjs';
@@ -28,7 +29,8 @@ export default {
       const media = /^\/api\/media(?:\/([a-f0-9]{64})(?:\/(content|protection))?)?$/.exec(pathname);
       const dropbox = /^\/api\/dropbox\/(config|list|file)$/.exec(pathname);
       const mediaReferences = pathname === '/api/media/references';
-      if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && pathname !== '/api/inventory' && !resource && !route && !playlist && !media && !mediaReferences && !dropbox) throw new HttpError(404, 'not_found', '없는 요청입니다.');
+      const sync2 = /^\/api\/sync\/(devices|changes|manifest|usage|revisions)(?:\/([0-9a-f-]{32,36})(?:\/(applied|content))?)?$/.exec(pathname);
+      if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && pathname !== '/api/inventory' && !resource && !route && !playlist && !media && !mediaReferences && !dropbox && !sync2) throw new HttpError(404, 'not_found', '없는 요청입니다.');
       if (!configured(env)) {
         if (pathname === '/api/session' && request.method === 'GET') return json({ authenticated: false, ready: false });
         throw new HttpError(503, 'setup_required', '서버의 공용 비밀번호 설정이 아직 완료되지 않았습니다.');
@@ -44,7 +46,9 @@ export default {
         }
         return response;
       }
-      const user = await requireSession(request, env);
+      // 상주 Sync는 장치 열쇠(Bearer)로, 사람은 쿠키 세션으로 들어온다.
+      const user = await deviceSession(request, env) || await requireSession(request, env);
+      if (sync2) return await sync2Route(request, env, user, sync2[1], sync2[2], sync2[3]);
       if(dropbox)return await dropboxRoute(request,env,dropbox[1]);
       if(pathname==='/api/inventory')return await inventoryRoute(request,env,user);
       if(pathname==='/api/sync-observations')return await syncObservationsRoute(request,env,user);

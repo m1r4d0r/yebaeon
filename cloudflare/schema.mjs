@@ -1,3 +1,4 @@
+import { migrateSync2 } from './sync2.mjs';
 // Version 1: additive initialization; existing rows and other tables are untouched.
 export const schema = [
   `CREATE TABLE IF NOT EXISTS yebaeon_playlist_controls (library_id TEXT NOT NULL,node_id TEXT NOT NULL,state TEXT NOT NULL,name TEXT NOT NULL,snapshot_key TEXT,updated_at TEXT NOT NULL,updated_by TEXT NOT NULL,PRIMARY KEY(library_id,node_id))`,
@@ -81,12 +82,19 @@ async function migrateCategoryMetadata(db) {
   catch(error) { if(!await db.prepare("SELECT name FROM yebaeon_schema_migrations WHERE name='document-category-v1'").first())throw error; }
 }
 const pending = new WeakMap();
+// 요청 경로에서는 표시 행 1개만 확인한다(예전에는 isolate 첫 요청마다 약 29개 문장).
+// 표시가 없을 때만(새 DB, 새 배포의 첫 요청) 전체 초기화·이전을 돌리고 표시를 남긴다.
+// 스키마나 이전을 더하면 이 이름을 올려야 새 배포에서 한 번 실행된다.
+export const SCHEMA_READY = 'schema-ready-sync2-v1';
 export function ensureSchema(db) {
   if (!pending.has(db)) {
-    const job = db.batch(schema.map(sql => db.prepare(sql))).then(()=>migrateCurrentMetadata(db)).then(()=>migrateCategoryMetadata(db)).catch(error => { pending.delete(db); throw error; });
+    const job = (async () => {
+      try { if (await db.prepare('SELECT name FROM yebaeon_schema_migrations WHERE name=?').bind(SCHEMA_READY).first()) return; } catch (_) { /* 새 DB: 표가 아직 없다 */ }
+      await db.batch(schema.map(sql => db.prepare(sql)));
+      await migrateCurrentMetadata(db); await migrateCategoryMetadata(db); await migrateSync2(db);
+      await db.prepare('INSERT OR IGNORE INTO yebaeon_schema_migrations(name) VALUES (?)').bind(SCHEMA_READY).run();
+    })().catch(error => { pending.delete(db); throw error; });
     pending.set(db, job);
   }
   return pending.get(db);
 }
-
-

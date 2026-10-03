@@ -1,3 +1,4 @@
+import { documentLog } from './sync2.mjs';
 import {importedMedia,importMediaStatements} from './import-media.mjs';
 import { referenceCounts } from './references.mjs';
 import { catalogList } from './library-catalog.mjs';
@@ -92,7 +93,8 @@ export async function documentsRoute(request, env, user, id, action) {
         db.prepare('INSERT INTO yebaeon_documents(id, path, created_at, current_version, updated_at, updated_by, sha256, size, write_id,last_used,usage_version,category,search_enabled,history_enabled,history_start,policy_revision) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?,?,1,?,?,?,?,?)').bind(newId, path, now, now, user.author, content.hash, content.size, writeId,created.lastDateUsed,p.category,p.search_enabled,p.history_enabled,p.history_start,p.policy_revision),
         db.prepare('INSERT INTO yebaeon_versions(document_id, version, object_key, sha256, size, author, created_at) VALUES (?, 1, ?, ?, ?, ?, ?)').bind(newId, key, content.hash, content.size, user.author, now),
         ...(p.search_enabled?[searchStatement(db,newId,1,content.search)]:[]),
-        ...importMediaStatements(db,importRefs,newId,1,writeId,now)
+        ...importMediaStatements(db,importRefs,newId,1,writeId,now),
+        documentLog(db,{id:newId,writeId,action:'created',author:user.author,now})
       ]);
     } catch (error) {
       const winner = await db.prepare('SELECT * FROM yebaeon_documents WHERE path = ?').bind(path).first();
@@ -149,9 +151,11 @@ export async function documentsRoute(request, env, user, id, action) {
   const importRefs=await importedMedia(db,content.data);
   const previousDisposableKey=!p.history_enabled&&p.history_start&&base>=p.history_start ? (await db.prepare('SELECT object_key FROM yebaeon_versions WHERE document_id=? AND version=?').bind(id,base).first())?.object_key : null;
   const next = base + 1, writeId = crypto.randomUUID(), key = `documents/${id}/${writeId}.pro6`, now = new Date().toISOString();
+  // Mac이 usage로 보고한 사용일(reported_used)보다 옛 XML 사용일로 되돌리지 않는다. 보고가 없으면 지금처럼 XML 값이다.
+  const incomingUsed=content.lastDateUsed?new Date(content.lastDateUsed).toISOString():null,lastUsed=[incomingUsed,row.reported_used].filter(Boolean).sort().at(-1)||null;
   await env.FILES.put(key, content.data, { httpMetadata: { contentType: 'application/xml' }, sha256: content.hash });
   const results = await db.batch([
-    db.prepare('UPDATE yebaeon_documents SET current_version = ?, updated_at = ?, updated_by = ?, sha256 = ?, size = ?, write_id = ?, last_used=?,usage_error=NULL,usage_version=?,category=?,search_enabled=?,history_enabled=?,history_start=?,policy_revision=? WHERE id = ? AND current_version = ? AND policy_revision=?').bind(next, now, user.author, content.hash, content.size, writeId,content.lastDateUsed?new Date(content.lastDateUsed).toISOString():null,next,p.category,p.search_enabled,p.history_enabled,p.history_start,p.policy_revision,id,base,row.policy_revision),
+    db.prepare('UPDATE yebaeon_documents SET current_version = ?, updated_at = ?, updated_by = ?, sha256 = ?, size = ?, write_id = ?, last_used=?,usage_error=NULL,usage_version=?,category=?,search_enabled=?,history_enabled=?,history_start=?,policy_revision=? WHERE id = ? AND current_version = ? AND policy_revision=?').bind(next, now, user.author, content.hash, content.size, writeId,lastUsed,next,p.category,p.search_enabled,p.history_enabled,p.history_start,p.policy_revision,id,base,row.policy_revision),
     db.prepare(`INSERT INTO yebaeon_versions(document_id, version, object_key, sha256, size, author, created_at)
       SELECT id, ?, ?, ?, ?, ?, ? FROM yebaeon_documents WHERE id = ? AND write_id = ?`).bind(next, key, content.hash, content.size, user.author, now, id, writeId),
     db.prepare('DELETE FROM yebaeon_document_search WHERE document_id=? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=?)').bind(id,id,writeId),
@@ -159,13 +163,14 @@ export async function documentsRoute(request, env, user, id, action) {
     db.prepare('DELETE FROM yebaeon_document_usage WHERE document_id=? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=?)').bind(id,id,writeId),
     // Keep all historical backups from before the policy was changed.
     db.prepare(`DELETE FROM yebaeon_versions WHERE document_id=? AND version>=? AND version<? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=? AND history_enabled=0)`).bind(id,p.history_start||next,next,id,writeId),
-    ...importMediaStatements(db,importRefs,id,next,writeId,now)
+    ...importMediaStatements(db,importRefs,id,next,writeId,now),
+    documentLog(db,{id,writeId,action:'updated',author:user.author,now})
   ]);
   if (results[0].meta.changes !== 1) { await env.FILES.delete(key); throw conflict(); }
   // Superseded originals created while history was disabled are no longer backups.
   if(previousDisposableKey)await env.FILES.delete(previousDisposableKey).catch(()=>console.warn('Deferred unretained document cleanup'));
   // Return this exact commit, even if another writer saved a later version immediately after it.
-  return json({ document: { ...document({...row,...p,last_used:content.lastDateUsed?new Date(content.lastDateUsed).toISOString():null,usage_error:null,usage_version:next,current_version:next}), version: next, updatedAt: now, updatedBy: user.author, sha256: content.hash, size: content.size } });
+  return json({ document: { ...document({...row,...p,last_used:lastUsed,usage_error:null,usage_version:next,current_version:next}), version: next, updatedAt: now, updatedBy: user.author, sha256: content.hash, size: content.size } });
 }
 
 

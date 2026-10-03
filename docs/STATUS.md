@@ -22,7 +22,13 @@
 - 1차(받기 전용) 구현: `mac-sync2/`. 서버는 plan에 `applicable`·`missing` 추가, 머리글 없는 재생목록 전체 PUT 426 거절. 이 서버 변경은 main ad1f881로 **운영 배포됨**(Deploy run 37160263447 성공).
 - Mac 검사: Verify Mac Sync 2 run 37160685710(bdd0e64, 수동 실행) 성공 — Worker 65, 엔진 통합 33, Apple clang 10.13 대상 빌드. 설치본 artifact `YebaeOn-Sync-2.0.0`(ZIP SHA-256 `01c2bbdb…0652`, 11-02 만료). 최신 macOS CI 결과이며 High Sierra 실기는 아님.
 - 첫 실행 run 37160263776 실패 원인: `tests/playlist-nodes.test.mjs`의 `ok()`가 `Response.clone()`으로 본문을 읽다 'Body has already been consumed'로 실패(느린 CI Mac에서만, 로컬 재현 안 됨 — 원인은 추정). 본문을 즉시 한 번만 읽도록 고침.
-- 2차(올리기·상주 모드·서버 7.1)는 **사용자 동의 전 구현하지 않는다**. 제안을 먼저 정리해 승인받는다.
+- 2차 서버(재설계안 7.1)는 작업 브랜치에 구현했다(배포·병합 전, 로컬 Worker 검사 69개 통과). `cloudflare/sync2.mjs`:
+  - `GET /api/sync/changes?since=&limit=` (limit=0은 head만), 문서·노드·보관 쓰기마다 `sync_log` 한 줄(write_id 가드)
+  - `POST/GET/DELETE /api/sync/devices`, `POST /api/sync/devices/:id/applied`, `Authorization: Bearer ybd_…`
+  - `POST /api/sync/manifest`(50개, 한 문장), `POST /api/sync/usage`(id, json_each 한 문장, MAX, `reported_used`)
+  - `POST/GET /api/sync/revisions`(교회 Mac 수정본, R2 `revisions/`), `GET/PUT /api/playlists/:id/nodes?node=`
+  - 요청 경로 스키마 확인을 표시 행 1개(`schema-ready-sync2-v1`)로 줄임. 첫 배포 첫 요청에 한 번만 전체 초기화·이전.
+- Mac 2차(올리기·상주 모드)는 **사용자 결정·동의 전 구현하지 않는다**.
 - 426 차단 때문에 0.6.6의 자동 전체 PUT 경로를 쓰는 옛 Mac 검사(`sync.yml`의 playlist 통합)는 실패한다. 0.6.6은 더 검사하지 않는다.
 - Sync 0.6.6의 알려진 결함(F01–F08, A1–A16)은 프로젝트 문서 「yebaeon-sync-audit-2026-10-03」「예배온-Sync-추가결함」에 있다. 0.6.6은 고치지 않고 Sync 2로 대체한다.
 
