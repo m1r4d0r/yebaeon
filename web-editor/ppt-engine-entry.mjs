@@ -69,7 +69,7 @@ export async function render(deck,i,{mode='full',crop=0.167,keepTitle=false,back
  if(mode==='full')return {foreground:await blob(await full(deck,i)),background:null,warnings:deck.slides[i].warnings};
  const s=deck.slides[i],p=s.images[s.scoreIndex];if(!p)throw Error(`${i+1}장에 분리할 악보 이미지가 없습니다. 일반 슬라이드 방식으로 가져와 주세요.`);
  const w=1920,h=Math.round(w*deck.height/deck.width),fg=makeCanvas(w,h);drawPicture(fg.getContext('2d'),p,w/deck.width,keepTitle?0:crop);
- let bg;if(background==='original')bg=await full(deck,i,true);else{bg=makeCanvas(w,h);const ctx=bg.getContext('2d');ctx.fillStyle=backgroundColor;ctx.fillRect(0,0,w,h);if(backgroundImage){const img=await image(backgroundImage),scale=Math.max(w/img.width,h/img.height);ctx.drawImage(img,(w-img.width*scale)/2,(h-img.height*scale)/2,img.width*scale,img.height*scale);}}
- return {foreground:await blob(fg),background:await blob(bg),warnings:[...s.warnings,...(!p.transparent?['선택한 악보 그림은 불투명합니다. 합쳐진 배경은 분리되지 않습니다.']:[])]};
+ let bg;if(background==='original')bg=await full(deck,i,true);else if(background!=='none'){bg=makeCanvas(w,h);const ctx=bg.getContext('2d');ctx.fillStyle=backgroundColor;ctx.fillRect(0,0,w,h);if(background==='image'&&backgroundImage){const img=await image(backgroundImage),scale=Math.max(w/img.width,h/img.height);ctx.drawImage(img,(w-img.width*scale)/2,(h-img.height*scale)/2,img.width*scale,img.height*scale);}}
+ return {foreground:await blob(fg),background:bg?await blob(bg):null,warnings:[...s.warnings,...(!p.transparent?['선택한 악보 그림은 불투명합니다. 합쳐진 배경은 분리되지 않습니다.']:[])]};
 }
 export {blob,makeCanvas};
