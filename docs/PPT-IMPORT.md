@@ -40,3 +40,5 @@ PNG의 SHA-256을 기준으로 기존 이미지 API에 등록한다. 저장 전 
 `scripts/build-ppt.mjs`가 pinned npm 의존성을 번들하고 라이선스 공지를 생성한다. `ppt-codec@2.2.23`의 OfficeArtFOPTEOPID fBid/fComplex 역전과 미지원 BLIP 슬롯 누락은 버전 검증된 esbuild 패치로 보정한다. node_modules나 원본 파일을 수정하지 않는다. 독립 바이트 fixture는 MS-ODRAW 비트14/15 규칙을 확인한다. 패치 대상 문자열이 바뀌면 빌드를 중단해 업그레이드를 재검토한다.
 
 `npm test`, `npm run deploy:check`, `node tests/browser/ppt-import.cjs`로 검사한다. 브라우저 검사는 합성 PPTX 일반/악보 변환, 투명도·첫 장 제목 유지, 강제503 후 새로고침/재시도, 중복 방지, 배경만 변경, 재생목록 초안, 1440/820/390px를 확인한다. 실제 자료는 `PPT_FIXTURE_DIR`로 로컬에서만 추가 검증한다.
+
+최종 저장 공간 부족 검사: IndexedDB의 QuotaExceededError를 강제로 재현하여 준비본 보존 실패 시 이미지/문서 업로드 0건과 ‘업로드를 시작하지 않음’ 안내를 확인했다. 복구본 보존이 성공한 다음에만 업로드 상태로 넘어간다. PR #30 Studio 검사 37114585361 및 첫 운영 배포 37114695652는 성공했다. 이 저장 공간 안내 보정은 후속 운영 커밋으로 반영한다.

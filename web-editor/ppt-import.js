@@ -54,13 +54,13 @@
   return {path:name+'.pro6',xml,assets:[...assets.values()],owner:C.worker(),appendTarget:$('pptAppend').checked?L.selectedPlaylist()?.key:null};
  }
  async function save(resume=false){if(busy||!C.needUser()||window.YebaeonSave?.busy())return;if(!resume&&(!$('pptReviewed').checked||!outputs.length))return;uploading=true;lock(true);
-  try{if(!prepared){prepared=await prepare();await recovery('put',prepared);}if(prepared.owner!==C.worker())throw Error('준비한 작업자 이름으로 입장해 주세요.');
+  try{if(!prepared){const next=await prepare();await recovery('put',next);prepared=next;}if(prepared.owner!==C.worker())throw Error('준비한 작업자 이름으로 입장해 주세요.');
    const known=new Set();for(let i=0;i<prepared.assets.length;i+=80){const query=new URLSearchParams();for(const a of prepared.assets.slice(i,i+80))query.append('hash',a.sha256);const found=await(await C.api('/media?'+query)).json();for(const a of found.assets)known.add(a.sha256);}
    for(let i=0;i<prepared.assets.length;i++){const a=prepared.assets[i];if(known.has(a.sha256))continue;message(`이미지 저장 ${i+1}/${prepared.assets.length}…`);await C.api('/media/'+a.sha256+'/content',{method:'PUT',headers:{'Content-Type':'image/png','X-Yebaeon-SHA256':a.sha256},body:a.blob});}
    message('문서를 등록하고 이미지 연결을 확인하고 있습니다…');const result=await(await C.api('/documents?'+new URLSearchParams({path:prepared.path}),{method:'POST',headers:{'Content-Type':'application/xml'},body:prepared.xml})).json();prepared.document=result.document;await recovery('put',prepared);
    let added=false;if(prepared.appendTarget&&prepared.appendTarget===L.selectedPlaylist()?.key&&!L.memberIDs().includes(result.document.id)){added=L.appendDocuments([result.document]);if(added)await L.checkpoint();}
    await C.openDocument(result.document.id);await recovery('delete');prepared=null;$('pptRecovery').hidden=true;dialog.close();E.status(added?'PPT 문서를 추가했습니다. 순서는 변경사항 저장으로 확정해 주세요.':'PPT 문서를 추가했습니다. 이름으로 검색해 순서에 넣을 수 있습니다.');invalidate();
-  }catch(e){message('저장 중단: '+e.message+(e.code==='path_exists'?'\n준비본 버리기 후 이름을 바꾸어 다시 미리보기해 주세요. 기존 문서는 덮어쓰지 않습니다.':'\n준비본을 보존했습니다. ‘저장 다시 시도’를 누르면 같은 문서로 이어갑니다.')); $('pptRecovery').hidden=!prepared;}finally{uploading=false;lock(false);}
+  }catch(e){message('저장 중단: '+e.message+(e.code==='path_exists'?'\n준비본 버리기 후 이름을 바꾸어 다시 미리보기해 주세요. 기존 문서는 덮어쓰지 않습니다.':prepared?'\n준비본을 보존했습니다. ‘저장 다시 시도’를 누르면 같은 문서로 이어갑니다.':'\n복구 준비본을 저장하지 못해 서버 업로드를 시작하지 않았습니다. 이 창을 유지하고 입력값과 브라우저 저장 공간을 확인해 주세요.')); $('pptRecovery').hidden=!prepared;}finally{uploading=false;lock(false);}
  }
  $('pptSave').onclick=()=>save();$('pptResume').onclick=()=>save(true);$('pptDiscard').onclick=async()=>{if(busy||!confirm('이 브라우저의 PPT 준비본을 버릴까요? 이미 서버에 저장된 이미지나 문서는 삭제하지 않습니다.'))return;try{await recovery('delete');prepared=null;invalidate();$('pptRecovery').hidden=true;message('준비본을 버렸습니다. 새 파일을 선택할 수 있습니다.');}catch(e){message(e.message);}};
  $('pptEditApply').onclick=async()=>{if(busy||!C.needUser())return;if(!E.ready()||E.model().doc.documentElement.getAttribute('yebaeonImport')!=='score'){message('배경을 분리해 가져온 악보 문서를 먼저 열어 주세요.');return;}lock(true);uploading=true;
