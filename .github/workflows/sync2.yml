@@ -23,8 +23,7 @@ jobs:
           node-version-file: '.node-version'
           cache: npm
       - run: npm ci
-      - name: Worker tests
-        run: npm test
+      # Worker 검사(npm test)는 Linux의 Deploy/Studio workflow가 돈다. 여기서는 Mac 전용인 엔진 통합 검사와 빌드만 한다.
       - name: Sync 2 engine integration (local Worker)
         run: bash mac-sync2/test.command
       - name: Build Sync 2 app (10.13 target)
