@@ -1,26 +1,28 @@
 # 프로젝트 문서
 
-현재 상태와 다음 작업은 [SESSION-HANDOFF.md](SESSION-HANDOFF.md)를 기준으로 확인합니다. 문서에 적힌 코드·자료 경로와 명령은 별도 설명이 없으면 저장소 루트를 기준으로 합니다.
+세 파일이 기준이다. 세션마다 새 인계 파일을 만들지 않는다.
 
-- [Sync·Studio 후속 개선 단계별 계획·완료 조건](SYNC-STUDIO-FOLLOWUP-PLAN.md)
-- [Mac ↔ Windows 시행착오·실패 원인·재발 방지](CROSS-PLATFORM-LESSONS.md)
-- [새 세션 인수인계·완료/미완료·다운로드](SESSION-HANDOFF.md)
-- [교회 Mac 실행·실기 확인 순서](CHURCH-TEST.md)
-- [플레이리스트 중심 흐름·구현·완료 기준](PLAYLIST-WORKFLOW.md)
-- [남은 단계와 집·교회 작업 분담](NEXT-STAGE.md)
-- [클라우드 저장 범위와 서버 기획](SERVER-PLAN.md)
-- [브랜드와 서비스 주소](BRANDING.md)
-- [집에서 확인할 것과 교회 검증 절차](HOME-CHECK.md)
-- [오프라인 업데이트 패키지 명세](UPDATE-PACKAGE-SPEC.md)
-- [웹 편집기 사용법](../web-editor/README.md)
-- [통합 Mac 앱 사용과 빌드](../mac-app/README.md)
-- [통합 개발 묶음과 인수인계](INTEGRATION-HANDOFF.md)
-- [Mac 송수신 엔진과 개별 도구](../mac-sync/README.md)
-- [배포 구성과 검증 기록](../cloudflare/README.md)
+- [STATUS.md](STATUS.md) — 지금 상태와 다음 세 가지. 세션마다 덮어쓴다.
+- [BACKLOG.md](BACKLOG.md) — 남은 일의 유일한 목록.
+- [CHANGELOG.md](CHANGELOG.md) — 끝난 일 한 줄씩.
 
-## 과거 검토 기록
+Sync 재설계안과 결함 분석은 claude.ai 프로젝트 「예배온」의 문서에 있다(저장소에 넣지 않음).
 
-`archive/`는 당시 검토·실험과 초기 설정을 보관합니다. 현행 실행·배포 설정은 각 기능 폴더와 저장소 루트의 `wrangler.jsonc`를 사용합니다.
+## 유효한 설계·규칙
 
-- [2026-09-28 프로젝트 검토](archive/PROJECT-REVIEW-2026-09-28.md): 아직 해결되지 않은 비교기·렌더링 문제와 교회에서 확인할 항목을 포함합니다.
-- [2026-09-28 Cloudflare 최초 연결 기록](archive/cloudflare-bindings-2026-09-28.jsonc)
+- [Mac ↔ Windows 시행착오·재발 방지](CROSS-PLATFORM-LESSONS.md) — 앞부분 원칙 절이 규칙이고, 날짜별 절은 기록이다.
+- [플레이리스트 중심 흐름](PLAYLIST-WORKFLOW.md), [저장 범위와 서버 기획](SERVER-PLAN.md), [브랜드](BRANDING.md)
+- [이미지 범위·전송](IMAGE-SYNC-PLAN-2026-10-03.md), [자료 생명주기 계약](SYNC-LIFECYCLE-CONTRACT-HANDOFF-2026-10-03.md) — 미디어 범위는 IMAGE-SYNC-PLAN이 우선
+- [Studio 렌더 결정](STUDIO-RENDER-DECISIONS-2026-10-02.md), [카테고리 정책과 정리 결과](LIBRARY-CLEANUP-NEXT-2026-10-03.md)
+- [주보·Dropbox](BULLETIN-PREP.md), [PPT 가져오기](PPT-IMPORT.md)
+- 사용법: [Studio](../web-editor/README.md) · [Sync 0.6.x](../mac-app/README.md) · [Sync 2](../mac-sync2/README.md) · [엔진·CLI](../mac-sync/README.md) · [배포](../cloudflare/README.md)
+
+## 교회 이관
+
+- [빈 서버 재구축 절차(0.6.5 기준)](SYNC-RESET-COMPARE-2026-10-03.md), [클라우드 인계·초기화 범위](CLOUD-NEXT-SESSION-2026-10-03.md), [현장 단계·중단 대처](CHURCH-MIGRATION-2026-10-03.md) — 보관 7개는 마지막에 처리한다는 최신 결정이 우선이다.
+
+## 기록 (당시 상태, 현재 기준 아님)
+
+SESSION-HANDOFF, SYNC-STUDIO-FOLLOWUP-PLAN, STUDIO-EDITING-FOLLOWUP, SYNC-UX-REPAIR, UX-HANDOFF-REVIEW, INTEGRATION-HANDOFF, SYNC-NEXT-SESSION-2026-10-02, SYNC-MAC-LOCAL-CHECK, NEXT-STAGE, CHURCH-TEST, HOME-CHECK, UPDATE-PACKAGE-SPEC. 「예배온-저장소-문서정리안」대로 `archive/`로 옮길 예정이다.
+
+`archive/`: [2026-09-28 프로젝트 검토](archive/PROJECT-REVIEW-2026-09-28.md), [Cloudflare 최초 연결 기록](archive/cloudflare-bindings-2026-09-28.jsonc)

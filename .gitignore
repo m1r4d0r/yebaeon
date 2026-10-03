@@ -54,3 +54,6 @@ Thumbs.db
 
 /mac-app/playlist-integration
 /mac-app/diagnostic-*/
+
+# 브라우저 검사 출력
+/artifacts/

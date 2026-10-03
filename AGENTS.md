@@ -1,5 +1,8 @@
 # 작업 원칙
 
+> 먼저 읽을 것: [docs/STATUS.md](docs/STATUS.md)(지금 상태) → [docs/BACKLOG.md](docs/BACKLOG.md)(남은 일). 세션마다 새 인계 파일을 만들지 않고 STATUS.md를 덮어쓴다. 끝난 일은 [docs/CHANGELOG.md](docs/CHANGELOG.md)에 한 줄. 아래 날짜별 절은 당시 지시이며 서로 덮어쓴다. 최신 절이 우선이다.
+> main 병합·운영 배포·운영 데이터 변경은 사용자의 명시 승인 뒤에만 한다. 자동 검사는 로컬 Worker 모사만 쓰고 운영 D1을 치지 않는다.
+
 ## 사용자 보고와 실패 이력
 
 - 사용자에게 한국어로 보고한다.

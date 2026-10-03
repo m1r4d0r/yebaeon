@@ -4,7 +4,7 @@ name: Verify Mac Sync
 on:
   workflow_dispatch:
   push:
-    branches: [codex/sync-layout-pause]
+    branches: [sync-candidate]
 concurrency:
   group: mac-sync-${{ github.ref }}
   cancel-in-progress: true

@@ -1,7 +1,7 @@
 name: Verify Studio UX
 on:
   push:
-    branches: [studio-ux-handoff]
+    branches: [studio-candidate]
   pull_request:
     paths: ['web-editor/**', 'cloudflare/**', 'tests/**', 'scripts/**', '.github/workflows/studio.yml']
 permissions:
