@@ -49,4 +49,18 @@ test('content-addressed image upload, retry, reference registration, download an
   const absent='f'.repeat(64);
   assert.equal((await call('/media/references','PUT',JSON.stringify({...JSON.parse(refs),references:[{id:'x',sha256:absent,source:'/x.png',slide:0}]}),{'Origin':origin,'Content-Type':'application/json'})).status,409,'references require uploaded immutable assets');
   assert.equal((await db.prepare('SELECT count(*) AS n FROM yebaeon_media_references').first()).n,1,'failed registration leaves existing references intact');
+  // Browser-imported images register with the document transaction, and follow
+  // edits/duplication without a second, failure-prone references request.
+  const importedXML=(label='one',sha=digest)=>`<RVPresentationDocument width="1920" height="1080" category="악보찬양"><array rvXMLIvarName="groups"><RVSlideGrouping><array rvXMLIvarName="slides"><RVDisplaySlide label="${label}"><array rvXMLIvarName="displayElements"><RVImageElement source="file:///YebaeOn-Media/${sha}.png"/></array></RVDisplaySlide></array></RVSlideGrouping></array></RVPresentationDocument>`;
+  const imported=(await ok(await call('/documents?path=imported.pro6','POST',importedXML(),{'Content-Type':'application/xml'}),201)).document;
+  const importRefs=async version=>(await ok(await call('/media/references?documentId='+imported.id+'&version='+version))).references;
+  assert.equal((await importRefs(1))[0].slide,1,'native Sync indexes slides from one');
+  assert.equal((await importRefs(1))[0].sha256,digest);
+  const updated=(await ok(await call('/documents/'+imported.id,'PUT',importedXML('two'),{'Content-Type':'application/xml','If-Match':'"1"'}))).document;
+  assert.equal(updated.version,2);assert.equal((await importRefs(2)).length,1);
+  assert.equal((await call('/documents/'+imported.id,'PUT',importedXML('three'),{'Content-Type':'application/xml','If-Match':'"1"'})).status,409);
+  assert.equal((await importRefs(2)).length,1,'conflict cannot replace references');
+  assert.equal((await call('/documents?path=missing-import.pro6','POST',importedXML('missing','a'.repeat(64)),{'Content-Type':'application/xml'})).status,409);
+  assert.equal(await db.prepare('SELECT id FROM yebaeon_documents WHERE path=?').bind('missing-import.pro6').first(),null,'missing assets cannot commit a document');
+
 });

@@ -1,3 +1,4 @@
+import {importedMedia,importMediaStatements} from './import-media.mjs';
 import { referenceCounts } from './references.mjs';
 import { catalogList } from './library-catalog.mjs';
 import { searchData,searchStatement } from './document-search.mjs';
@@ -81,6 +82,7 @@ export async function documentsRoute(request, env, user, id, action) {
       if (existing.sha256 === content.hash) return unchangedDocument(db,existing,content);
       throw new HttpError(409, 'path_exists', '같은 경로의 문서가 이미 있습니다. 목록에서 열어 수정하거나 다른 경로로 저장해 주세요.');
     }
+    const importRefs=await importedMedia(db,content.data);
     const newId = crypto.randomUUID(), writeId = crypto.randomUUID(), key = `documents/${newId}/${writeId}.pro6`, now = new Date().toISOString();
     const p=content.policy;
     const created = document({id:newId,path,current_version:1,updated_at:now,updated_by:user.author,sha256:content.hash,size:content.size,last_used:content.lastDateUsed?new Date(content.lastDateUsed).toISOString():null,usage_version:1,usage_error:null,...p});
@@ -89,7 +91,8 @@ export async function documentsRoute(request, env, user, id, action) {
       await db.batch([
         db.prepare('INSERT INTO yebaeon_documents(id, path, created_at, current_version, updated_at, updated_by, sha256, size, write_id,last_used,usage_version,category,search_enabled,history_enabled,history_start,policy_revision) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?,?,1,?,?,?,?,?)').bind(newId, path, now, now, user.author, content.hash, content.size, writeId,created.lastDateUsed,p.category,p.search_enabled,p.history_enabled,p.history_start,p.policy_revision),
         db.prepare('INSERT INTO yebaeon_versions(document_id, version, object_key, sha256, size, author, created_at) VALUES (?, 1, ?, ?, ?, ?, ?)').bind(newId, key, content.hash, content.size, user.author, now),
-        ...(p.search_enabled?[searchStatement(db,newId,1,content.search)]:[])
+        ...(p.search_enabled?[searchStatement(db,newId,1,content.search)]:[]),
+        ...importMediaStatements(db,importRefs,newId,1,writeId,now)
       ]);
     } catch (error) {
       const winner = await db.prepare('SELECT * FROM yebaeon_documents WHERE path = ?').bind(path).first();
@@ -143,6 +146,7 @@ export async function documentsRoute(request, env, user, id, action) {
   if (base !== row.current_version) throw conflict();
   const content = await readDocument(request,row),p=content.policy;
   if (content.hash === row.sha256) return unchangedDocument(db,row,content);
+  const importRefs=await importedMedia(db,content.data);
   const previousDisposableKey=!p.history_enabled&&p.history_start&&base>=p.history_start ? (await db.prepare('SELECT object_key FROM yebaeon_versions WHERE document_id=? AND version=?').bind(id,base).first())?.object_key : null;
   const next = base + 1, writeId = crypto.randomUUID(), key = `documents/${id}/${writeId}.pro6`, now = new Date().toISOString();
   await env.FILES.put(key, content.data, { httpMetadata: { contentType: 'application/xml' }, sha256: content.hash });
@@ -154,7 +158,8 @@ export async function documentsRoute(request, env, user, id, action) {
     db.prepare(`INSERT INTO yebaeon_document_search(document_id,version,search_text,error) SELECT id,current_version,?,? FROM yebaeon_documents WHERE id=? AND write_id=? AND search_enabled=1`).bind(content.search.text,content.search.error,id,writeId),
     db.prepare('DELETE FROM yebaeon_document_usage WHERE document_id=? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=?)').bind(id,id,writeId),
     // Keep all historical backups from before the policy was changed.
-    db.prepare(`DELETE FROM yebaeon_versions WHERE document_id=? AND version>=? AND version<? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=? AND history_enabled=0)`).bind(id,p.history_start||next,next,id,writeId)
+    db.prepare(`DELETE FROM yebaeon_versions WHERE document_id=? AND version>=? AND version<? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=? AND history_enabled=0)`).bind(id,p.history_start||next,next,id,writeId),
+    ...importMediaStatements(db,importRefs,id,next,writeId,now)
   ]);
   if (results[0].meta.changes !== 1) { await env.FILES.delete(key); throw conflict(); }
   // Superseded originals created while history was disabled are no longer backups.
