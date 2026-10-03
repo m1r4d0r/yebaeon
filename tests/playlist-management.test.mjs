@@ -13,6 +13,14 @@ test('playlist create, archive snapshot, restoration and stale Sync protection',
  const login=await call('/session','POST',JSON.stringify({name:'시험',password:'archives-only'}));await ok(login);cookie=login.headers.get('Set-Cookie').split(';')[0];
  let lib=(await ok(await call('/playlists?path=fixture.pro6pl','POST',xml),201)).library;
  const path='/playlists/'+lib.id,tag=()=>({'If-Match':`"${lib.version}"`});
+ // Imported nodes have no controls rows. An old client with a current CAS
+ // must still not remove them by omitting them from its whole-file upload.
+ const imported=await(await call(path+'/content')).text();
+ const omitted=imported.replace(/<RVPlaylistNode UUID="B"[\s\S]*?<\/RVPlaylistNode>/,'');
+ const rejected=await call(path,'PUT',omitted,tag());
+ assert.equal(rejected.status,409);assert.equal((await rejected.json()).error,'playlist_structure_changed');
+ assert.equal(await(await call(path+'/content')).text(),imported,'rejected omission leaves the file untouched');
+ assert.equal((await ok(await call(path))).library.version,lib.version,'rejected omission creates no version');
  const original='<RVPresentationDocument category="가사찬양"><text>original song</text></RVPresentationDocument>';
  let song=(await ok(await call('/documents?path=song.pro6','POST',original),201)).document;
  const id='88888888-8888-4888-a888-888888888888',body=JSON.stringify({id,name:'새 예배 & 기도'});
@@ -45,6 +53,12 @@ test('playlist create, archive snapshot, restoration and stale Sync protection',
  assert.equal(lib.playlists.length,3);assert.equal((await ok(await call('/playlists?scope=archived'))).archives.length,0);
  assert.equal((await ok(await call(path+'/plan?node=A'))).documents[0].version,2);
  assert.equal((await ok(await call(path+'/restore?node=A','POST','{}',{'If-Match':'"1"'}))).unchanged,true);
+ // Intentional removals still use the explicit API and cannot be resurrected
+ // by a later whole-file upload with the new file version.
+ const beforeRemoval=await(await call(path+'/content')).text();
+ lib=(await ok(await call(path+'/nodes?node='+id,'DELETE',undefined,tag()))).library;
+ assert.equal(lib.playlists.some(p=>p.id===id),false);
+ assert.equal((await call(path,'PUT',beforeRemoval,tag())).status,409);
  // Two writers sharing a file version cannot both change structure or controls.
  const candidates=['77777777-7777-4777-a777-777777777777','66666666-6666-4666-a666-666666666666'];
  const results=await Promise.all(candidates.map((id,i)=>call(path+'/nodes','POST',JSON.stringify({id,name:'동시 '+i}),tag())));

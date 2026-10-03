@@ -70,7 +70,7 @@ static NSString *Query(NSString *value) {
         id json=[NSJSONSerialization JSONObjectWithData:transfer.data options:0 error:NULL];
         NSString *message=[json isKindOfClass:NSDictionary.class] && [json[@"message"] isKindOfClass:NSString.class] ? json[@"message"] : @"서버 요청을 완료하지 못했습니다.";
         if(status==401)message=@"로그인이 필요하거나 비밀번호가 다릅니다. 다시 입장해 주세요.";
-        if(status==409)message=@"서버에서 문서가 먼저 변경됐습니다. 로컬 문서는 유지했습니다. 다시 비교해 주세요.";
+        if(status==409 && !([json isKindOfClass:NSDictionary.class] && [json[@"message"] isKindOfClass:NSString.class]))message=@"서버 내용이 변경됐습니다. 로컬 파일은 유지했습니다. 다시 비교해 주세요.";
         YBRequire(NO,[NSString stringWithFormat:@"HTTP %ld: %@",(long)status,message]);
     }
     return transfer;

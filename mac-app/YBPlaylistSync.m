@@ -255,6 +255,13 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     }
     return YBPlaylistLocalXML(@{@"playlist":@{@"id":node[@"id"],@"xml":node[@"raw"],@"sha256":YBHash(Data(node[@"raw"]))},@"items":items},root);
 }
+- (NSDictionary *)resetStructure:(NSDictionary *)remote desired:(NSData *)desired {
+    if(!remote)return nil;
+    NSDictionary *structure=[self.library.server request:[NSString stringWithFormat:@"/api/playlists/%@/structure",Query(remote[@"id"])] method:@"GET" body:nil headers:nil];
+    YBRequire([structure[@"fingerprint"] isKindOfClass:NSString.class] && [structure[@"removals"] isKindOfClass:NSArray.class] && Equal(structure[@"library"][@"version"],remote[@"version"]) && Equal(structure[@"library"][@"sha256"],remote[@"sha256"]),@"서버 목록 구성이 바뀌었습니다. 다시 준비하세요.");
+    for(NSDictionary *item in structure[@"removals"])YBRequire(YBPlaylistNode(desired,item[@"id"])==nil,[NSString stringWithFormat:@"‘%@’은 서버에서 보관·삭제한 목록입니다. 문서를 보내기 전에 도구 → ‘웹에서 보관·삭제한 목록 반영…’을 실행하거나, 승인된 활성 목록으로 교체한 뒤 다시 준비하세요.",item[@"name"] ?: @"목록"]);
+    return structure;
+}
 - (NSDictionary *)prepareMacReset:(NSDictionary *)comparison progress:(void (^)(NSString *))progress {
     YBSync *sync=self.library.sync;[sync assertReady];YBRequire(!sync.presenterRunning(),@"PP6를 종료한 후 기준 재설정을 준비하세요.");
     NSData *local=YBReadPlaylist(self.target);NSArray *nodes=YBPlaylistNodes(local);NSDictionary *remote=nil;
@@ -265,6 +272,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     for(NSDictionary *node in nodes)if(!nodeID || [node[@"id"] isEqual:nodeID]){NSString *xml=[self serverXMLForNode:node root:sourceRoot paths:paths];desired=YBPlaylistReplacing(desired,node[@"id"],xml);[selectedIDs addObject:node[@"id"]];}
     NSMutableArray *serverOnlyPlaylists=[NSMutableArray array];if(!nodeID && server)for(NSDictionary *old in YBPlaylistNodes(server))if(![selectedIDs containsObject:old[@"id"]]){desired=YBPlaylistReplacing(desired,old[@"id"],old[@"raw"]);[serverOnlyPlaylists addObject:@{@"id":old[@"id"],@"name":old[@"name"]}];}
     YBRequire(!nodeID || selectedIDs.count==1,@"Mac에 선택한 예배가 없습니다. 서버 내용 받기를 선택하세요.");YBRequire(desired.length<=5*1024*1024,@"재생목록이 서버 제한 5MB를 초과합니다.");
+    NSDictionary *structure=[self resetStructure:remote desired:desired];
     NSArray *catalog=[self.library.server documentsChecking:self.library.operationCheckpoint];NSMutableDictionary *remotes=[NSMutableDictionary dictionary];for(NSDictionary *doc in catalog)remotes[doc[@"path"]]=doc;
     NSArray *allRows=nodeID ? nil : [sync plan:catalog];if(!nodeID)for(NSDictionary *row in allRows){YBRequire(!row[@"error"],row[@"error"] ?: @"문서 경로 오류");if(Value(row[@"localHash"]))[paths addObject:row[@"path"]];}
     NSString *identifier=NSUUID.UUID.UUIDString,*folder=[@"server-resets/" stringByAppendingString:identifier];
@@ -283,6 +291,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     if(!nodeID)for(NSDictionary *doc in catalog)if(![paths containsObject:doc[@"path"]]){[serverOnly addObject:doc];}
     YBRequire([YBReadPlaylist(self.target) isEqual:local],@"백업 도중 재생목록이 변경됐습니다.");
     NSMutableDictionary *job=[@{@"id":identifier,@"status":@"prepared",@"createdAt":@(NSDate.date.timeIntervalSince1970),@"root":sync.root,@"target":self.target.path,@"origin":self.library.server.origin,@"beforeHash":YBHash(local),@"desiredHash":YBHash(desired),@"library":Null(remote),@"sourceRoot":sourceRoot,@"rows":rows,@"serverOnly":serverOnly,@"serverOnlyPlaylists":serverOnlyPlaylists,@"nodes":selectedIDs,@"all":@(!nodeID),@"changed":@(changed),@"completed":[NSMutableArray array]} mutableCopy];
+    if(structure)job[@"structureFingerprint"]=structure[@"fingerprint"];
     [self writeJSON:job path:[folder stringByAppendingString:@"/job.json"]];return job;
 }
 - (NSDictionary *)applyMacReset:(NSDictionary *)prepared progress:(void (^)(NSString *))progress {
@@ -293,7 +302,7 @@ static BOOL Equal(id a,id b){return a==b || [a isEqual:b];}
     YBRequire([YBHash(local) isEqual:job[@"beforeHash"]] && [YBHash(desired) isEqual:job[@"desiredHash"]] && [YBReadPlaylist(self.target) isEqual:local],@"재생목록 또는 백업이 준비 후 변경됐습니다.");
     NSArray *rows=job[@"rows"];NSMutableSet *planned=[NSMutableSet set];for(NSDictionary *row in rows){[planned addObject:row[@"path"]];YBRequire([YBHash([sync readDocument:row[@"path"]]) isEqual:row[@"localHash"]],@"준비 후 Mac 문서가 변경됐습니다. 다시 준비하세요.");NSData *backup=YBReadSafeFile(sync.profile,[NSString stringWithFormat:@"%@/local-%@.pro6",folder,row[@"index"]],NULL);YBRequire([YBHash(backup) isEqual:row[@"localHash"]],@"로컬 문서 백업이 손상됐습니다.");NSDictionary *old=Value(row[@"remote"]);if(old)YBRequire([YBHash(YBReadSafeFile(sync.profile,[NSString stringWithFormat:@"%@/server-%@.pro6",folder,row[@"index"]],NULL)) isEqual:old[@"sha256"]],@"서버 문서 백업이 손상됐습니다.");}
     if([job[@"all"] boolValue]){NSMutableSet *now=[NSMutableSet set];for(NSDictionary *entry in [sync inventory])[now addObject:YBPath(entry[@"originalPath"])];YBRequire([now isEqual:planned],@"준비 후 Mac 파일 목록이 달라졌습니다.");}
-    NSDictionary *remote=Value(job[@"library"]);if(remote){NSDictionary *head=[self.library.server request:[@"/api/playlists/" stringByAppendingString:remote[@"id"]] method:@"GET" body:nil headers:nil][@"library"];YBRequire(Equal(head[@"version"],remote[@"version"]) && Equal(head[@"sha256"],remote[@"sha256"]),@"준비 후 서버 순서가 바뀌었습니다.");YBRequire([YBHash(YBReadSafeFile(sync.profile,[folder stringByAppendingString:@"/server.pro6pl"],NULL)) isEqual:remote[@"sha256"]],@"서버 재생목록 백업이 손상됐습니다.");}
+    NSDictionary *remote=Value(job[@"library"]);if(remote){NSDictionary *structure=[self resetStructure:remote desired:desired];YBRequire(Equal(structure[@"fingerprint"],job[@"structureFingerprint"]),@"준비 후 서버 보관·삭제 상태가 바뀌었습니다. 문서를 보내지 않았습니다. 다시 준비하세요.");YBRequire([YBHash(YBReadSafeFile(sync.profile,[folder stringByAppendingString:@"/server.pro6pl"],NULL)) isEqual:remote[@"sha256"]],@"서버 재생목록 백업이 손상됐습니다.");}
     job[@"status"]=@"applying";[self writeJSON:job path:jobPath];NSMutableArray *completed=[NSMutableArray array];
     @try {
         for(NSDictionary *row in rows){@autoreleasepool{
