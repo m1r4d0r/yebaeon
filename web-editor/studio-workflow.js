@@ -6,13 +6,13 @@
  function scope(){const playlist=L.saveScope();return playlist?{...playlist,playlist:true}:{name:E.state().name.replace(/\.pro6$/i,''),ids:C.linked()?[C.linked().id]:[],dirty:false,playlist:false};}
  function update(){const selected=scope(),docs=selected.ids.filter(id=>E.isDirty(id)),changed=docs.length||selected.dirty;
   $('cloudSave').disabled=busy||!C.authenticated()||!changed;
-  $('cloudSave').textContent=busy?'저장 중…':'변경사항 저장 Ctrl+S';
+  $('cloudSave').textContent=busy?'저장 중…':window.YebaeonResponsive?.compact()?'서버 저장':'변경사항 저장 Ctrl+S';
   $('cloudSave').title=(selected.playlist?selected.name+'의 수정한 문서와 순서':'현재 문서')+'를 서버에 저장';
   summary.textContent=changed?[docs.length?`문서 ${docs.length}개`:'',selected.dirty?'순서 변경':''].filter(Boolean).join(' · '):'';
   summary.title=selected.playlist?selected.name+' 일괄 저장':'현재 문서 저장';
  }
  let locked=[],focusBefore=null;
- function lock(value){busy=value;if(value){focusBefore=document.activeElement;locked=[...document.querySelectorAll('main,.topbar,dialog,#biblePanel,#mediaDrawer')].map(element=>[element,element.inert]);for(const [element] of locked)element.inert=true;}else{for(const [element,inert] of locked)element.inert=inert;locked=[];focusBefore?.focus();}update();}
+ function lock(value){busy=value;if(value){focusBefore=document.activeElement;locked=[...document.querySelectorAll('main,.topbar,.responsive-nav,dialog,#biblePanel,#mediaDrawer')].map(element=>[element,element.inert]);for(const [element] of locked)element.inert=true;}else{for(const [element,inert] of locked)element.inert=inert;locked=[];focusBefore?.focus();}update();}
  document.addEventListener('keydown',event=>{if(busy){event.preventDefault();event.stopImmediatePropagation();}},true);
  async function saveAll(){if(busy||!C.needUser())return;const selected=scope(),records=C.pendingDocuments(selected.ids);if(!records.length&&!selected.dirty)return;
   lock(true);let done=0;summary.classList.remove('save-failed');

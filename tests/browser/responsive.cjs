@@ -1,0 +1,76 @@
+const {chromium}=require('playwright');
+const {createServer}=require('node:http');
+const {readFile,mkdir}=require('node:fs/promises');
+const {resolve,extname}=require('node:path');
+const {createHash}=require('node:crypto');
+const assert=require('node:assert/strict');
+(async()=>{
+ const root=resolve('web-editor'),server=createServer(async(req,res)=>{try{const path=resolve(root,'.'+new URL(req.url,'http://localhost').pathname.replace(/\/$/,'/index.html'));if(!path.startsWith(root+'/'))throw Error();res.setHeader('Content-Type',({'.html':'text/html','.js':'application/javascript','.css':'text/css','.svg':'image/svg+xml'})[extname(path)]||'application/octet-stream');res.end(await readFile(path));}catch{res.writeHead(404);res.end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const browser=await chromium.launch(process.env.CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.CHROMIUM_EXECUTABLE_PATH,args:['--no-sandbox']}:undefined),page=await browser.newPage({viewport:{width:390,height:844},hasTouch:true,isMobile:true}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
+ const ids=['11111111-1111-4111-a111-111111111111','22222222-2222-4222-a222-222222222222','33333333-3333-4333-a333-333333333333'];
+ const docs=new Map(),writes=[];let order=[{id:'one',documentId:ids[0]},{id:'two',documentId:ids[1]}],pv=1,fail=null,failOrder=false,requests=[],observations=0,templateXML='';
+ const metadata=id=>{const d=docs.get(id);return {id,name:d.name,path:d.name,version:d.version,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',sha256:createHash('sha256').update(d.xml).digest('hex')};};
+ const library=()=>({id:'library',path:'기본.pro6pl',version:pv,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',playlists:[{id:'A',name:'예배',itemCount:order.length}]});
+ const hash=()=>createHash('sha256').update(JSON.stringify(order)).digest('hex');
+ await page.route('**/api/**',async route=>{const req=route.request(),url=new URL(req.url()),path=url.pathname;requests.push(req.method()+' '+url.pathname+url.search);let data={};
+ if(path==='/api/session')data={ready:true,authenticated:true,name:'시험'};
+ else if(path==='/api/sync-observations'){observations++;data={items:{}};}
+ else if(path==='/api/playlists')data={libraries:docs.size?[library()]:[],next:null};
+ else if(path==='/api/playlists/library/plan')data={library:library(),playlist:{id:'A',name:'예배',editable:true,version:pv,sha256:hash()},ready:true,items:order.map(x=>({...x,kind:'document',name:metadata(x.documentId).name,document:metadata(x.documentId)}))};
+ else if(path==='/api/playlists/library'&&req.method()==='PATCH'){if(failOrder){await route.fulfill({status:409,json:{message:'다른 작업자가 순서를 먼저 저장했습니다.'}});return;}const body=JSON.parse(req.postData());assert.equal(body.baseNodeHash,hash());assert.equal(req.headers()['if-match'],`"${pv}"`);order=body.items.map(x=>({id:x.id,documentId:x.documentId||order.find(o=>o.id===x.id).documentId}));pv++;writes.push('order');data={library:library(),playlist:{sha256:hash()}};}
+ else if(path==='/api/documents')data={documents:[...docs.keys()].map(metadata),next:null};
+ else if(path.startsWith('/api/documents/')){const id=path.split('/')[3];if(path.endsWith('/content')){await route.fulfill({body:docs.get(id).xml,contentType:'application/xml'});return;}
+ if(req.method()==='PUT'){assert.equal(req.headers()['if-match'],`"${docs.get(id).version}"`);if(fail===id){await route.fulfill({status:409,json:{message:'다른 작업자가 먼저 저장했습니다.'}});return;}docs.get(id).xml=req.postData();docs.get(id).version++;writes.push(id);}data={document:metadata(id)};}
+ else throw Error('Unexpected API '+path);await route.fulfill({json:data});});
+ await page.route('**/resources/**',async route=>{const name=new URL(route.request().url()).pathname.split('/').pop();const templates=['104','105'].map(id=>({id,name:'성경',label:'설교 본문',width:1920,height:1080,xml:templateXML}));await route.fulfill({json:name==='catalog.json'?{fonts:[],media:[]}:name==='templates.json'?templates:{books:[{name:'창세기',chapters:[{number:1,verses:[{number:1,text:'첫 줄\n둘째 줄\n'}]}]}]}});});
+ try{
+ await page.goto(`http://127.0.0.1:${server.address().port}/`);await page.waitForFunction(()=>window.YebaeonSave&&YebaeonCloud.authenticated());await page.addScriptTag({path:'web-editor/sample-demo.js'});
+ const xml=await page.evaluate(()=>{const m=PP6.parse(PP6_SAMPLE.xml,'fixture');PP6.all(m.doc,'[source]').forEach(e=>e.remove());return PP6.serialize(m);});for(let i=0;i<3;i++)docs.set(ids[i],{name:['찬양','말씀','별도'][i]+'.pro6',version:1,xml});
+ templateXML=await page.evaluate(()=>{const slide=PP6.slides(PP6.parse(PP6_SAMPLE.xml,'template'))[0],box=PP6.textElements(slide)[0],ref=box.cloneNode(true);PP6.refreshIDs(ref);PP6.setText(ref,'창세기 1:1');box.parentNode.append(ref);return new XMLSerializer().serializeToString(slide);});
+ await page.reload();await page.waitForFunction(()=>window.YebaeonResponsive&&YebaeonPlaylists.selectedPlaylist());
+ await page.waitForFunction(()=>YebaeonResponsive.page()==='order');
+ const nav=page.locator('.responsive-nav');assert.equal(await nav.isVisible(),true);
+ const beforeNav=requests.length;
+ for(const section of ['playlists','edit','order']){await nav.locator(`[data-page="${section}"]`).tap();assert.equal(await nav.locator(`[data-page="${section}"]`).getAttribute('aria-pressed'),'true');}
+ assert.equal(requests.length,beforeNav,'navigation must not fetch documents or playlists');
+ await page.locator('#responsiveSearch').tap();assert.equal(await page.locator('#responsiveSearchDrawer').isVisible(),true);
+ const beforeSearch=requests.length;await page.locator('#libraryQuery').fill('찬');assert.equal(requests.length,beforeSearch,'typing does not send a query');
+ await page.locator('#libraryRefresh').tap();await page.waitForFunction(()=>document.querySelectorAll('#libraryList .document-item').length===3);
+ const beforeAdd=requests.length;await page.locator('#libraryList .document-item').first().tap();await page.waitForFunction(()=>document.querySelectorAll('#playlistItems .order-item').length===3);
+ assert.equal(await page.locator('#responsiveSearchDrawer').isVisible(),true);assert.equal(requests.length,beforeAdd,'click-to-add is a local draft mutation');assert.equal(writes.length,0);
+ assert.equal(await page.evaluate(()=>YebaeonEditor.ready()),false,'search click adds, not opens');
+ const grip=page.locator('#libraryList .document-item').nth(1).locator('.responsive-drag'),g=await grip.boundingBox(),d=await page.locator('#responsiveDrop').boundingBox();
+ const cdp=await page.context().newCDPSession(page),touch=(type,x,y)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:type==='touchEnd'||type==='touchCancel'?[]:[{x,y,id:1}]});
+ await touch('touchStart',g.x+18,g.y+20);await touch('touchMove',d.x+d.width/2,d.y+20);await touch('touchCancel');assert.equal(await page.locator('#playlistItems .order-item').count(),3,'cancelled drag does not add');
+ await touch('touchStart',g.x+18,g.y+20);await touch('touchMove',d.x+d.width/2,d.y+20);await touch('touchEnd');await page.waitForFunction(()=>document.querySelectorAll('#playlistItems .order-item').length===4);
+ await page.waitForTimeout(420);assert.equal(requests.length,beforeAdd,'touch drag does not fetch');
+ // Chromium headless shell stops synthesizing clicks after CDP touchMove, even on a two-button page.
+ // Keep genuine drag/cancel coverage; subsequent activation uses mouse clicks on the same controls.
+ await nav.locator('[data-page="playlists"]').click();await page.locator('#responsiveSearchDrawer').waitFor({state:'hidden'});await nav.locator('[data-page="order"]').click();assert.equal(await page.locator('#playlistItems .order-item').count(),4);
+ await page.locator('#playlistItems .order-item').first().click();await page.waitForFunction(()=>YebaeonEditor.ready()&&YebaeonResponsive.page()==='edit');
+ const original=await page.evaluate(()=>YebaeonEditor.document().xml);
+ await page.locator('#responsiveQuick').click();await page.locator('#quickInputs textarea').first().fill('반응형 편집\n한글 초안 보존');
+ const beforeReturn=requests.length;await nav.locator('[data-page="order"]').click();await nav.locator('[data-page="edit"]').click();assert.equal(requests.length,beforeReturn);assert.match(await page.evaluate(()=>YebaeonEditor.document().xml),/RVPresentationDocument/);assert.notEqual(await page.evaluate(()=>YebaeonEditor.document().xml),original);
+ assert.equal(await page.evaluate(()=>YebaeonEditor.state().dirty),true);assert.equal(await page.locator('#quickDialog').isVisible(),false);
+ await page.locator('#responsiveQuick').click();await page.locator('#quickInputs textarea').first().waitFor();await page.keyboard.press('Escape');assert.equal(await page.locator('#quickDialog').isVisible(),false);
+ await page.locator('[data-view="reflow"]').click();await page.locator('#reflowRows textarea').first().fill('리플로우 이동 보존');await page.locator('#reflowRows textarea').first().dispatchEvent('compositionstart');await page.evaluate(()=>YebaeonResponsive.navigate('playlists'));assert.equal(await page.evaluate(()=>YebaeonResponsive.page()),'edit');await page.locator('#reflowRows textarea').first().dispatchEvent('compositionend');await page.waitForFunction(()=>YebaeonResponsive.page()==='playlists');await nav.locator('[data-page="edit"]').click();assert.equal(await page.locator('#reflowRows textarea').first().inputValue(),'리플로우 이동 보존');
+ await page.locator('[data-view="editor"]').click();await page.locator('#responsiveProperties').click();assert.equal(await page.locator('#inspector').isVisible(),true);await page.locator('#responsivePropertiesClose').click();assert.equal(await page.locator('#inspector').isVisible(),false);
+ await page.locator('[data-view="slides"]').click();await page.locator('#responsiveMultiple').click();await page.locator('.slide-card').nth(1).click();assert.equal(await page.locator('.slide-card.selected').count(),2);await page.locator('#responsiveMultiple').click();
+ const pos=await page.evaluate(()=>{const a=document.querySelector('#cloudAccount').getBoundingClientRect(),b=document.querySelector('#cloudSave').getBoundingClientRect();return b.top>=a.bottom&&b.right<=innerWidth;});assert.equal(pos,true);
+ // Real CAS request paths are retained; a failed order save keeps its local draft.
+ failOrder=true;await page.locator('#cloudSave').click();await page.waitForFunction(()=>!YebaeonSave.busy()&&YebaeonPlaylists.state().blocked);assert.equal(writes.length,1);assert.equal(await page.evaluate(()=>YebaeonPlaylists.state().dirty),true);assert.ok((await page.evaluate(()=>YebaeonDrafts.all())).some(r=>r.kind==='playlist'));
+ failOrder=false;await page.locator('#cloudSave').click();await page.waitForFunction(()=>!YebaeonSave.busy()&&!YebaeonPlaylists.state().dirty);assert.deepEqual(writes,[ids[0],'order']);
+ await mkdir('artifacts',{recursive:true});
+ for(const width of [360,390,700,768,1024,1440]){
+  await page.setViewportSize({width,height:900});await page.waitForTimeout(70);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`no horizontal overflow at ${width}`);
+  assert.equal(await nav.isVisible(),width<=700);assert.equal(await page.locator('#cloudSave').count(),1);assert.equal(await page.locator('#libraryQuery').count(),1);
+  if(width<=1100){assert.equal(await page.locator('#responsiveSave #cloudSave').count(),1);assert.equal(await page.locator('#accountMenu #serverStatus').count(),1);assert.equal(await page.locator('#responsiveSearchSlot #documentsPane').count(),1);}else{assert.equal(await page.locator('.editor-footer #cloudSave').count(),1);assert.equal(await page.locator('.topbar>#serverStatus').count(),1);assert.equal(await page.locator('.library-column #documentsPane').count(),1);}
+  if([390,768,1440].includes(width))await page.screenshot({path:`artifacts/responsive-${width}.png`});
+ }
+ await page.setViewportSize({width:390,height:844});await nav.locator('[data-page="order"]').click();await page.locator('#playlistItems .responsive-order-menu').first().click();await page.getByRole('menuitem',{name:'아래로 이동',exact:true}).click();assert.equal(await page.evaluate(()=>YebaeonPlaylists.state().dirty),true);
+ await page.locator('#responsiveSearch').click();await page.screenshot({path:'artifacts/responsive-search.png'});const bounds=await page.evaluate(()=>{const a=document.querySelector('#responsiveSearchDrawer').getBoundingClientRect(),b=document.querySelector('.responsive-nav').getBoundingClientRect();return a.bottom<=b.top+1;});assert.equal(bounds,true);
+ assert.deepEqual(errors,[]);console.log('Responsive passed: navigation without requests, explicit search, local click/touch-drag/cancel, draft retention, quick/reflow/layout, multi-selection, CAS failure/retry, six widths and desktop DOM restoration.');
+ }catch(error){await mkdir('artifacts',{recursive:true});await page.screenshot({path:'artifacts/responsive-failure.png'});console.error(await page.evaluate(()=>({page:YebaeonResponsive.page(),active:document.activeElement?.outerHTML,busy:YebaeonSave.busy()})),errors);throw error;}finally{await browser.close();await new Promise(r=>server.close(r));}
+})().catch(e=>{console.error(e);process.exitCode=1;});

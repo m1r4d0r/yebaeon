@@ -8,7 +8,7 @@
   const text=input(e.target),mod=e.ctrlKey||e.metaKey,pane=S.active(),dialog=e.target.closest('dialog[open]');
   if(altLeft&&e.altKey&&!mod){const actions={KeyR:()=>E.toggleView('reflow'),KeyE:()=>E.toggleView('editor'),KeyB:()=>YebaeonResources.toggleBible(),KeyV:()=>YebaeonResources.toggleMedia()};if(actions[e.code]&&!dialog){consume(e,actions[e.code]);return;}}
   if(mod&&!e.altKey&&e.code==='KeyS'){consume(e,()=>$('cloudSave').click());return;}
-  if(mod&&!e.altKey&&e.code==='KeyF'&&!dialog){consume(e,()=>{$('libraryQuery').focus();$('libraryQuery').select();});return;}
+  if(mod&&!e.altKey&&e.code==='KeyF'&&!dialog){consume(e,()=>{if(window.YebaeonResponsive?.compact())YebaeonResponsive.search();else $('libraryQuery').focus();$('libraryQuery').select();});return;}
   if(e.code==='Escape'){
    if(!$('contextMenu').hidden){consume(e,()=>{$('contextMenu').hidden=true;pane?.element.focus();});return;}
    if(dialog)return;
