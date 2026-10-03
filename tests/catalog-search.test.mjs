@@ -19,9 +19,25 @@ test('catalog-only playlist entries and current-version content search preserve 
   assert.equal((await call('/documents?includeIndexed=1')).status,401);assert.equal((await call('/search-index','POST')).status,401);
   const login=await call('/session','POST',JSON.stringify({name:'시험',password:'catalog-test-only'}),{'Content-Type':'application/json'});await ok(login);cookie=login.headers.get('Set-Cookie').split(';')[0];
   assert.deepEqual((await ok(await call('/documents?includeIndexed=1'))).documents,[]);
+  const db=await mf.getD1Database('DB');
+  // A fresh server remains empty until a Mac explicitly supplies an inventory.
+  assert.deepEqual((await ok(await call('/documents?includeIndexed=1&q=.pro6'))).documents,[]);
+  assert.equal((await db.prepare('SELECT COUNT(*) AS total FROM yebaeon_library_catalog').first()).total,0);
+  const fixtures=Array.from({length:105},(_,i)=>({originalPath:`합성 목록 ${String(i).padStart(3,'0')}.pro6`,size:100}));
+  await ok(await call('/inventory','POST',JSON.stringify({deviceId:'c'.repeat(64),documents:fixtures}),{'Content-Type':'application/json'}));
   const first=await ok(await call('/documents?includeIndexed=1&q=.pro6&sort=name'));assert.equal(first.documents.length,100);assert.ok(first.documents.every(d=>d.available===false));
-  const db=await mf.getD1Database('DB');assert.equal((await db.prepare('SELECT COUNT(*) AS total FROM yebaeon_library_catalog').first()).total,3107);
+  assert.equal((await db.prepare('SELECT COUNT(*) AS total FROM yebaeon_library_catalog').first()).total,105);
   const second=await ok(await call('/documents?includeIndexed=1&q=.pro6&sort=name&after='+encodeURIComponent(first.next)));assert.ok(second.documents[0].path>first.documents.at(-1).path);assert.equal((await ok(await call('/documents'))).documents.length,0);
+  // Clearing both old seed markers and catalog entries cannot reimport old names.
+  await db.exec('CREATE TABLE yebaeon_catalog_imports (snapshot TEXT PRIMARY KEY, imported_at TEXT NOT NULL);');
+  await db.batch([
+    db.prepare('DELETE FROM yebaeon_library_catalog'),
+    db.prepare('DELETE FROM yebaeon_catalog_imports'),
+    db.prepare('DELETE FROM yebaeon_inventory_members'),
+    db.prepare('DELETE FROM yebaeon_inventory_devices')
+  ]);
+  assert.deepEqual((await ok(await call('/documents?includeIndexed=1&q=.pro6'))).documents,[]);
+  assert.equal((await db.prepare('SELECT COUNT(*) AS total FROM yebaeon_library_catalog').first()).total,0);
   const id='33333333-3333-4333-a333-333333333333',path='미업로드 시험 : & %3A.pro6',original=path.normalize('NFD');
   await db.prepare('INSERT INTO yebaeon_library_catalog(id,path,original_path,size,slide_count,snapshot) VALUES (?,?,?,?,?,?)').bind(id,path,original,100,3,'fixture').run();
   let results=await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('미업로드 시험')));assert.equal(results.documents.length,1);assert.equal(results.documents[0].available,false);assert.equal((await call('/documents/'+id+'/content')).status,404);

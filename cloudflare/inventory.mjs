@@ -1,5 +1,4 @@
 import { documentPath } from './documents.mjs';
-import { ensureCatalog } from './library-catalog.mjs';
 import { HttpError,bytes,json,method,sameOrigin } from './http.mjs';
 // Complete metadata-only scans commit atomically; failed requests cannot mark files missing.
 export async function inventoryRoute(request,env,user){
@@ -12,7 +11,6 @@ export async function inventoryRoute(request,env,user){
     if(seen.has(path)||!Number.isSafeInteger(d.size)||d.size<0)throw new HttpError(400,'invalid_inventory','겹치는 경로나 파일 크기를 확인해 주세요.');
     seen.add(path);return {id:crypto.randomUUID(),path,originalPath:d.originalPath,size:d.size};
   });
-  await ensureCatalog(env.DB);
   const snapshot=crypto.randomUUID(),at=new Date().toISOString(),statements=[env.DB.prepare('DELETE FROM yebaeon_inventory_members WHERE device_id=?').bind(body.deviceId)];
   for(let offset=0;offset<documents.length;offset+=400){const data=JSON.stringify(documents.slice(offset,offset+400));
     statements.push(env.DB.prepare(`INSERT INTO yebaeon_library_catalog(id,path,original_path,size,slide_count,snapshot)

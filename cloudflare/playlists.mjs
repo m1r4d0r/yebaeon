@@ -1,6 +1,6 @@
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
 import { parsePlaylist, catalog, referencePath, sourceRoot, editPlaylist } from './playlist-format.mjs';
-import { ensureCatalog,catalogDocument } from './library-catalog.mjs';
+import { catalogDocument } from './library-catalog.mjs';
 import {archiveList,protectManagedPlaylists,managePlaylist} from './playlist-management.mjs';
 const MAX = 5 * 1024 * 1024;
 const conflict = () => new HttpError(409, 'playlist_conflict', '재생목록이 먼저 변경됐습니다. 새로고침 후 다시 확인해 주세요.');
@@ -110,7 +110,6 @@ export async function playlistsRoute(request, env, user, id, action) {
     }
     const indexed=new Map();
     if(url.searchParams.get('includeIndexed')==='1'){
-      await ensureCatalog(db);
       for(let offset=0;offset<paths.length;offset+=80){const slice=paths.slice(offset,offset+80);const rows=(await db.prepare(`SELECT * FROM yebaeon_library_catalog WHERE path IN (${slice.map(()=>'?').join(',')})`).bind(...slice).all()).results;for(const value of rows)indexed.set(value.path,catalogDocument(value));}
     }
     const items = playlist.items.map(item => {
@@ -145,7 +144,7 @@ export async function playlistsRoute(request, env, user, id, action) {
   const docs=new Map(), ids=[...new Set((body.items||[]).map(x=>x?.documentId).filter(Boolean))];
   if(ids.some(x=>typeof x!=='string' || !/^[0-9a-f-]{36}$/i.test(x)))throw new HttpError(400,'invalid_playlist','문서 번호를 확인해 주세요.');
   for(let offset=0;offset<ids.length;offset+=80){const slice=ids.slice(offset,offset+80), found=(await db.prepare(`SELECT * FROM yebaeon_documents WHERE id IN (${slice.map(()=>'?').join(',')})`).bind(...slice).all()).results;for(const value of found)docs.set(value.id,doc(value));}
-  const missing=ids.filter(id=>!docs.has(id));if(missing.length){await ensureCatalog(db);for(let offset=0;offset<missing.length;offset+=80){const slice=missing.slice(offset,offset+80),found=(await db.prepare(`SELECT * FROM yebaeon_library_catalog WHERE id IN (${slice.map(()=>'?').join(',')})`).bind(...slice).all()).results;for(const value of found)docs.set(value.id,catalogDocument(value));}}
+  const missing=ids.filter(id=>!docs.has(id));if(missing.length){for(let offset=0;offset<missing.length;offset+=80){const slice=missing.slice(offset,offset+80),found=(await db.prepare(`SELECT * FROM yebaeon_library_catalog WHERE id IN (${slice.map(()=>'?').join(',')})`).bind(...slice).all()).results;for(const value of found)docs.set(value.id,catalogDocument(value));}}
   const node=url.searchParams.get('node');
   // Old clients retain full-file CAS. New clients compare only their selected node.
   if(body.baseNodeHash!==undefined && !/^[0-9a-f]{64}$/.test(body.baseNodeHash))throw new HttpError(400,'invalid_playlist','순서 기준이 올바르지 않습니다.');

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {build} from 'esbuild';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
-import manifest from '../cloudflare/library-manifest.json' with {type:'json'};
 import {ensureSchema} from '../cloudflare/schema.mjs';
 import {measuredDB} from '../cloudflare/db-cost.mjs';
 import {catalogList} from '../cloudflare/library-catalog.mjs';
@@ -62,7 +61,7 @@ test('document policy preserves old backups, bounds future song history and keep
 test('scoped status and search read budgets on 3107 synthetic documents; empty search does no library queries',{timeout:90000},async t=>{
  const {db,bucket}=await fixture(t);const count=3107,ids=Array.from({length:count},()=>randomUUID()),stamp='2026-10-01T00:00:00Z';
  for(let offset=0;offset<count;offset+=100){const statements=[];for(let i=offset;i<Math.min(offset+100,count);i++){
-  const path=manifest.documents[i].path;
+  const path=`합성 문서 ${String(i).padStart(4,'0')}.pro6`;
   statements.push(db.prepare('INSERT INTO yebaeon_documents(id,path,created_at,current_version,updated_at,updated_by,sha256,size,write_id,last_used,usage_version) VALUES (?,?,?,1,?,?,?,?,?,?,1)').bind(ids[i],path,stamp,stamp,'fixture','a'.repeat(64),100,ids[i],stamp));
   statements.push(db.prepare('INSERT INTO yebaeon_document_search VALUES (?,1,?,NULL)').bind(ids[i],i<20?'needle':'other'));
   statements.push(db.prepare('INSERT INTO yebaeon_sync_observations VALUES (?,?,?,?,?,?,?,?)').bind('b'.repeat(64),'document',ids[i],'','a'.repeat(64),'same',stamp,'fixture'));
@@ -80,7 +79,7 @@ test('scoped status and search read budgets on 3107 synthetic documents; empty s
  const searchRows=measured.metrics().reduce((n,q)=>n+q.rowsRead,0);
  measured=measuredDB(db,'warm-search');await catalogList(new Request(origin+'/api/documents?includeIndexed=1&q=needle&sort=used'),{DB:measured,FILES:bucket});const warmSearchRows=measured.metrics().reduce((n,q)=>n+q.rowsRead,0);assert.ok(searchRows<100000); // substring scanning remains bounded by library size
  const plan=await db.prepare("EXPLAIN QUERY PLAN SELECT id,path FROM yebaeon_documents ORDER BY COALESCE(last_used,'') DESC,path LIMIT 101").all();assert.ok(plan.results.some(r=>r.detail.includes('yebaeon_documents_used')));
- console.log(JSON.stringify({event:'synthetic-cost-result',documents:count,statusTargets:20,oldStatusMinimum:oldMinimum,scopedStatus:scopedReads,searchRows,warmSearchRows,searchIncludesFirstCatalogImport:true}));
+ console.log(JSON.stringify({event:'synthetic-cost-result',documents:count,statusTargets:20,oldStatusMinimum:oldMinimum,scopedStatus:scopedReads,searchRows,warmSearchRows,searchIncludesFirstCatalogImport:false}));
 });
 
 test('one-time migration copies existing dates and preserves old originals and backups',{timeout:90000},async t=>{

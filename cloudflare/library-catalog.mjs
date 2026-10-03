@@ -1,23 +1,6 @@
-import manifest from './library-manifest.json' with { type: 'json' };
 import { HttpError,json } from './http.mjs';
 import { normalizeSearch } from './document-search.mjs';
 import { categoryPolicy, oldMaterialCutoff, generalSearchVisibility } from './document-category.mjs';
-const jobs=new WeakMap();
-export function ensureCatalog(db){
-  const identity=db.rawDB||db;
-  if(!jobs.has(identity))jobs.set(identity,(async()=>{
-    if(await db.prepare('SELECT snapshot FROM yebaeon_catalog_imports WHERE snapshot=?').bind(manifest.snapshot).first())return;
-    const statements=[];
-    for(let offset=0;offset<manifest.documents.length;offset+=400){
-      statements.push(db.prepare(`INSERT INTO yebaeon_library_catalog(id,path,original_path,size,slide_count,snapshot)
-        SELECT json_extract(value,'$.id'),json_extract(value,'$.path'),json_extract(value,'$.originalPath'),json_extract(value,'$.size'),json_extract(value,'$.slides'),? FROM json_each(?) WHERE true
-        ON CONFLICT(path) DO UPDATE SET original_path=excluded.original_path,size=excluded.size,slide_count=excluded.slide_count,snapshot=excluded.snapshot`).bind(manifest.snapshot,JSON.stringify(manifest.documents.slice(offset,offset+400))));
-    }
-    statements.push(db.prepare('INSERT OR IGNORE INTO yebaeon_catalog_imports(snapshot,imported_at) VALUES (?,?)').bind(manifest.snapshot,new Date().toISOString()));
-    await db.batch(statements);
-  })().catch(error=>{jobs.delete(identity);throw error;}));
-  return jobs.get(identity);
-}
 export function catalogDocument(row){return {id:row.id,path:row.path,originalPath:row.original_path,name:row.path.split('/').pop(),available:false,version:null,size:row.size,slideCount:row.slide_count,updatedAt:null,updatedBy:null};}
 export async function catalogList(request,env){
   const url=new URL(request.url),q=(url.searchParams.get('q')||'').normalize('NFC'),after=url.searchParams.get('after')||'',sort=url.searchParams.get('sort')||'name';
@@ -25,7 +8,6 @@ export async function catalogList(request,env){
   if(!['name','name-desc','used','updated'].includes(sort))throw new HttpError(400,'invalid_sort','정렬 기준을 확인해 주세요.');
   let cursor=null;if(url.searchParams.has('cursor')){try{const raw=url.searchParams.get('cursor');if(raw.length>2000)throw Error();cursor=JSON.parse(raw);if(typeof cursor.path!=='string'||cursor.path.length>600||typeof cursor.value!=='string'||cursor.value.length>40)throw Error();}catch{throw new HttpError(400,'invalid_cursor','목록을 새로고침해 주세요.');}}
   if(!q.trim())return json({documents:[],next:null});
-  await ensureCatalog(env.DB);
   const field=sort==='used'?"COALESCE(last_used,'')":"COALESCE(updated_at,'')";
   const includeArchived=url.searchParams.get('includeArchived')==='1';
   let clause='',args=[...(includeArchived?[]:[oldMaterialCutoff()]),q,normalizeSearch(q)];
