@@ -1,0 +1,38 @@
+name: Verify Mac Sync 2
+# Sync 2 후보만 검사한다. 작은 수정마다 돌리지 않고 [verify-mac] 커밋이나 수동 실행에서만 돈다.
+on:
+  workflow_dispatch:
+  push:
+    branches: [sync2]
+concurrency:
+  group: mac-sync2-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  sync2:
+    if: github.event.repository.private == false && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[verify-mac]'))
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.node-version'
+          cache: npm
+      - run: npm ci
+      - name: Worker tests
+        run: npm test
+      - name: Sync 2 engine integration (local Worker)
+        run: bash mac-sync2/test.command
+      - name: Build Sync 2 app (10.13 target)
+        run: bash mac-sync2/build.command
+      - name: Package
+        run: cd mac-sync2/build && ditto -c -k --keepParent "예배온 Sync 2.app" "YebaeOn-Sync-2.0.0.zip" && shasum -a 256 YebaeOn-Sync-2.0.0.zip
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: YebaeOn-Sync-2.0.0
+          path: mac-sync2/build/YebaeOn-Sync-2.0.0.zip
+          retention-days: 30

@@ -123,7 +123,10 @@ export async function playlistsRoute(request, env, user, id, action) {
     const nodeXml = parsed.xml.slice(playlist.node.start,playlist.node.end), nodeHash = await sha256(new TextEncoder().encode(nodeXml));
     const fingerprint = await sha256(new TextEncoder().encode(JSON.stringify([r.id,playlist.id,nodeHash,items.map(x=>[x.id,x.path,x.issue,x.document?.version,x.document?.sha256])])));
     if ((await row(db,id)).current_version!==r.current_version) throw conflict();
-    return json({library:metadata(r),playlist:{id:playlist.id,name:playlist.name,xml:nodeXml,sha256:nodeHash,version:nodeVersion?.version||1,updatedBy:nodeVersion?.author||r.updated_by,updatedAt:nodeVersion?.created_at||r.updated_at,editable:playlist.editable},items,documents,fingerprint,ready:items.every(x=>!x.issue)});
+    // `applicable`: the node can be installed on a Mac. A reference without a server original is not a blocker —
+    // the Mac keeps its own file for that cue. Only unsupported cues and unmapped paths block installation.
+    const missing=items.filter(x=>x.issue==='missing').length;
+    return json({library:metadata(r),playlist:{id:playlist.id,name:playlist.name,xml:nodeXml,sha256:nodeHash,version:nodeVersion?.version||1,updatedBy:nodeVersion?.author||r.updated_by,updatedAt:nodeVersion?.created_at||r.updated_at,editable:playlist.editable},items,documents,fingerprint,ready:items.every(x=>!x.issue),applicable:items.every(x=>x.issue!=='unsupported'&&x.issue!=='unmapped'),missing});
   }
   if (action === 'versions') {
     method(request,['GET']);const before=Number(url.searchParams.get('before') || Number.MAX_SAFE_INTEGER);
@@ -138,7 +141,11 @@ export async function playlistsRoute(request, env, user, id, action) {
   }
   method(request,['GET','PUT','PATCH']); if(request.method==='GET')return json({library:metadata(r)});
   sameOrigin(request);const match=request.headers.get('If-Match');if(!match || !/^"[1-9][0-9]*"$/.test(match))throw new HttpError(428,'version_required','재생목록 기준 버전이 필요합니다.');if(request.method==='PUT'&&Number(match.slice(1,-1))!==r.current_version)throw conflict();
-  if(request.method==='PUT'){const content=await read(request);await protectManagedPlaylists(env,r,content.parsed);return json(await save(env,user,r,content));}
+  if(request.method==='PUT'){
+    // Whole-file replacement is reserved for Sync 2 clients. Older Sync builds rewrote the entire file from the Mac copy
+    // after a partial receive and silently overwrote web edits; they must not reach this path.
+    if(request.headers.get('X-YebaeOn-Sync')!=='2')throw new HttpError(426,'sync_upgrade_required','이 Sync 버전은 재생목록 파일 전체를 저장할 수 없습니다. 새 Sync로 업데이트해 주세요.');
+    const content=await read(request);await protectManagedPlaylists(env,r,content.parsed);return json(await save(env,user,r,content));}
   const raw=await bytes(request,512*1024);let body;try{body=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));}catch{throw new HttpError(400,'invalid_playlist','순서 변경 내용을 확인해 주세요.');}
   if(!body || (!Array.isArray(body.items)&&!Number.isSafeInteger(body.restoreVersion)) || body.items?.length>2000)throw new HttpError(400,'invalid_playlist','순서 목록이 필요합니다.');
   const docs=new Map(), ids=[...new Set((body.items||[]).map(x=>x?.documentId).filter(Boolean))];

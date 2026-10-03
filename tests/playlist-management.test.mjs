@@ -12,7 +12,10 @@ test('playlist create, archive snapshot, restoration and stale Sync protection',
  assert.equal((await call('/playlists?scope=archived')).status,401);
  const login=await call('/session','POST',JSON.stringify({name:'시험',password:'archives-only'}));await ok(login);cookie=login.headers.get('Set-Cookie').split(';')[0];
  let lib=(await ok(await call('/playlists?path=fixture.pro6pl','POST',xml),201)).library;
- const path='/playlists/'+lib.id,tag=()=>({'If-Match':`"${lib.version}"`});
+ const path='/playlists/'+lib.id,tag=()=>({'If-Match':`"${lib.version}"`,'X-YebaeOn-Sync':'2'});
+ // Whole-file PUT without the Sync 2 header is refused before any structure check (older Sync builds).
+ const legacy=await call(path,'PUT',xml,{'If-Match':`"${lib.version}"`});
+ assert.equal(legacy.status,426);assert.equal((await legacy.json()).error,'sync_upgrade_required');
  // Imported nodes have no controls rows. An old client with a current CAS
  // must still not remove them by omitting them from its whole-file upload.
  const imported=await(await call(path+'/content')).text();
