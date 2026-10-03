@@ -56,5 +56,5 @@
  window.addEventListener('yebaeonsession',event=>{if(event.detail.authenticated)boot().catch(e=>E.status(e.message));else{catalog=null;mediaFiles.clear();knownFormats.clear();PP6Render.clear();}});
  function toggleBible(){if(!$('biblePanel').hidden){close();E.setView('slides');return;}$('mediaDrawer').hidden=true;return show();}
  function toggleMedia(){if(!$('mediaDrawer').hidden){$('mediaDrawer').hidden=true;E.setView('slides');return;}close();return showMedia();}
- window.YebaeonResources={boot,media,showBible:show,showMedia,toggleBible,toggleMedia,draggedMedia:()=>mediaDrag,closeBible:close};
+ window.YebaeonResources={async bulletinMaterials(){await boot();if(!bible)bible=await(await resource('bible.json')).json();const t=templates.find(x=>x.id===DEFAULT_BIBLE_TEMPLATE_ID);if(!t)throw new Error('기본 말씀 템플릿을 찾지 못했습니다.');await ensureTemplate(t);return {bible,template:t};},boot,media,showBible:show,showMedia,toggleBible,toggleMedia,draggedMedia:()=>mediaDrag,closeBible:close};
 })();
