@@ -49,7 +49,21 @@ void YBSavePreferences(NSString *name,NSDictionary *value) {
     if(!ok || ![data writeToFile:[dir stringByAppendingPathComponent:name] options:NSDataWritingAtomic error:&error])YBAlert(@"설정을 저장하지 못했습니다.",error.localizedDescription);
 }
 NSString *YBStatusName(NSString *status) {return @{@"same":@"일치",@"download":@"받기",@"upload":@"보내기",@"conflict":@"충돌 · 확인 필요"}[status] ?: status;}
-NSString *YBProfilePath(NSString *root,NSString *origin) {NSString *identity=[NSString stringWithFormat:@"%@\n%@",origin,root.stringByStandardizingPath.stringByResolvingSymlinksInPath];return [YBPreferencesDirectory() stringByAppendingPathComponent:YBHash([identity dataUsingEncoding:NSUTF8StringEncoding])];}
+static NSString *ProfileIdentity(NSString *root,NSString *origin) {NSString *identity=[NSString stringWithFormat:@"%@\n%@",origin,root.stringByStandardizingPath.stringByResolvingSymlinksInPath];return YBHash([identity dataUsingEncoding:NSUTF8StringEncoding]);}
+NSString *YBProfilePath(NSString *root,NSString *origin) {
+    NSString *identity=ProfileIdentity(root,origin),*generation=YBPreferences(@"profile-generations.json")[identity];
+    YBRequire(!generation || ([generation isKindOfClass:NSString.class] && [[NSUUID alloc] initWithUUIDString:generation]),@"동기화 초기화 기록을 읽지 못했습니다.");
+    return [YBPreferencesDirectory() stringByAppendingPathComponent:generation ? [identity stringByAppendingFormat:@"-%@",generation] : identity];
+}
+NSString *YBStartFreshProfile(YBSync *sync,NSString *origin) {
+    [sync assertReady];YBRequire(!sync.presenterRunning(),@"ProPresenter를 종료한 후 동기화 기록을 초기화하세요.");
+    NSString *previous=sync.profile;YBRequire([previous isEqual:YBProfilePath(sync.root,origin)],@"사용 중인 동기화 기준이 바뀌었습니다. 앱을 다시 열어 주세요.");
+    NSMutableDictionary *generations=[YBPreferences(@"profile-generations.json") mutableCopy];generations[ProfileIdentity(sync.root,origin)]=NSUUID.UUID.UUIDString;
+    NSData *data=[NSJSONSerialization dataWithJSONObject:generations options:NSJSONWritingPrettyPrinted error:NULL];YBRequire(data!=nil,@"초기화 기록 생성 실패");
+    // Atomic pointer change: old journals/backups stay isolated; no user files move.
+    YBWriteSafeFile(YBPreferencesDirectory(),@"profile-generations.json",data,0600,nil);
+    return previous;
+}
 @interface YBWork ()
 @property(nonatomic,readwrite) BOOL busy;
 @property(nonatomic,strong) dispatch_queue_t queue;

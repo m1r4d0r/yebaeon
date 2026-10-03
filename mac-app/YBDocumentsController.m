@@ -1,3 +1,4 @@
+#import "YBDocumentComparison.h"
 #import "YBDocumentsController.h"
 #import "YBLibrary.h"
 #import "YBPlaylistFormat.h"
@@ -202,6 +203,19 @@
         [self startupCompare];
     }];
 }
+- (void)resetHistory:(id)sender {
+    if(self.work.busy)return;
+    if(!YBConfirm(@"동기화 기록을 초기화하고 다시 시작할까요?",[NSString stringWithFormat:@"현재 문서 폴더: %@\n\n이 Mac의 문서·재생목록 비교 기준과 이미지 전송 재개 기록을 새로 시작합니다. 현재 파일과 서버 자료는 그대로입니다. 이전 기록은 복구용 폴더에 분리 보관하며 비교에 사용하지 않습니다.\n\n서버가 비어 있으면 현재 문서가 ‘보내기’로 표시됩니다. 서버에도 다른 내용이 있으면 충돌 확인이 필요합니다. PP6를 종료해 주세요.",self.documentsRoot],@"기록 초기화"))return;
+    self.comparisonEpoch++;self.backgroundNeedsResume=NO;self.backgroundScheduled=YES;
+    [self.work run:^id {
+        YBLibrary *library=[self connectedLibrary];NSString *old=YBStartFreshProfile(library.sync,self.server.origin);
+        [library.sync close];self.library=nil;return old;
+    } completion:^(NSString *old,NSString *error){
+        if(error){YBAlert(@"기록 초기화 중단",error);return;}
+        [self acceptRows:@[]];if(self.rootChanged)self.rootChanged(self.documentsRoot);
+        YBAlert(@"동기화 기록 초기화 완료",[NSString stringWithFormat:@"현재 파일로 다시 비교합니다. 빈 서버에 전체 문서와 재생목록을 올리려면 도구 → ‘이 Mac 기준으로 서버 다시 맞추기…’를 사용하세요.\n\n이전 복구 기록: %@",old]);
+    }];
+}
 - (void)logout:(id)sender {
     self.comparisonEpoch++;self.backgroundNeedsResume=NO;self.backgroundScheduled=YES;
     [self.work run:^id { [self ensureSessionLoaded];[self.server request:@"/api/session" method:@"DELETE" body:nil headers:nil];[self.server forgetSession];return @YES; } completion:^(id result,NSString *error) {
@@ -273,28 +287,10 @@
         NSDictionary *old=local ? PP6ParseDocumentData(local,path,@[],@{},@[],@{},YES) : nil;
         NSDictionary *new=incoming ? PP6ParseDocumentData(incoming,path,@[],@{},@[],@{},YES) : nil;
         YBRequire(![old[@"parseError"] length] && ![new[@"parseError"] length],@"문서 내용을 분석하지 못했습니다.");
-        NSMutableString *text=[NSMutableString stringWithFormat:@"%@\n상태: %@\nMac: %@장 · 서버: %@장\n\n",path,YBStatusName(row[@"status"]),old[@"slideCount"] ?: @0,new[@"slideCount"] ?: @0];
-        if(old && new) {
-            NSDictionary *diff=PP6CompareParsedDocuments(old,new),*counts=diff[@"counts"];
-            [text appendFormat:@"추가 %@ · 삭제 %@ · 수정 %@ · 이동 %@ · 기술 차이 %@\n\n",counts[@"added"],counts[@"deleted"],counts[@"modified"],counts[@"moved"],counts[@"technical"]];
-            for(NSDictionary *group in diff[@"groups"]) {
-                [text appendFormat:@"[%@]\n",group[@"name"]];
-                for(NSDictionary *item in group[@"deleted"])[text appendFormat:@"삭제: %@장 · %@\n",item[@"oldIndex"],[item[@"texts"] componentsJoinedByString:@" / "]];
-                for(NSDictionary *item in group[@"added"])[text appendFormat:@"추가: %@장 · %@\n",item[@"newIndex"],[item[@"texts"] componentsJoinedByString:@" / "]];
-                for(NSDictionary *item in group[@"matched"]) {
-                    NSMutableArray *changes=[NSMutableArray array];
-                    if([item[@"modified"] boolValue])[changes addObject:@"내용·서식 수정"];
-                    if([item[@"moved"] boolValue])[changes addObject:@"순서 이동"];
-                    if([item[@"technicalOnly"] boolValue])[changes addObject:@"식별자·경로 차이"];
-                    if(changes.count)[text appendFormat:@"Mac %@장 → 서버 %@장: %@\n",item[@"oldIndex"],item[@"newIndex"],[changes componentsJoinedByString:@" · "]];
-                }
-            }
-            [text appendString:@"\n분석은 기존 Core 기준입니다. 원본 바이트가 다르면 화면 차이 집계가 0이어도 동기화 상태가 달라질 수 있습니다.\n"];
-        } else [text appendString:local ? @"이 문서는 Mac에만 있습니다.\n" : @"서버에만 있는 문서입니다. 받기를 선택하면 새 파일로 추가합니다.\n"];
-        return text;
-    } completion:^(NSString *result,NSString *error) {
-        if(error){YBAlert(@"내용 비교",error);return;}NSAlert *alert=[NSAlert new];alert.messageText=@"문서 내용 비교 · 버전 선택";alert.informativeText=@"선택한 쪽의 전체 문서(본문·서식·미디어 참조)를 사용합니다. 공유하는 다른 예배에도 반영됩니다.";
-        NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,720,350)];scroll.hasVerticalScroller=YES;NSTextView *text=[[NSTextView alloc] initWithFrame:scroll.bounds];text.editable=NO;text.string=result;text.textContainer.widthTracksTextView=YES;text.verticallyResizable=YES;text.autoresizingMask=NSViewWidthSizable;scroll.documentView=text;alert.accessoryView=scroll;
+        return @{@"local":old ?: @{},@"remote":new ?: @{}};
+    } completion:^(NSDictionary *result,NSString *error) {
+        if(error){YBAlert(@"내용 비교",error);return;}NSAlert *alert=[NSAlert new];alert.messageText=[@"문서 비교 · " stringByAppendingString:path];alert.informativeText=@"슬라이드를 선택해 양쪽 내용을 비교하세요. 선택한 버전의 문서 전체를 적용합니다.";
+        alert.accessoryView=[[YBDocumentComparison alloc] initWithLocal:result[@"local"] remote:result[@"remote"]];
         [alert addButtonWithTitle:@"Mac 내용 사용"];[alert addButtonWithTitle:@"서버 내용 사용"];[alert addButtonWithTitle:@"닫기"];alert.buttons[0].enabled=row[@"localHash"]!=NSNull.null;alert.buttons[1].enabled=[row[@"remote"] isKindOfClass:NSDictionary.class];NSModalResponse answer=[alert runModal];if(answer!=NSAlertFirstButtonReturn && answer!=NSAlertSecondButtonReturn)return;BOOL receiving=answer==NSAlertSecondButtonReturn;
         if(!YBConfirm(@"이 문서의 기준을 맞출까요?",[NSString stringWithFormat:@"%@\n양쪽 원본을 백업하고 %@ 내용으로 맞춥니다. PP6를 종료해 주세요.",path,receiving ? @"서버" : @"Mac"],@"백업 후 적용"))return;
         [self.work run:^id{return [[self connectedLibrary] resolveRow:row receiving:receiving];} completion:^(NSDictionary *saved,NSString *failure){if(failure){YBAlert(@"문서 해결 미완료",failure);return;}[self mergeComparedRows:@[saved]];if(self.priorityRequested)self.priorityRequested();}];

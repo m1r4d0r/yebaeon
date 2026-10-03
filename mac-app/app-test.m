@@ -1,3 +1,4 @@
+#import "YBDocumentComparison.h"
 #define main YBApplicationMain
 #import "main.m"
 #undef main
@@ -94,6 +95,34 @@ int main(void) {@autoreleasepool {
         [NSApplication sharedApplication];YBSetTestPreferencesDirectory([area stringByAppendingPathComponent:@"settings"]);
         YBSavePreferences(@"documents-settings.json",@{@"root":[area stringByAppendingPathComponent:@"ui-documents"]});
         YBSavePreferences(@"media-settings.json",@{@"roots":@[[area stringByAppendingPathComponent:@"ui-media"]]});
+        {
+            NSString *root=[area stringByAppendingPathComponent:@"reset-documents"],*origin=@"https://example.test",*profile=YBProfilePath(root,origin);
+            YBSync *sync=[[YBSync alloc] initWithRoot:root profile:profile origin:origin];sync.presenterRunning=^BOOL{return NO;};
+            NSData *bytes=Document(@[]);Put([root stringByAppendingPathComponent:@"현재.pro6"],bytes);
+            NSDictionary *metadata=@{@"id":@"11111111-1111-4111-a111-111111111111",@"path":@"현재.pro6",@"sha256":YBHash(bytes),@"version":@1,@"size":@(bytes.length)};
+            [sync acknowledge:metadata expectedLocalHash:YBHash(bytes)];YBWriteSafeFile(profile,@"playlist-state-fixture.json",[@"{}" dataUsingEncoding:NSUTF8StringEncoding],0600,nil);
+            sync.presenterRunning=^BOOL{return YES;};Reject(^{YBStartFreshProfile(sync,origin);},@"reset refuses running presenter");Check([YBProfilePath(root,origin) isEqual:profile],@"failed reset keeps active generation");sync.presenterRunning=^BOOL{return NO;};
+            YBWriteSafeFile(profile,@"playlist-active.json",[@"{\"status\":\"applying\"}" dataUsingEncoding:NSUTF8StringEncoding],0600,nil);Reject(^{YBStartFreshProfile(sync,origin);},@"reset cannot hide interrupted apply");
+            YBWriteSafeFile(profile,@"playlist-active.json",[@"{\"status\":\"complete\"}" dataUsingEncoding:NSUTF8StringEncoding],0600,nil);
+            Check([YBStartFreshProfile(sync,origin) isEqual:profile],@"reset reports isolated old profile");[sync close];
+            NSString *fresh=YBProfilePath(root,origin);Check(![fresh isEqual:profile] && [YBProfilePath(root,@"https://other.test") rangeOfString: fresh.lastPathComponent].location==NSNotFound,@"reset is scoped to folder and server");
+            YBSync *again=[[YBSync alloc] initWithRoot:root profile:fresh origin:origin];again.presenterRunning=^BOOL{return NO;};NSArray *rows=[again plan:@[]];
+            Check(again.entries.count==0 && rows.count==1 && [rows[0][@"status"] isEqual:@"upload"],@"fresh state sends actual local document to empty server");
+            Check([[again readDocument:@"현재.pro6"] isEqual:bytes] && YBReadSafeFile(profile,@"state.json",NULL)!=nil && YBReadSafeFile(fresh,@"playlist-state-fixture.json",NULL)==nil,@"reset preserves originals and isolates playlist history");[again close];
+        }
+        {
+            NSMutableParagraphStyle *paragraph=[NSMutableParagraphStyle new];paragraph.alignment=NSTextAlignmentCenter;
+            NSAttributedString *(^words)(NSString *)=^NSAttributedString *(NSString *s){return [[NSAttributedString alloc] initWithString:s attributes:@{NSFontAttributeName:[NSFont boldSystemFontOfSize:52],NSForegroundColorAttributeName:NSColor.whiteColor,NSParagraphStyleAttributeName:paragraph}];};
+            NSDictionary *(^parse)(NSString *,NSString *)=^NSDictionary *(NSString *wordsText,NSString *extra){NSAttributedString *rtf=words(wordsText);NSString *b64=[[rtf RTFFromRange:NSMakeRange(0,rtf.length) documentAttributes:@{}] base64EncodedStringWithOptions:0];NSString *xml=[NSString stringWithFormat:@"<RVPresentationDocument width='1280' height='720'><RVSlideGrouping uuid='g' name='찬양'><RVDisplaySlide UUID='a'><RVTextElement><RVRect3D rvXMLIvarName='position'>{80 180 0 1120 420}</RVRect3D><NSString rvXMLIvarName='RTFData'>%@</NSString></RVTextElement></RVDisplaySlide>%@</RVSlideGrouping></RVPresentationDocument>",b64,extra];return PP6ParseDocumentData([xml dataUsingEncoding:NSUTF8StringEncoding],@"합성.pro6",@[],@{},@[],@{},YES);};
+            NSDictionary *a=parse(@"주님의 사랑\n우리를 지키시네",@"<RVDisplaySlide UUID='old' label='Mac 전용'/>");
+            NSDictionary *b=parse(@"주님의 은혜\n우리를 지키시네\n함께 찬양해",@"<RVDisplaySlide UUID='new' label='서버 추가' enabled='false'/>");
+            NSArray *rows=YBComparisonRows(a,b);Check(rows.count>=2 && [rows[0][@"changed"] boolValue],@"visual comparison matches changed slides");
+            Check(YBComparisonRows(a,@{}).count==2 && YBComparisonRows(@{},b).count==2,@"visual comparison includes entirely missing groups");
+            NSAttributedString *marked=YBHighlightedLines(@"같음\n추가",@"같음",YES);Check([marked.string containsString:@"+ 추가"] && [marked attribute:NSBackgroundColorAttributeName atIndex:marked.length-2 effectiveRange:NULL]!=nil,@"added lines have visible sign and highlight");
+            Check([YBHighlightedLines(@"삭제\n같음",@"같음",NO).string containsString:@"− 삭제"],@"deleted lines visibly marked");
+            Render([[YBDocumentComparison alloc] initWithLocal:a remote:b],@"05-document-conflict");
+            Render([[YBDocumentComparison alloc] initWithLocal:a remote:@{}],@"06-document-server-empty");
+        }
         YBServer *offline=[[YBServer alloc] initWithOrigin:@"https://example.test" allowLocalTestServer:NO];
         Reject(^{[offline request:@"/api/session" method:@"GET" body:nil headers:nil];},@"GUI network guard");
         Reject(^{[offline loadSession];},@"GUI keychain read guard");

@@ -14,6 +14,8 @@ FOUNDATION_EXPORT void YBSetTestPreferencesDirectory(NSString *directory);
 FOUNDATION_EXPORT NSDictionary *YBPreferences(NSString *name);
 FOUNDATION_EXPORT void YBSavePreferences(NSString *name, NSDictionary *value);
 FOUNDATION_EXPORT NSString *YBStatusName(NSString *status);
+@class YBSync;
+FOUNDATION_EXPORT NSString *YBStartFreshProfile(YBSync *sync,NSString *origin);
 FOUNDATION_EXPORT NSString *YBProfilePath(NSString *root, NSString *origin);
 
 @interface YBWork : NSObject

@@ -164,6 +164,11 @@ int main(void) { @autoreleasepool {
             NSString *area=NewArea(base);YBSync *s=Engine(area);NSString *batch=[s beginBackupBatch:@"documents" playlistJob:nil];[s apply:a document:v1 expectedLocalHash:nil];[s endBackupBatch:YES];
             s.checkpoint=^(NSString *point){if([point isEqual:@"restored_file"])YBRequire(NO,@"batch restore interrupted");};Reject(^{[s restoreBackupBatch:batch];},@"batch interrupted restore fixture");[s close];s=nil;YBSync *again=Engine(area);[again restoreBackupBatch:batch];Check(![again readDocument:path] && again.pendingTransactions.count==0,@"batch restore resumes interrupted removal");
         }
+        {
+            YBSync *s=Engine(NewArea(base));Put(s.root,path,a);[s acknowledge:v1 expectedLocalHash:YBHash(a)];
+            Check([NSFileManager.defaultManager removeItemAtPath:[s.root stringByAppendingPathComponent:path] error:NULL],@"remove old local fixture");
+            Check([s plan:@[]].count==0 && s.entries.count==1,@"baseline-only paths do not inflate live counts");
+        }
         (void)v3; printf("Native safety checks passed: %d\n",checks);
         Check([base hasPrefix:[NSTemporaryDirectory() stringByAppendingPathComponent:@"yebaeon-tests-"]],@"cleanup boundary");
         [NSFileManager.defaultManager removeItemAtPath:base error:NULL]; return 0;

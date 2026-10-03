@@ -65,7 +65,7 @@ static NSString *MediaStatus(NSString *status) {return @{@"exact-managed":@"ì—°ê
 }
 - (NSString *)mediaJournalKeyForReport:(NSDictionary *)report server:(YBServer *)server {
     NSMutableArray *signature=[NSMutableArray array];for(NSDictionary *asset in report[@"uniqueAssets"])[signature addObject:@[asset[@"sha256"],asset[@"size"]]];
-    NSData *data=[NSJSONSerialization dataWithJSONObject:@{ @"origin":server.origin,@"root":self.documentsRoot.stringByStandardizingPath,@"assets":signature } options:0 error:NULL];return YBHash(data);
+    NSData *data=[NSJSONSerialization dataWithJSONObject:@{ @"origin":server.origin,@"root":self.documentsRoot.stringByStandardizingPath,@"profile":YBProfilePath(self.documentsRoot,server.origin),@"assets":signature } options:0 error:NULL];return YBHash(data);
 }
 - (void)saveMediaJournal:(NSDictionary *)journal {
     NSString *dir=YBPreferencesDirectory();NSError *error=nil;BOOL ok=[NSFileManager.defaultManager createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:&error];

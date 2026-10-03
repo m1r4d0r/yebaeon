@@ -336,6 +336,7 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
     NSMutableSet *paths=[NSMutableSet setWithArray:remote.allKeys]; [paths addObjectsFromArray:local.allKeys]; [paths addObjectsFromArray:baselines.allKeys];
     NSMutableArray *rows=[NSMutableArray array];
     for(NSString *p in [paths.allObjects sortedArrayUsingSelector:@selector(compare:)]) {
+        if(!local[p] && !remote[p])continue; // Historical baseline alone is not a current document.
         if(self.comparisonCheck)self.comparisonCheck();
         if(local[p]){NSString *hash=[self documentSummary:p][@"hash"];YBRequire(hash!=nil,@"목록을 읽는 동안 문서가 이동됐습니다. 다시 비교해 주세요.");local[p]=hash;}
         NSString *status=YBDisposition(local[p],remote[p],baselines[p]);

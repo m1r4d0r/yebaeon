@@ -6,7 +6,7 @@ STAGING="$(mktemp -d "${TMPDIR:-/tmp}/yebaeon-build.XXXXXX")"
 trap 'rm -rf -- "$STAGING"' EXIT
 mkdir -p "$STAGING/예배온 Sync.app/Contents/MacOS" "$STAGING/예배온 Sync.app/Contents/Resources"
 COMMON=( -fobjc-arc -fobjc-arc-exceptions -fblocks -arch x86_64 -mmacosx-version-min=10.13 -Werror=unguarded-availability -framework Cocoa -framework Security )
-clang "${COMMON[@]}" ../mac-sync/YBSync.m ../mac-sync/YBServer.m ../mac-sync/PP6Core.m YBAppUI.m YBPlaylistIO.m YBPlaylistFormat.m YBPlaylistSync.m YBServerPlaylistsController.m PPSPlaylistController.m YBLibrary.m YBDocumentsController.m YBMediaController.m YBMediaPlan.m main.m -o "$STAGING/예배온 Sync.app/Contents/MacOS/YebaeOnSync"
+clang "${COMMON[@]}" ../mac-sync/YBSync.m ../mac-sync/YBServer.m ../mac-sync/PP6Core.m YBAppUI.m YBPlaylistIO.m YBPlaylistFormat.m YBPlaylistSync.m YBServerPlaylistsController.m PPSPlaylistController.m YBLibrary.m YBDocumentsController.m YBDocumentComparison.m YBMediaController.m YBMediaPlan.m main.m -o "$STAGING/예배온 Sync.app/Contents/MacOS/YebaeOnSync"
 # Render the approved vector artwork into a legacy macOS icon family before signing.
 ICONSET="$STAGING/AppIcon.iconset"
 mkdir -p "$ICONSET"

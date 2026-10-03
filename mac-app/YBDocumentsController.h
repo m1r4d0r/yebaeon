@@ -10,6 +10,7 @@
 @property(nonatomic,copy) void (^showRecovery)(void);
 - (void)setPlaylistFile:(NSURL *)url;
 - (void)refresh:(id)sender;
+- (void)resetHistory:(id)sender;
 - (void)logout:(id)sender;
 - (YBLibrary *)connectedLibrary;
 - (void)ensureSessionLoaded;
