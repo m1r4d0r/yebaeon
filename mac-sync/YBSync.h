@@ -27,6 +27,12 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 - (NSData *)download:(NSDictionary *)document;
 - (NSData *)downloadPlaylist:(NSDictionary *)library;
 - (NSDictionary *)upload:(NSData *)data path:(NSString *)path previous:(NSDictionary *)previous;
+- (NSArray *)mediaAssets:(NSArray *)hashes;
+- (BOOL)mediaContentExists:(NSString *)hash size:(unsigned long long)size;
+- (NSDictionary *)uploadMedia:(NSData *)data sha256:(NSString *)hash;
+- (NSDictionary *)registerMediaReferences:(NSArray *)references document:(NSDictionary *)document;
+- (NSArray *)mediaReferencesForDocument:(NSDictionary *)document;
+- (NSData *)downloadMedia:(NSString *)hash size:(unsigned long long)size;
 - (void)loadSession;
 - (void)saveSession;
 - (void)forgetSession;
@@ -54,6 +60,7 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 - (void)acknowledge:(NSDictionary *)document expectedLocalHash:(NSString *)hash;
 - (void)restoreAcknowledgement:(NSDictionary *)document previous:(NSDictionary *)previous expectedLocalHash:(NSString *)hash;
 - (NSString *)apply:(NSData *)data document:(NSDictionary *)document expectedLocalHash:(NSString *)hash;
+- (NSString *)applyInstalledData:(NSData *)data serverData:(NSData *)serverData document:(NSDictionary *)document expectedLocalHash:(NSString *)hash;
 // One receive operation is one retention unit, regardless of document count.
 @property(nonatomic, readonly) NSString *activeBackupBatch;
 @property(nonatomic, readonly) NSString *backupWarning;
@@ -70,6 +77,3 @@ FOUNDATION_EXPORT void YBWriteSafeFile(NSString *root, NSString *path, NSData *d
 // Release the folder lock before switching/reopening a profile. Do not reuse afterwards.
 - (void)close;
 @end
-
-
-

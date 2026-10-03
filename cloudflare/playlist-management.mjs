@@ -10,8 +10,13 @@ export async function archiveList(request,env){
   return json({archives:rows.slice(0,100),next:rows.length>100?rows[99].libraryId+'/'+rows[99].id:null});
 }
 export async function protectManagedPlaylists(env,r,parsed){
-  const controls=(await env.DB.prepare('SELECT node_id,state FROM yebaeon_playlist_controls WHERE library_id=?').bind(r.id).all()).results;
   const incoming=new Set(parsed.playlists.map(p=>p.id));
+  // Imported nodes predate controls. A full-file upload is not an explicit
+  // deletion request, even when the client has the latest file CAS version.
+  // Use the catalog already read with the file; no library-wide query/backfill.
+  const current=JSON.parse(r.catalog);
+  if(current.some(node=>!incoming.has(node.id)))throw new HttpError(409,'playlist_structure_changed','Mac에 없는 서버 재생목록이 있습니다. Sync를 업데이트하고 다시 비교해 주세요. 목록 보관·삭제는 해당 기능에서 따로 진행하세요.');
+  const controls=(await env.DB.prepare('SELECT node_id,state FROM yebaeon_playlist_controls WHERE library_id=?').bind(r.id).all()).results;
   if(controls.some(c=>c.state==='active'?!incoming.has(c.node_id):incoming.has(c.node_id)))throw new HttpError(409,'playlist_structure_changed','웹에서 추가·보관·삭제한 재생목록과 Mac 목록이 다릅니다. 서버의 목록 구성을 먼저 받은 뒤 다시 비교해 주세요.');
 }
 function controlStatement(db,r,writeId,{id,name,state,snapshotKey=null},now,author){

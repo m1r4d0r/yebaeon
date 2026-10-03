@@ -2,6 +2,7 @@
 @interface YBLibrary : NSObject
 @property(nonatomic,readonly) YBSync *sync;
 @property(nonatomic,readonly) YBServer *server;
+@property(nonatomic,copy) NSString *mediaReceiveRoot;
 - (instancetype)initWithRoot:(NSString *)root profile:(NSString *)profile server:(YBServer *)server;
 @property(nonatomic,copy) void (^operationCheckpoint)(void);
 @property(nonatomic,copy) void (^comparisonProgress)(NSUInteger done, NSUInteger total);
@@ -15,6 +16,5 @@
 - (void)reportSyncItems:(NSArray *)items;
 - (NSUInteger)transfer:(NSArray *)rows receiving:(BOOL)receiving progress:(void (^)(NSString *path, NSUInteger done))progress;
 @end
-
 
 

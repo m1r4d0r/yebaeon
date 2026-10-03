@@ -18,11 +18,11 @@ static NSString *Query(NSString *value) {
 @implementation YBTransfer
 - (instancetype)init { if((self=[super init])) { self.data=[NSMutableData data]; self.done=dispatch_semaphore_create(0); } return self; }
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completion {
-    if(![response isKindOfClass:NSHTTPURLResponse.class] || response.expectedContentLength>25*1024*1024) { self.rejected=YES; completion(NSURLSessionResponseCancel); }
+    if(![response isKindOfClass:NSHTTPURLResponse.class] || response.expectedContentLength>40*1024*1024) { self.rejected=YES; completion(NSURLSessionResponseCancel); }
     else { self.response=(NSHTTPURLResponse *)response; completion(NSURLSessionResponseAllow); }
 }
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data {
-    if(self.data.length+data.length>25*1024*1024) { self.rejected=YES; [task cancel]; } else [self.data appendData:data];
+    if(self.data.length+data.length>40*1024*1024) { self.rejected=YES; [task cancel]; } else [self.data appendData:data];
 }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completion { completion(nil); }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error { self.error=error; dispatch_semaphore_signal(self.done); }
@@ -49,7 +49,7 @@ static NSString *Query(NSString *value) {
 #endif
     YBRequire([route hasPrefix:@"/api/"] && ![route containsString:@"\r"] && ![route containsString:@"\n"],@"서버 요청 경로가 올바르지 않습니다.");
     NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:[NSURL URLWithString:[self.origin stringByAppendingString:route]]];
-    request.HTTPMethod=method; request.HTTPBody=body; request.timeoutInterval=MIN(45,timeout); request.HTTPShouldHandleCookies=NO;
+    request.HTTPMethod=method; request.HTTPBody=body; request.timeoutInterval=timeout>60 ? timeout : MIN(45,timeout); request.HTTPShouldHandleCookies=NO;
     [request setValue:@"YebaeOn-Sync/0.3 (macOS)" forHTTPHeaderField:@"User-Agent"];
     [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
     if(self.cookie)[request setValue:self.cookie forHTTPHeaderField:@"Cookie"];
@@ -70,7 +70,7 @@ static NSString *Query(NSString *value) {
         id json=[NSJSONSerialization JSONObjectWithData:transfer.data options:0 error:NULL];
         NSString *message=[json isKindOfClass:NSDictionary.class] && [json[@"message"] isKindOfClass:NSString.class] ? json[@"message"] : @"서버 요청을 완료하지 못했습니다.";
         if(status==401)message=@"로그인이 필요하거나 비밀번호가 다릅니다. 다시 입장해 주세요.";
-        if(status==409)message=@"서버에서 문서가 먼저 변경됐습니다. 로컬 문서는 유지했습니다. 다시 비교해 주세요.";
+        if(status==409 && !([json isKindOfClass:NSDictionary.class] && [json[@"message"] isKindOfClass:NSString.class]))message=@"서버 내용이 변경됐습니다. 로컬 파일은 유지했습니다. 다시 비교해 주세요.";
         YBRequire(NO,[NSString stringWithFormat:@"HTTP %ld: %@",(long)status,message]);
     }
     return transfer;
@@ -124,6 +124,39 @@ static NSString *Query(NSString *value) {
     NSDictionary *doc=[self request:route method:previous ? @"PUT" : @"POST" body:data headers:headers][@"document"];
     YBValidateMetadata(doc); YBRequire([doc[@"path"] isEqual:path] && [doc[@"sha256"] isEqual:YBHash(data)] && [doc[@"size"] unsignedIntegerValue]==data.length && (!previous || [previous[@"id"] isEqual:doc[@"id"]]),@"서버 저장 결과와 보낸 문서가 다릅니다. 다시 비교해 주세요."); return doc;
 }
+- (NSArray *)mediaAssets:(NSArray *)hashes {
+    YBRequire(hashes.count<=100, @"이미지 서버 조회는 100개씩 진행해야 합니다.");
+    if(!hashes.count)return @[];NSMutableArray *parts=[NSMutableArray array];
+    for(NSString *hash in hashes){YBRequire([hash isKindOfClass:NSString.class] && [hash rangeOfString:@"^[a-f0-9]{64}$" options:NSRegularExpressionSearch].location!=NSNotFound,@"이미지 hash가 올바르지 않습니다.");[parts addObject:[@"hash=" stringByAppendingString:Query(hash)]];}
+    NSDictionary *response=[self request:[@"/api/media?" stringByAppendingString:[parts componentsJoinedByString:@"&"]] method:@"GET" body:nil headers:nil timeout:20];
+    YBRequire([response[@"assets"] isKindOfClass:NSArray.class],@"서버 이미지 목록이 올바르지 않습니다.");return response[@"assets"];
+}
+- (BOOL)mediaContentExists:(NSString *)hash size:(unsigned long long)size {
+    YBTransfer *result=nil;@try{result=[self transfer:[@"/api/media/" stringByAppendingFormat:@"%@/content",hash] method:@"HEAD" body:nil headers:nil timeout:15];}@catch(NSException *error){if([error.reason hasPrefix:@"HTTP 404:"])return NO;@throw;}
+    id actual=nil;for(NSString *key in result.response.allHeaderFields)if([key caseInsensitiveCompare:@"X-Yebaeon-SHA256"]==NSOrderedSame)actual=result.response.allHeaderFields[key];
+    id length=nil;for(NSString *key in result.response.allHeaderFields)if([key caseInsensitiveCompare:@"Content-Length"]==NSOrderedSame)length=result.response.allHeaderFields[key];
+    return [actual isEqual:hash] && [length unsignedLongLongValue]==size;
+}
+- (NSDictionary *)uploadMedia:(NSData *)data sha256:(NSString *)hash {
+    YBRequire(data.length>0 && data.length<=32*1024*1024 && [YBHash(data) isEqual:hash],@"전송할 이미지의 크기 또는 SHA-256이 달라졌습니다.");
+    NSString *route=[@"/api/media/" stringByAppendingFormat:@"%@/content",hash];
+    YBTransfer *result=[self transfer:route method:@"PUT" body:data headers:@{@"Content-Type":@"application/octet-stream",@"X-Yebaeon-SHA256":hash} timeout:180];
+    id value=[NSJSONSerialization JSONObjectWithData:result.data options:0 error:NULL];NSDictionary *asset=[value isKindOfClass:NSDictionary.class]?value[@"asset"]:nil;
+    YBRequire([asset isKindOfClass:NSDictionary.class] && [asset[@"sha256"] isEqual:hash] && [asset[@"size"] unsignedIntegerValue]==data.length,@"서버 이미지 저장 결과가 일치하지 않습니다.");return asset;
+}
+- (NSDictionary *)registerMediaReferences:(NSArray *)references document:(NSDictionary *)document {
+    YBValidateMetadata(document);NSData *body=JSONData(@{@"documentId":document[@"id"],@"version":document[@"version"],@"references":references});
+    return [self request:@"/api/media/references" method:@"PUT" body:body headers:@{@"Content-Type":@"application/json"} timeout:30];
+}
+- (NSArray *)mediaReferencesForDocument:(NSDictionary *)document {
+    YBValidateMetadata(document);NSString *route=[NSString stringWithFormat:@"/api/media/references?documentId=%@&version=%@",Query(document[@"id"]),document[@"version"]];
+    NSDictionary *result=[self request:route method:@"GET" body:nil headers:nil timeout:20];YBRequire([result[@"documentId"] isEqual:document[@"id"]] && [result[@"version"] isEqual:document[@"version"]] && [result[@"references"] isKindOfClass:NSArray.class],@"서버 이미지 참조 목록이 올바르지 않습니다.");return result[@"references"];
+}
+- (NSData *)downloadMedia:(NSString *)hash size:(unsigned long long)size {
+    YBRequire([hash rangeOfString:@"^[a-f0-9]{64}$" options:NSRegularExpressionSearch].location!=NSNotFound && size>0 && size<=32ULL*1024*1024,@"서버 이미지 정보가 올바르지 않습니다.");
+    YBTransfer *result=[self transfer:[@"/api/media/" stringByAppendingFormat:@"%@/content",hash] method:@"GET" body:nil headers:nil timeout:120];id actual=nil;for(NSString *key in result.response.allHeaderFields)if([key caseInsensitiveCompare:@"X-Yebaeon-SHA256"]==NSOrderedSame)actual=result.response.allHeaderFields[key];
+    YBRequire(result.data.length==size && [YBHash(result.data) isEqual:hash] && [actual isEqual:hash],@"받은 이미지 크기 또는 SHA-256이 다릅니다. 로컬에 설치하지 않았습니다.");return result.data;
+}
 - (NSMutableDictionary *)keychainQuery {
 #ifdef YB_TESTING
     YBRequire(NO,@"격리 GUI 검사에서는 운영 키체인에 접근하지 않습니다.");
@@ -152,5 +185,3 @@ static NSString *Query(NSString *value) {
 }
 
 @end
-
-

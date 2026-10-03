@@ -50,8 +50,9 @@
     NSRect screen=NSScreen.mainScreen.visibleFrame;NSRect frame=NSMakeRect(0,0,MIN(1060,screen.size.width-40),MIN(800,screen.size.height-60));
     self.window=[[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];self.window.title=@"예배온 Sync";self.window.minSize=NSMakeSize(880,620);self.window.delegate=self;self.window.contentView=[[YBCanvas alloc] initWithFrame:frame];[self.window center];
     self.controlStates=[NSMapTable weakToStrongObjectsMapTable];self.work=[YBWork new];self.playlist=[PPSPlaylistController new];self.documents=[[YBDocumentsController alloc] initWithWork:self.work];self.media=[[YBMediaController alloc] initWithWork:self.work documentsRoot:self.documents.documentsRoot];
-    self.serverPlaylists=[[YBServerPlaylistsController alloc] initWithWork:self.work documents:self.documents];
     __weak YBAppDelegate *weakSelf=self;
+    self.media.libraryProvider=^YBLibrary *{[weakSelf.documents ensureSessionLoaded];return [weakSelf.documents connectedLibrary];};
+    self.serverPlaylists=[[YBServerPlaylistsController alloc] initWithWork:self.work documents:self.documents];
     self.documents.rootChanged=^(NSString *root){[weakSelf.media setDocumentsRoot:root];[weakSelf.serverPlaylists rootChanged];[weakSelf updateSettings];[weakSelf.documents startupCompare];};
     self.documents.sessionChanged=^(NSString *status){weakSelf.connectionText=status;[weakSelf updateConnection];[weakSelf updateSettings];};
     self.documents.checkStateChanged=^(NSString *message,NSUInteger done,NSUInteger total,BOOL active){
@@ -173,6 +174,5 @@
 - (BOOL)windowShouldClose:(NSWindow *)window {return [self applicationShouldTerminate:NSApp]==NSTerminateNow;}
 @end
 int main(int argc,const char *argv[]) {@autoreleasepool {NSApplication *app=NSApplication.sharedApplication;YBAppDelegate *delegate=[YBAppDelegate new];app.delegate=delegate;[app setActivationPolicy:NSApplicationActivationPolicyRegular];[app run];}return 0;}
-
 
 

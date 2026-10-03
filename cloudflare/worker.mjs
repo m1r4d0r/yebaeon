@@ -9,6 +9,7 @@ import { configured, requireSession, sessionRoute } from './auth.mjs';
 import { playlistsRoute } from './playlists.mjs';
 import { documentsRoute } from './documents.mjs';
 import { indexSearch } from './document-search.mjs';
+import { mediaReferencesRoute, mediaRoute } from './media-assets.mjs';
 import { HttpError, headers, json, method, sameOrigin } from './http.mjs';
 export default {
   async fetch(request, env) {
@@ -23,13 +24,15 @@ export default {
       }
       const route = /^\/api\/documents(?:\/([^/]+)(?:\/(content|versions|usage|policy))?)?$/.exec(pathname);
       const playlist = /^\/api\/playlists(?:\/([^/]+)(?:\/(content|versions|plan|nodes|archive|restore|structure))?)?$/.exec(pathname);
-      if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && pathname !== '/api/inventory' && !resource && !route && !playlist) throw new HttpError(404, 'not_found', '없는 요청입니다.');
+      const media = /^\/api\/media(?:\/([a-f0-9]{64})(?:\/(content|protection))?)?$/.exec(pathname);
+      const mediaReferences = pathname === '/api/media/references';
+      if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && pathname !== '/api/inventory' && !resource && !route && !playlist && !media && !mediaReferences) throw new HttpError(404, 'not_found', '없는 요청입니다.');
       if (!configured(env)) {
         if (pathname === '/api/session' && request.method === 'GET') return json({ authenticated: false, ready: false });
         throw new HttpError(503, 'setup_required', '서버의 공용 비밀번호 설정이 아직 완료되지 않았습니다.');
       }
       await ensureSchema(env.DB);
-      costDB=measuredDB(env.DB,route ? `documents/${route[2]|| (route[1] ? "item" : "list")}` : playlist ? `playlists/${playlist[2]|| (playlist[1] ? "item" : "list")}` : resource ? "resource" : pathname);
+      costDB=measuredDB(env.DB,route ? `documents/${route[2]|| (route[1] ? "item" : "list")}` : playlist ? `playlists/${playlist[2]|| (playlist[1] ? "item" : "list")}` : media ? `media/${media[2]|| (media[1] ? "item" : "list")}` : resource ? "resource" : pathname);
       env={...env,DB:costDB};
       if (pathname === '/api/session') {
         const response = await sessionRoute(request, env);
@@ -53,6 +56,8 @@ export default {
       }
       if (pathname === '/api/activity') return await activityRoute(request, env, user);
       if (pathname === '/api/status') return await statusRoute(request, env);
+      if (mediaReferences) return await mediaReferencesRoute(request,env,user);
+      if (media) return await mediaRoute(request,env,user,media[1],media[2]);
       if (route && !route[1] && request.method === 'GET' && !new URL(request.url).searchParams.has('after')) await recordSync(request, env, user, 'compare').catch(() => {});
       if (playlist) return await playlistsRoute(request, env, user, playlist[1], playlist[2]);
       return await documentsRoute(request, env, user, route[1], route[2]);
@@ -63,6 +68,5 @@ export default {
     } finally { costDB?.report(); }
   }
 };
-
 
 

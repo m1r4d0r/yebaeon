@@ -26,6 +26,7 @@ NSString *YBHash(NSData *data) {
 static BOOL YBMatch(NSString *s, NSString *pattern) {
     return [s isKindOfClass:NSString.class] && [s rangeOfString:pattern options:NSRegularExpressionSearch].location != NSNotFound;
 }
+static BOOL YBBaselineMatches(NSDictionary *current,NSDictionary *remote,NSString *localHash){return current&&remote&&[current[@"id"] isEqual:remote[@"id"]]&&[current[@"version"] isEqual:remote[@"version"]]&&[current[@"sha256"] isEqual:remote[@"sha256"]]&&(!localHash||[(current[@"localHash"]?:current[@"sha256"]) isEqual:localHash]);}
 NSString *YBPath(NSString *path) {
     YBRequire([path isKindOfClass:NSString.class], @"문서 경로가 없습니다.");
     NSString *p = path.precomposedStringWithCanonicalMapping;
@@ -64,8 +65,9 @@ NSString *YBDisposition(NSString *local, NSDictionary *remote, NSDictionary *bas
     if (!local) return @"download";
     if ([local isEqual:remote[@"sha256"]]) return @"same";
     if (!base) return @"conflict";
-    BOOL l=[local isEqual:base[@"sha256"]], r=[remote[@"sha256"] isEqual:base[@"sha256"]];
-    return l ? @"download" : r ? @"upload" : @"conflict";
+    NSString *baseLocal=base[@"localHash"] ?: base[@"sha256"];
+    BOOL l=[local isEqual:baseLocal], r=[remote[@"sha256"] isEqual:base[@"sha256"]];
+    return l&&r ? @"same" : l ? @"download" : r ? @"upload" : @"conflict";
 }
 BOOL YBPresenterRunning(void) {
     for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
@@ -254,7 +256,7 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
             NSDictionary *s=YBJSON(data);
             YBRequire([s[@"schema"] isEqual:@1] && [s[@"root"] isEqual:self.root] && [s[@"origin"] isEqual:origin] && [s[@"entries"] isKindOfClass:NSDictionary.class],@"Sync 상태의 폴더/서버가 다르거나 기록이 손상됐습니다.");
             _state=[s mutableCopy]; _state[@"entries"]=[s[@"entries"] mutableCopy];
-            for(NSString *path in _state[@"entries"]) { NSDictionary *doc=_state[@"entries"][path]; YBValidateMetadata(doc); YBRequire([path isEqual:doc[@"path"]],@"기준 경로가 다릅니다."); }
+            for(NSString *path in _state[@"entries"]) { NSDictionary *doc=_state[@"entries"][path]; YBValidateMetadata(doc); YBRequire([path isEqual:doc[@"path"]] && (!doc[@"localHash"] || YBMatch(doc[@"localHash"],@"^[0-9a-f]{64}$")),@"기준 경로 또는 로컬 hash가 다릅니다."); }
         } else _state=[@{@"schema":@1,@"root":self.root,@"origin":origin,@"entries":[NSMutableDictionary dictionary]} mutableCopy];
         self.presenterRunning=^BOOL { return YBPresenterRunning(); };
     }
@@ -345,14 +347,14 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
 }
 - (void)restoreAcknowledgement:(NSDictionary *)document previous:(NSDictionary *)previous expectedLocalHash:(NSString *)hash {
     [self closed];YBValidateMetadata(document);NSString *path=document[@"path"];if(previous){YBValidateMetadata(previous);YBRequire([previous[@"path"] isEqual:path],@"복구 기준 경로가 다릅니다.");}
-    id current=self.entries[path];YBRequire(YBEqual(current,document)||YBEqual(current,previous),@"이후 문서 기준이 변경됐습니다.");
+    id current=self.entries[path];YBRequire(YBBaselineMatches(current,document,hash)||YBEqual(current,previous),@"이후 문서 기준이 변경됐습니다.");
     YBRequire(YBEqual(YBHash([self readDocument:path]),hash),@"복구 이후 문서가 변경됐습니다.");
     if(previous)_state[@"entries"][path]=previous;else [_state[@"entries"] removeObjectForKey:path];[self saveState];
 }
 - (void)acknowledge:(NSDictionary *)doc expectedLocalHash:(NSString *)hash {
     [self assertReady]; YBValidateMetadata(doc);
-    YBRequire([hash isEqual:doc[@"sha256"]] && [YBHash([self readDocument:doc[@"path"]]) isEqual:hash],@"송수신 중 로컬 문서가 바뀌었습니다. 다시 비교해 주세요.");
-    id old=_state[@"entries"][doc[@"path"]]; _state[@"entries"][doc[@"path"]]=doc;
+    YBRequire(YBMatch(hash,@"^[0-9a-f]{64}$") && [YBHash([self readDocument:doc[@"path"]]) isEqual:hash],@"송수신 중 로컬 문서가 바뀌었습니다. 다시 비교해 주세요.");
+    id old=_state[@"entries"][doc[@"path"]]; NSMutableDictionary *baseline=[doc mutableCopy];if(![hash isEqual:doc[@"sha256"]])baseline[@"localHash"]=hash;_state[@"entries"][doc[@"path"]]=baseline;
     @try { [self saveState]; } @catch(NSException *e) { if(old)_state[@"entries"][doc[@"path"]]=old; else [_state[@"entries"] removeObjectForKey:doc[@"path"]]; @throw; }
 }
 - (NSArray *)backupBatches {
@@ -374,7 +376,7 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
     YBRequire(members.count>0,@"이 작업의 문서는 이미 복구됐거나 적용되지 않았습니다.");
     for(NSDictionary *pending in self.pendingTransactions)YBRequire([pending[@"batchID"] isEqual:identifier],@"다른 작업의 중단 기록을 먼저 복구하세요.");
     NSData *active=YBRead(self.profile,@"playlist-active.json",NULL);YBRequire(!active || [YBJSON(active)[@"status"] isEqual:@"complete"],@"중단된 재생목록 작업을 먼저 복구하세요.");[self closed];
-    for(NSDictionary *t in members){BOOL committed=[t[@"status"] isEqual:@"committed"];NSString *current=YBHash([self readDocument:t[@"path"]]);NSString *before=YBUnnull(t[@"beforeHash"]);YBRequire([current isEqual:t[@"incoming"][@"sha256"]] || (!committed && YBEqual(current,before)),@"작업 이후 바뀐 문서가 있습니다. 현재 파일을 유지합니다.");if(committed)YBRequire(YBEqual(self.entries[t[@"path"]],t[@"incoming"]),@"이후 동기화한 문서가 있어 작업 전체를 자동 복구하지 않습니다.");NSData *original=YBRead(self.profile,[[[self journalPath:t[@"id"]] stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"before.pro6"],NULL);YBRequire(YBEqual(YBHash(original),before),@"원본 백업이 손상됐습니다. 문서를 변경하지 않았습니다.");}
+    for(NSDictionary *t in members){BOOL committed=[t[@"status"] isEqual:@"committed"];NSString *current=YBHash([self readDocument:t[@"path"]]);NSString *before=YBUnnull(t[@"beforeHash"]),*after=t[@"afterHash"]?:t[@"incoming"][@"sha256"];YBRequire([current isEqual:after] || (!committed && YBEqual(current,before)),@"작업 이후 바뀐 문서가 있습니다. 현재 파일을 유지합니다.");if(committed)YBRequire(YBBaselineMatches(self.entries[t[@"path"]],t[@"incoming"],after),@"이후 동기화한 문서가 있어 작업 전체를 자동 복구하지 않습니다.");NSData *original=YBRead(self.profile,[[[self journalPath:t[@"id"]] stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"before.pro6"],NULL);YBRequire(YBEqual(YBHash(original),before),@"원본 백업이 손상됐습니다. 문서를 변경하지 않았습니다.");}
     for(NSDictionary *t in members)if(![t[@"status"] isEqual:@"committed"])[self recover:t[@"id"]];
     for(NSDictionary *t in members)if([t[@"status"] isEqual:@"committed"])[self restore:t[@"id"]];
 }
@@ -475,15 +477,18 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
     YBRequire(NO,@"복원 기록을 찾지 못했습니다."); return nil;
 }
 - (NSString *)apply:(NSData *)data document:(NSDictionary *)doc expectedLocalHash:(NSString *)hash {
-    [self assertReady]; [self closed]; YBValidateMetadata(doc); YBValidateDocument(data);
-    YBRequire(data.length==[doc[@"size"] unsignedIntegerValue] && [YBHash(data) isEqual:doc[@"sha256"]],@"받은 문서의 SHA-256 또는 크기가 다릅니다.");
+    return [self applyInstalledData:data serverData:data document:doc expectedLocalHash:hash];
+}
+- (NSString *)applyInstalledData:(NSData *)data serverData:(NSData *)serverData document:(NSDictionary *)doc expectedLocalHash:(NSString *)hash {
+    [self assertReady]; [self closed]; YBValidateMetadata(doc); YBValidateDocument(data);YBValidateDocument(serverData);
+    YBRequire(serverData.length==[doc[@"size"] unsignedIntegerValue] && [YBHash(serverData) isEqual:doc[@"sha256"]],@"받은 서버 문서의 SHA-256 또는 크기가 다릅니다.");YBRequire(!hash || YBMatch(hash,@"^[0-9a-f]{64}$"),@"기존 문서 비교 hash가 올바르지 않습니다.");
     NSString *path=doc[@"path"]; mode_t mode=0600; NSData *before=YBRead(self.root,path,&mode);
     YBRequire(YBEqual(YBHash(before),hash),@"받기 전에 로컬 문서가 바뀌었습니다. 다시 비교해 주세요.");
     YBRequire([YBDisposition(hash,doc,self.entries[path]) isEqual:@"download"],@"자동으로 받을 수 없는 문서입니다. 충돌 상태를 확인해 주세요.");
     NSString *identifier=NSUUID.UUID.UUIDString, *dir=[@"transactions/" stringByAppendingString:identifier];
     if(before)YBWrite(self.profile,[dir stringByAppendingString:@"/before.pro6"],before,0600,nil);
     YBWrite(self.profile,[dir stringByAppendingString:@"/after.pro6"],data,0600,nil);
-    NSMutableDictionary *j=[@{@"schema":@1,@"id":identifier,@"root":self.root,@"origin":_state[@"origin"],@"path":path,@"incoming":doc,@"previous":YBNull(self.entries[path]),@"beforeHash":YBNull(hash),@"mode":@(mode),@"createdAt":YBNow(),@"status":@"prepared"} mutableCopy];
+    NSMutableDictionary *j=[@{@"schema":@1,@"id":identifier,@"root":self.root,@"origin":_state[@"origin"],@"path":path,@"incoming":doc,@"previous":YBNull(self.entries[path]),@"beforeHash":YBNull(hash),@"afterHash":YBHash(data),@"mode":@(mode),@"createdAt":YBNow(),@"status":@"prepared"} mutableCopy];
     if(self.activeBackupBatch)j[@"batchID"]=self.activeBackupBatch;
     [self saveJournal:j];
     // Any interruption after this durable journal is recoverable on the next launch.
@@ -492,7 +497,7 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
     YBWrite(self.root,path,data,mode,^{ [self closed]; YBRequire(YBEqual(YBHash(YBRead(self.root,path,NULL)),hash),@"적용 직전에 로컬 파일이 바뀌었습니다."); });
     if(self.checkpoint)self.checkpoint(@"replaced");
     j[@"status"]=@"applied"; [self saveJournal:j];
-    _state[@"entries"][path]=doc; [self saveState];
+    NSMutableDictionary *baseline=[doc mutableCopy];if(![YBHash(data) isEqual:doc[@"sha256"]])baseline[@"localHash"]=YBHash(data);_state[@"entries"][path]=baseline; [self saveState];
     if(self.checkpoint)self.checkpoint(@"state_saved");
     j[@"status"]=@"committed"; [self saveJournal:j]; return identifier;
 }
@@ -500,9 +505,9 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
     NSMutableDictionary *j=[[self transaction:identifier] mutableCopy]; NSString *status=j[@"status"], *path=j[@"path"];
     if(restore) {
         [self assertReady]; YBRequire([status isEqual:@"committed"],@"완료한 적용만 복원할 수 있습니다.");
-        YBRequire(YBEqual(self.entries[path],j[@"incoming"]),@"이후 동기화한 문서입니다. 오래된 백업으로 덮어쓸 수 없습니다.");
+        YBRequire(YBBaselineMatches(self.entries[path],j[@"incoming"],j[@"afterHash"] ?: j[@"incoming"][@"sha256"]),@"이후 동기화한 문서입니다. 오래된 백업으로 덮어쓸 수 없습니다.");
     } else YBRequire([@[@"prepared",@"applied",@"restoring"] containsObject:status],@"복구할 중단 작업이 아닙니다.");
-    NSString *beforeHash=YBUnnull(j[@"beforeHash"]), *incomingHash=j[@"incoming"][@"sha256"];
+    NSString *beforeHash=YBUnnull(j[@"beforeHash"]), *incomingHash=j[@"afterHash"] ?: j[@"incoming"][@"sha256"];
     NSData *before=YBRead(self.profile,[[[self journalPath:identifier] stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"before.pro6"],NULL);
     YBRequire(YBEqual(YBHash(before),beforeHash),@"원본 백업이 손상됐습니다. 문서를 변경하지 않았습니다.");
     NSString *current=YBHash(YBRead(self.root,path,NULL));
@@ -519,5 +524,3 @@ static void YBTrash(NSString *root,NSString *path,NSString *batch) {
 - (void)recover:(NSString *)identifier { [self undo:identifier restore:NO]; }
 - (void)restore:(NSString *)identifier { [self undo:identifier restore:YES]; }
 @end
-
-

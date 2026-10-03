@@ -96,7 +96,7 @@
     if(!self.library){self.library=[[YBLibrary alloc] initWithRoot:self.documentsRoot profile:YBProfilePath(self.documentsRoot,self.server.origin) server:self.server];
         __weak YBWork *work=self.work;self.library.operationCheckpoint=^{[work checkpoint];};self.library.sync.comparisonCheck=self.library.operationCheckpoint;
     }
-    return self.library;
+    self.library.mediaReceiveRoot=YBPreferences(@"media-settings.json")[@"receiveRoot"];return self.library;
 }
 - (void)ensureSessionLoaded {if(!self.sessionLoaded){[self.server loadSession];self.sessionLoaded=YES;}}
 - (void)acceptRows:(NSArray *)rows {
@@ -302,5 +302,3 @@
 }
 - (void)backups:(id)sender {if(!self.work.busy && self.showRecovery)self.showRecovery();}
 @end
-
-

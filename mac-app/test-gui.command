@@ -7,7 +7,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
   exit 1
 fi
 COMMON=( -fobjc-arc -fobjc-arc-exceptions -fblocks -arch x86_64 -mmacosx-version-min=10.13 -Werror=unguarded-availability -framework Cocoa -framework Security )
-SOURCES=( mac-sync/YBSync.m mac-sync/YBServer.m mac-sync/PP6Core.m mac-app/YBAppUI.m mac-app/YBPlaylistIO.m mac-app/YBPlaylistFormat.m mac-app/YBPlaylistSync.m mac-app/YBServerPlaylistsController.m mac-app/PPSPlaylistController.m mac-app/YBLibrary.m mac-app/YBDocumentsController.m mac-app/YBMediaController.m )
+SOURCES=( mac-sync/YBSync.m mac-sync/YBServer.m mac-sync/PP6Core.m mac-app/YBAppUI.m mac-app/YBPlaylistIO.m mac-app/YBPlaylistFormat.m mac-app/YBPlaylistSync.m mac-app/YBServerPlaylistsController.m mac-app/PPSPlaylistController.m mac-app/YBLibrary.m mac-app/YBDocumentsController.m mac-app/YBMediaController.m mac-app/YBMediaPlan.m )
 TEMP_BINARY="$(mktemp -t yebaeon-gui)"
 trap 'rm -f "$TEMP_BINARY"' EXIT
 mkdir -p mac-app/test-output
