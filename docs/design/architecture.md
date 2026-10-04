@@ -33,7 +33,7 @@
 
 | 폴더 | 내용 |
 |---|---|
-| `web-editor/` | Studio. 정적 HTML·JS·CSS다. 화면과 흐름(`app.js`·`studio-*.js`), PP6 XML·RTF 해석(`pp6.js`), 렌더·폰트(`render.js`·`fonts.*`), 서버 연동·재생목록·초안(`cloud.js`·`playlists.js`·`drafts.js`), 일반 편집기, PPT·PDF 가져오기(`ppt-*`·`pdf-engine-entry.mjs`, 드롭박스 고르기 `dropbox-picker.js`), 주보(`bulletin*`), 현황판(`status.*`). 사용법은 [web-editor/README.md](../../web-editor/README.md) |
+| `web-editor/` | Studio. 정적 HTML·JS·CSS다. 화면과 흐름(`app.js`·`studio-*.js`), PP6 XML·RTF 해석(`pp6.js`), 렌더·폰트(`render.js`·`fonts.*`), 서버 연동·재생목록·초안(`cloud.js`·`playlists.js`·`drafts.js`), 공용 문서 검색(`document-search.js`: 왼쪽 검색창·주보 찬양 후보·PPT 교체 대상이 함께 씀), 일반 편집기, PPT·PDF 가져오기(`ppt-*`·`pdf-engine-entry.mjs`, 드롭박스 고르기 `dropbox-picker.js`), 주보(`bulletin*`), 현황판(`status.*`). 사용법은 [web-editor/README.md](../../web-editor/README.md) |
 | `cloudflare/` | Worker. 진입점·라우팅 `worker.mjs`, 입장 `auth.mjs`, 스키마·이전 `schema.mjs`, 문서 `documents.mjs`와 `document-*.mjs`, 장부 `library-catalog.mjs`, 재생목록 `playlists.mjs`·`playlist-*.mjs`, 이미지 `media-assets.mjs`, Sync 2 `sync2.mjs`, 주보 자료 `dropbox.mjs`. `inventory.mjs`·`sync-observations.mjs`는 Sync 2가 자리 잡은 뒤 승인을 받아 제거한다. 배포·API는 [cloudflare/README.md](../../cloudflare/README.md) |
 | 루트 | `wrangler.jsonc`(진입점 `cloudflare/worker.mjs`, 정적 자산 `dist/`, `DB`·`FILES` 바인딩), `package.json`, `.node-version`(Node 24). `.github/workflows/`에 배포(`deploy.yml`), Studio 브라우저 검사(`studio.yml`), Mac Sync 2 검사(`sync2.yml`)가 있다 |
 | `mac-sync2/` | 예배온 Sync 2. 영수증(SQLite) `YB2Receipt`, 서버·장치 열쇠 `YB2Server`, 비교·적용·올리기 `YB2Engine`, 창과 메뉴 막대 상주 `YB2App`, 통합 검사 `YB2Test`·`test-server2.mjs`. `build.command`로 빌드하고 `test.command`로 검사한다. [mac-sync2/README.md](../../mac-sync2/README.md) |

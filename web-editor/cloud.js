@@ -83,17 +83,14 @@
   function empty(target, message) { const div = document.createElement('div'); div.className = 'library-empty'; div.textContent = message; target.append(div); }
   async function list(more = false) {
     if (!needUser()) return;
-    const sequence = ++listSequence, query = $('libraryQuery').value.trim(), sort = $('librarySort').value;
+    const sequence = ++listSequence, query = $('libraryQuery').value.trim();
     const scroll = more ? null : $('libraryList').scrollTop;
     if (!more) { listNext = null; documents=[]; $('libraryList').replaceChildren(); }
     $('libraryMore').hidden = true;
     if(!query){select.setKeys([]);empty($('libraryList'),'검색어를 입력해주세요');$('libraryMessage').textContent='';return;}
     $('libraryMessage').textContent = '검색하고 있습니다…';
     try {
-      const params = new URLSearchParams({q:query,sort,includeIndexed:'1'});
-      if($('libraryArchived').checked)params.set('includeArchived','1');
-      if(more && listNext) params.set(sort==='name'||sort==='name-desc' ? 'after' : 'cursor',listNext);
-      const data=await(await api('/documents?' + params)).json();
+      const data=await YebaeonSearch.query(query,{cursor:more?listNext:null,includeArchived:$('libraryArchived').checked,fresh:!more});
       if (sequence !== listSequence) return;
       for (const doc of data.documents) {
         documents.push(doc);const item=document.createElement('div');item.className='document-item';select.bind(item,doc.id);
