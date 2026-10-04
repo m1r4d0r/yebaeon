@@ -44,7 +44,7 @@
 
 ## 다음 세 가지
 
-1. Worker 비밀값 `ADMIN_PASSWORD` 설정(`wrangler secret put ADMIN_PASSWORD`, 8자 이상). 그 전까지 휴지통 비우기·카테고리 설정 변경은 503. Studio에서 보관·휴지통·이름 바꾸기 동작 확인.
+1. Worker 비밀값 `ADMIN_PASSWORD` 설정(대시보드 Settings → Variables and Secrets, 종류 Secret, 길이 제한 없음). 그 전까지 휴지통 비우기·카테고리 설정 변경은 503. Studio에서 보관·휴지통·이름 바꾸기 동작 확인.
 2. 교회 Mac에 Sync 2 3차 설치본(run 37180787646) 설치, [적용] 전용·정리 창·전체 확인 실기.
 
 ## 주의

@@ -17,6 +17,14 @@ export async function mediaPathsRoute(request, env, user) {
   method(request, ['GET', 'PUT']);
   const db = env.DB;
   if (request.method === 'GET') {
+    // ?path= (여러 번, 최대 50): Studio가 문서의 이미지 경로로 sha를 찾는다. 경로마다 1행.
+    const asked = new URL(request.url).searchParams.getAll('path');
+    if (asked.length) {
+      if (asked.length > 50) throw new HttpError(400, 'invalid_media_paths', '이미지 경로는 50개씩 물어 주세요.');
+      const keys = [...new Set(asked.map(mediaPathKey).filter(Boolean))];
+      const rows = keys.length ? (await db.prepare(`SELECT path,sha256,size,state FROM yebaeon_media_paths WHERE path IN (${keys.map(() => '?').join(',')})`).bind(...keys).all()).results : [];
+      return json({ paths: rows });
+    }
     const after = new URL(request.url).searchParams.get('after') || '';
     if (after.length > 1024) throw new HttpError(400, 'invalid_cursor', '목록 위치를 확인해 주세요.');
     const rows = (await db.prepare("SELECT path,sha256,size,state FROM yebaeon_media_paths WHERE path>? ORDER BY path LIMIT 501").bind(after).all()).results;

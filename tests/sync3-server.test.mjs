@@ -168,6 +168,9 @@ test('media paths and the R2 ledger follow the change log',{timeout:90000},async
  assert.deepEqual(r,{registered:2,changed:2,missing:[],outside:[]});
  assert.equal((await read(await reg([{path:root+'Images/표지.png',sha256:sha,size:png.length}]))).changed,0);
  assert.deepEqual((await read(await call('/media/paths'))).paths.map(p=>p.path),[root+'Images/표지.png',root+'ImportedImages/발표/Slide1.png']);
+ // Studio: 문서의 경로(file URL 표기도)로 sha를 찾는다. 허용 폴더 밖·없는 경로는 빈 결과.
+ const found=(await read(await call('/media/paths?'+new URLSearchParams([['path','file://'+encodeURI(root+'ImportedImages/발표/Slide1.png')],['path','/Users/x/Desktop/a.png'],['path',root+'Images/없음.png']])))).paths;
+ assert.deepEqual(found.map(p=>p.path),[root+'ImportedImages/발표/Slide1.png']);
  // 장부: 처음엔 전체를 만들고, 그 뒤엔 일지 변동분만 반영한다.
  const d=(await read(await call('/documents?path=말씀.pro6','POST',doc('v1')),201)).document;
  let ledger=await read(await call('/sync/ledger'));

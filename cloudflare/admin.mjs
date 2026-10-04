@@ -11,7 +11,7 @@ async function sign(secret, value) {
   return hex(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode('yebaeon-admin-v1:' + value)));
 }
 function same(a, b) { let d = a.length ^ b.length; for (let i = 0; i < Math.max(a.length, b.length); i++) d |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0); return d === 0; }
-export function adminConfigured(env) { return typeof env.ADMIN_PASSWORD === 'string' && env.ADMIN_PASSWORD.length >= 8; }
+export function adminConfigured(env) { return typeof env.ADMIN_PASSWORD === 'string' && env.ADMIN_PASSWORD.length > 0; }
 function cookieValue(request) { return (request.headers.get('Cookie') || '').split(';').map(v => v.trim()).find(v => v.startsWith(ADMIN_COOKIE + '='))?.slice(ADMIN_COOKIE.length + 1); }
 // 관리자 표시는 그 입장 세션에 묶인다. 다른 세션·장치 열쇠로는 쓸 수 없다.
 export async function isAdmin(request, env, user) {

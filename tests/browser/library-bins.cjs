@@ -59,6 +59,14 @@ const assert=require('node:assert/strict');
   await page.locator('#libraryBins').click();await page.locator('#binsTabs button[data-bin="trashed-docs"]').click();await binRows().filter({hasText:'고친 찬양'}).waitFor();await page.locator('#binsPurge').click();
   await page.waitForFunction(()=>!document.querySelector('#binsList .archive-row')&&!/불러오/.test(document.getElementById('binsMessage').textContent));assert.match(await page.locator('#binsMessage').textContent(),/비어|없/);assert.equal(await page.locator('#adminDialog').evaluate(e=>e.open),false);await page.locator('#binsClose').click();
   const gone=await page.evaluate(async()=>(await(await fetch('/api/documents?'+new URLSearchParams({checkPath:'고친 찬양'}))).json()).available);assert.equal(gone,true,'purged document frees its path');
+  // Studio 렌더: 문서의 Mac 이미지 경로 → 서버 경로표 → 이미지 바이트.
+  const image=await page.evaluate(async()=>{
+   const bytes=new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,0]),sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
+   const put=await fetch('/api/media/'+sha+'/content',{method:'PUT',headers:{'Content-Type':'application/octet-stream','X-Yebaeon-SHA256':sha},body:bytes});if(!put.ok)return 'upload '+put.status;
+   const path='/Users/Shared/Renewed Vision Media/ImportedImages/시험/Slide1.png';
+   const reg=await fetch('/api/media/paths',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:[{path,sha256:sha,size:bytes.length}]})});if(!reg.ok)return 'register '+reg.status;
+   const file=await YebaeonResources.media('file://'+encodeURI(path));return file?file.size:'none';});
+  assert.equal(image,12,'Studio finds a document image through the server path table');
   assert.deepEqual(errors,[]);console.log('Library bins passed: server categories, name hint, rename, archive/unarchive, trash/admin purge, playlist trash/restore');
  }finally{await browser.close();await new Promise(r=>server.close(r));await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
