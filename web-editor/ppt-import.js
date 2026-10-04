@@ -3,7 +3,8 @@
  // 새 문서의 카테고리가 악보찬양이면 PPT에서 악보 그림을 배경과 나눠 투명하게 가져오고, 나눌 수 없는 장은 장 전체를 그림 한 장으로 가져온다.
  const $=id=>document.getElementById(id),C=YebaeonCloud,P=PP6,E=YebaeonEditor,L=YebaeonPlaylists;
  const SCORE='악보찬양',PPT_MAX=40*1024*1024,PDF_MAX=60*1024*1024,IMAGE_MAX=180*1024*1024;
- const TARGET_KEY={pdf:'yebaeon-pdf-target',ppt:'yebaeon-ppt-target'},TARGET_DEFAULT={pdf:'주일예배말씀 ppt',ppt:''},MODE_KEY='yebaeon-import-mode-';
+ // 기존 문서 교체의 첫 후보. 다른 문서는 작은 검색으로 고른다. 파일 종류로 넣을 곳을 짐작하지 않는다.
+ const CANDIDATES=['주일예배말씀 ppt','광고'];
  const FALLBACK_CATEGORIES=['가사찬양','악보찬양','예배순서','특별순서','옛날자료'];
  const dialog=document.createElement('dialog');dialog.id='pptDialog';dialog.className='ppt-dialog studio-import-dialog';dialog.setAttribute('aria-labelledby','pptHeading');
  dialog.innerHTML=`<header><strong id="pptHeading">PPT·PDF 가져오기</strong><button id="pptClose" class="import-close" aria-label="PPT·PDF 가져오기 닫기" title="닫기">×</button></header>
@@ -12,12 +13,12 @@
  <fieldset id="pptOptions" hidden><legend>넣을 곳</legend>
   <div class="ppt-controls ppt-mode-options"><label><input type="radio" name="pptTarget" value="new" checked> 새 문서로 추가</label><label><input type="radio" name="pptTarget" value="replace"> 기존 문서의 슬라이드 교체</label></div>
   <div id="pptNewOptions" class="ppt-controls ppt-name-controls"><label>문서 이름 <input id="pptName" maxlength="145"></label><label class="ppt-category">카테고리 <select id="pptCategory"><option value="">고르세요</option></select></label></div>
-  <div id="pptReplaceOptions" class="ppt-controls ppt-name-controls" hidden><label>교체할 문서 <input id="pptTargetName" maxlength="145" placeholder="문서 이름"></label><button id="pptFind" type="button">확인</button></div><p id="pptTargetInfo" class="ppt-help"></p>
+  <div id="pptReplaceOptions" hidden><div id="pptCandidates" class="ppt-candidates" role="group" aria-label="교체할 문서"></div><div id="pptSearch" class="ppt-controls ppt-name-controls" hidden><label>문서 검색 <input id="pptTargetName" type="search" maxlength="145" placeholder="문서 이름"></label><button id="pptFind" type="button">검색</button></div><div id="pptResults" class="ppt-results"></div></div><p id="pptTargetInfo" class="ppt-help"></p>
   <div id="pptScoreOptions" class="ppt-controls" hidden><label class="ppt-switch"><input id="pptCropOn" type="checkbox" role="switch" checked> 2장부터 제목 자르기</label><label id="pptCropAmount">위에서 <input id="pptCrop" type="number" min="0" max="40" step="0.1" value="16.7"> %</label><span>배경을 나눌 수 있는 장은 악보만 투명하게, 나눌 수 없는 장은 장 전체를 그대로 가져옵니다.</span></div>
   <div class="ppt-controls"><button id="pptPreview" disabled>변환 미리보기</button></div></fieldset>
  <p id="pptMessage" class="ppt-message" role="status"></p><div id="pptSlides" class="ppt-slides"></div><div id="pptLarge" class="ppt-large" hidden><button id="pptLargeClose">확대 닫기</button><div id="pptLargeImage"></div></div></div>
  <footer id="pptFooter" class="import-actions"><div class="ppt-checks"><label id="pptAppendLabel"><input id="pptAppend" type="checkbox"> 선택한 재생목록 맨 아래에도 추가</label><label><input id="pptReviewed" type="checkbox" disabled> 모든 장의 변환 결과를 확인했어요</label></div><button id="pptSave" class="primary" disabled>검수 완료 · 문서 추가</button></footer>`;
- document.body.append(dialog);const open=document.createElement('button');open.id='pptOpen';open.textContent='PPT 추가';if($('studioGlobalTools'))$('studioGlobalTools').append(open);else $('bulletinOpen').before(open);
+ document.body.append(dialog);const open=document.createElement('button');open.id='pptOpen';open.className='studio-tool';open.title='PPT·PDF 가져오기';open.setAttribute('aria-label','PPT·PDF 가져오기');open.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M12 16v4M8 20h8"/><path d="m10 8 4 2-4 2z"/></svg><span>PPT·PDF 가져오기</span>';if($('studioGlobalTools'))$('studioGlobalTools').append(open);else $('bulletinOpen').before(open);
  const background=document.createElement('dialog');background.id='pptBackgroundDialog';background.className='entry-dialog';background.setAttribute('aria-labelledby','pptBackgroundTitle');
  background.innerHTML=`<h2 id="pptBackgroundTitle">배경 일괄 바꾸기</h2><p class="dialog-message">열린 문서의 모든 슬라이드 배경을 바꿉니다. 글상자·악보 그림은 그대로이며, 적용 뒤 ‘서버 저장’을 눌러 주세요.</p><label class="field">배경색 <input id="pptEditColor" type="color" value="#ffffff"></label><label class="field">배경 그림(선택) <input id="pptEditFile" type="file" accept="image/png,image/jpeg,image/webp"></label><p id="pptBackgroundMessage" class="dialog-message" role="status"></p><div class="dialog-buttons"><button id="pptBackgroundCancel" type="button">취소</button><button id="pptEditApply" type="button" class="primary">전체 배경 적용</button></div>`;
  document.body.append(background);
@@ -27,7 +28,6 @@
  const scoreMode=()=>source?.kind==='ppt'&&mode()==='new'&&$('pptCategory').value===SCORE;
  const escape=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
  const hash=async b=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',await b.arrayBuffer()))].map(x=>x.toString(16).padStart(2,'0')).join('');
- const store=(key,value)=>{try{localStorage.setItem(key,value);}catch{ /* 기억하지 못해도 가져오기는 된다 */ }},recall=key=>{try{return localStorage.getItem(key);}catch{return null;}};
  function script(src,name,get,set){if(window[name])return Promise.resolve(window[name]);return get()??set(new Promise((resolve,reject)=>{const s=document.createElement('script');s.src=src;s.onload=()=>resolve(window[name]);s.onerror=()=>{s.remove();set(null);reject(Error('변환기를 불러오지 못했습니다. 다시 시도해 주세요.'));};document.head.append(s);}));}
  const engine=()=>script('/ppt-engine.js','YebaeonPPTEngine',()=>pptEngine,v=>pptEngine=v),pdf=()=>script('/pdf-engine.js','YebaeonPDFEngine',()=>pdfEngine,v=>pdfEngine=v);
  const start=YebaeonDropboxPicker.start($('pptStart'),{accept:/\.(pptx?|pdf)$/i,inputAccept:'.ppt,.pptx,.pdf,application/pdf',max:name=>/\.pdf$/i.test(name)?PDF_MAX:PPT_MAX,kind:'PPT·PDF',onFile:file=>read(file)});start.input.id='pptFile';
@@ -46,7 +46,15 @@
  function options(){const replace=mode()==='replace';$('pptOptions').hidden=!source;$('pptNewOptions').hidden=replace;$('pptReplaceOptions').hidden=!replace;$('pptTargetInfo').hidden=!replace;$('pptAppendLabel').hidden=replace;
   $('pptScoreOptions').hidden=!scoreMode();$('pptCropAmount').hidden=!$('pptCropOn').checked;$('pptSave').textContent=replace?'검수 완료 · 슬라이드 교체':'검수 완료 · 문서 추가';$('pptStartHelp').hidden=!!source;$('pptFooter').hidden=!source;
   for(const card of $('pptSlides').querySelectorAll('.ppt-card'))card.querySelector('select')?.toggleAttribute('hidden',!scoreMode());lock(busy);}
- function setMode(value){const radio=dialog.querySelector(`input[name=pptTarget][value=${value}]`);if(radio)radio.checked=true;if(value==='replace'&&!$('pptTargetName').value)$('pptTargetName').value=recall(TARGET_KEY[source.kind])??TARGET_DEFAULT[source.kind];target=null;$('pptTargetInfo').textContent='';options();}
+ function setMode(value){const radio=dialog.querySelector(`input[name=pptTarget][value=${value}]`);if(radio)radio.checked=true;target=null;$('pptTargetInfo').textContent='';candidates();options();}
+ function candidates(){const root=$('pptCandidates');root.replaceChildren();for(const name of CANDIDATES){const b=document.createElement('button');b.type='button';b.className='ppt-candidate';b.textContent=name;b.setAttribute('aria-pressed',String(target?.name===name));b.onclick=()=>choose(name);root.append(b);}
+  const other=document.createElement('button');other.type='button';other.className='ppt-candidate ppt-candidate-other';other.id='pptOther';const custom=target&&!CANDIDATES.includes(target.name);other.textContent=custom?target.name:'다른 문서 고르기…';other.setAttribute('aria-pressed',String(!!custom));other.onclick=()=>{$('pptSearch').hidden=false;$('pptTargetName').focus();};root.append(other);}
+ async function choose(name){if(busy)return;lock(true);try{await findTarget(name);$('pptSearch').hidden=true;$('pptResults').replaceChildren();invalidate();}catch(e){message(e.message);}finally{candidates();lock(false);}}
+ async function search(){const q=$('pptTargetName').value.trim();const root=$('pptResults');root.replaceChildren();if(!q)return;lock(true);
+  try{const data=await(await C.api('/documents?'+new URLSearchParams({q,sort:'relevance',includeIndexed:'1'}))).json(),docs=(data.documents||[]).filter(d=>d.available!==false).slice(0,8);
+   if(!docs.length)root.append(Object.assign(document.createElement('p'),{className:'ppt-help',textContent:'찾는 문서가 없습니다.'}));
+   for(const d of docs){const b=document.createElement('button');b.type='button';b.className='ppt-result';b.textContent=d.name.replace(/\.pro6$/i,'');b.onclick=()=>choose(b.textContent);root.append(b);}
+  }catch(e){message(e.message);}finally{lock(false);}}
  async function read(file){if(busy||!file)return;if(prepared){message('먼저 이전 저장을 다시 시도하거나 준비본을 버려 주세요.');return;}
   const kind=/\.pdf$/i.test(file.name)?'pdf':/\.pptx?$/i.test(file.name)?'ppt':null;if(!kind){message('PPT·PPTX·PDF 파일을 선택해 주세요.');return;}
   if(file.size>(kind==='pdf'?PDF_MAX:PPT_MAX)){message(kind==='pdf'?'60MB 이하 PDF를 선택해 주세요.':'40MB 이하 PPT를 선택해 주세요.');return;}
@@ -54,7 +62,7 @@
   try{message(kind==='pdf'?'PDF를 읽고 있습니다…':'파일 구조와 이미지를 읽고 있습니다…');const lib=kind==='pdf'?await pdf():await engine(),data=kind==='pdf'?await lib.open(await file.arrayBuffer()):await lib.parse(await file.arrayBuffer());if(epoch!==renderEpoch){data.dispose?.();return;}
    const pages=kind==='pdf'?data.pages.map((_,i)=>({selected:true,index:i})):data.slides.map((s,i)=>{s.selected=!s.hidden;s.index=i;return s;});
    source={kind,name:file.name.normalize('NFC'),data,pages};start.setName(source.name);$('pptName').value=source.name.replace(/\.(pptx?|pdf)$/i,'').slice(0,145);
-   setMode(recall(MODE_KEY+kind)||(kind==='pdf'?'replace':'new'));cards();if(mode()==='replace')await findTarget().catch(e=>message(e.message));
+   setMode('new');cards();
    message(`${pages.length}${kind==='pdf'?'쪽':'장'} 읽음. 넣을 곳을 정하고 ‘변환 미리보기’를 누르세요.${kind==='ppt'&&data.warnings.length?'\n'+data.warnings.join('\n'):''}`);
   }catch(e){source=null;start.setName('');message('파일 읽기 실패: '+e.message);}finally{options();lock(false);}}
  function cards(){const root=$('pptSlides');root.replaceChildren();if(!source)return;const unit=source.kind==='pdf'?'쪽':'장';source.pages.forEach((s,i)=>{const card=document.createElement('article');card.className='ppt-card';card.dataset.index=i;const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.checked=s.selected;check.setAttribute('aria-label',`${i+1}${unit} 포함`);check.onchange=()=>{s.selected=check.checked;invalidate();};label.append(check,document.createTextNode(`${i+1}${unit}${s.hidden?' · 숨김':''}`));const badge=document.createElement('span');badge.className='ppt-card-badge';label.append(badge);card.append(label);
@@ -65,23 +73,22 @@
  function composite(o){const box=document.createElement('div');box.className='ppt-composite';box.style.aspectRatio=`${size.width}/${size.height}`;const img=document.createElement('img');img.src=o.url;img.alt='변환 슬라이드';box.append(img);return box;}
  $('pptLargeClose').onclick=()=>$('pptLarge').hidden=true;
  // 대상 문서: 이름이 정확히 같은 서버 문서. 지금 버전의 크기·슬라이드 수를 보여 준다.
- async function findTarget(){const name=$('pptTargetName').value.trim().normalize('NFC').replace(/\.pro6$/i,'');target=null;if(!name){$('pptTargetInfo').textContent='교체할 문서 이름을 입력하고 ‘확인’을 누르세요.';throw Error('교체할 문서 이름을 입력해 주세요.');}
-  $('pptTargetInfo').textContent='찾는 중…';const data=await(await C.api('/documents?'+new URLSearchParams({q:name}))).json(),found=(data.documents||[]).find(d=>(d.path||'').normalize('NFC')===name+'.pro6');
+ async function findTarget(value){const name=String(value||'').trim().normalize('NFC').replace(/\.pro6$/i,'');target=null;if(!name){$('pptTargetInfo').textContent='교체할 문서를 고르세요.';throw Error('교체할 문서를 고르세요.');}
+  $('pptTargetInfo').textContent='찾는 중…';const data=await(await C.api('/documents?'+new URLSearchParams({q:name}))).json(),found=(data.documents||[]).find(d=>(d.path||'').normalize('NFC').split('/').pop()===name+'.pro6');
   if(!found){$('pptTargetInfo').textContent=`‘${name}’ 문서를 찾지 못했습니다. 이름을 확인해 주세요.`;throw Error('교체할 문서를 찾지 못했습니다.');}
   const {document:doc}=await(await C.api('/documents/'+found.id)).json();if(doc.state&&doc.state!=='active')throw Error('보관함이나 휴지통에 있는 문서는 교체할 수 없습니다.');
   const xml=await(await C.api(`/documents/${doc.id}/content?version=${doc.version}`)).text(),parsed=new DOMParser().parseFromString(xml,'application/xml');
   if(parsed.querySelector('parsererror')||parsed.documentElement.tagName!=='RVPresentationDocument')throw Error('대상 문서를 읽지 못했습니다.');
   const root=parsed.documentElement,width=Number(root.getAttribute('width'))||1920,height=Number(root.getAttribute('height'))||1080;
-  target={id:doc.id,path:doc.path,name,version:doc.version,xml,width,height,slides:parsed.getElementsByTagName('RVDisplaySlide').length};store(TARGET_KEY[source?.kind||'pdf'],name);
+  target={id:doc.id,path:doc.path,name,version:doc.version,xml,width,height,slides:parsed.getElementsByTagName('RVDisplaySlide').length};
   $('pptTargetInfo').textContent=`${name} · 버전 ${doc.version} · ${width}×${height} · 지금 슬라이드 ${target.slides}장 → 전체 교체`;lock(busy);return target;}
- for(const r of dialog.querySelectorAll('[name=pptTarget]'))r.onchange=()=>{if(!source)return;store(MODE_KEY+source.kind,mode());setMode(mode());invalidate();if(mode()==='replace'){lock(true);findTarget().catch(e=>message(e.message)).finally(()=>lock(false));}};
+ for(const r of dialog.querySelectorAll('[name=pptTarget]'))r.onchange=()=>{if(!source)return;setMode(mode());invalidate();if(mode()==='replace')$('pptTargetInfo').textContent='교체할 문서를 고르세요.';};
  $('pptCategory').onchange=()=>{invalidate();cards();options();};$('pptCropOn').onchange=()=>{invalidate();options();};$('pptCrop').oninput=invalidate;$('pptName').oninput=()=>lock(busy);
- $('pptTargetName').oninput=()=>{target=null;$('pptTargetInfo').textContent='';invalidate();};
- $('pptFind').onclick=async()=>{if(busy)return;lock(true);try{await findTarget();invalidate();}catch(e){message(e.message);}finally{lock(false);}};
+ $('pptFind').onclick=()=>search();$('pptTargetName').onkeydown=e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();search();}};
  // 슬라이드 크기가 다르면 늘이지 않고 가운데 두며 남는 곳은 검은색이다.
  async function fit(blob,w,h,lib){const bitmap=await createImageBitmap(blob);try{if(Math.abs(bitmap.width/bitmap.height-w/h)<.005&&bitmap.width===w)return {image:blob,margin:false};const c=lib.makeCanvas(w,h),x=c.getContext('2d');x.fillStyle='#000';x.fillRect(0,0,w,h);const scale=Math.min(w/bitmap.width,h/bitmap.height),dw=bitmap.width*scale,dh=bitmap.height*scale;x.drawImage(bitmap,(w-dw)/2,(h-dh)/2,dw,dh);return {image:await lib.blob(c),margin:Math.abs(dw-w)>1||Math.abs(dh-h)>1};}finally{bitmap.close();}}
  async function preview(){if(busy||!source)return;invalidate();lock(true);const epoch=renderEpoch,selected=source.pages.filter(s=>s.selected),made=[],score=scoreMode(),replace=mode()==='replace',unit=source.kind==='pdf'?'쪽':'장';
-  try{if(!selected.length)throw Error('가져올 장을 선택해 주세요.');if(replace&&!target)await findTarget();const crop=$('pptCropOn').checked?Number($('pptCrop').value)/100:0;if(!Number.isFinite(crop)||crop<0||crop>.4)throw Error('자르기는 0~40%로 입력해 주세요.');
+  try{if(!selected.length)throw Error('가져올 장을 선택해 주세요.');if(replace&&!target)throw Error('교체할 문서를 고르세요.');const crop=$('pptCropOn').checked?Number($('pptCrop').value)/100:0;if(!Number.isFinite(crop)||crop<0||crop>.4)throw Error('자르기는 0~40%로 입력해 주세요.');
    size=replace?{width:target.width,height:target.height}:source.kind==='pdf'?{width:1920,height:1080}:{width:1920,height:Math.round(1920*source.data.height/source.data.width)};
    const lib=source.kind==='pdf'?await pdf():await engine(),ppt=source.kind==='ppt'?await engine():null;let total=0,separated=0,margins=0;
    for(const [n,s] of selected.entries()){message(`${n+1}/${selected.length}${unit} 변환 중…`);let o;
@@ -121,7 +128,7 @@
    message('교회 Mac 이미지 경로를 정하고 있습니다…');const found=await macPaths(assets.map(a=>a.sha256),target.name);message('문서를 교체하고 있습니다…');
    await C.api('/documents/'+target.id,{method:'PUT',headers:{'Content-Type':'application/xml','If-Match':`"${target.version}"`},body:replaced(found)});
    const done=target,count=outputs.length;target=null;invalidate();$('pptTargetInfo').textContent='';message('');await C.openDocument(done.id);dialog.close();E.status(`${done.name}의 슬라이드를 ${count}장으로 교체했습니다.`);
-  }catch(e){if(e.status===409){target=null;$('pptTargetInfo').textContent='';message('다른 곳에서 문서가 바뀌었습니다. ‘확인’을 눌러 문서를 다시 불러온 뒤 교체해 주세요. 변환한 그림은 그대로 둡니다.');}else message('교체 중단: '+e.message+'\n이미 올린 그림은 다시 올리지 않습니다. 다시 누르면 이어서 합니다.');}}
+  }catch(e){if(e.status===409){target=null;$('pptTargetInfo').textContent='';candidates();message('다른 곳에서 문서가 바뀌었습니다. 교체할 문서를 다시 고른 뒤 교체해 주세요. 변환한 그림은 그대로 둡니다.');}else message('교체 중단: '+e.message+'\n이미 올린 그림은 다시 올리지 않습니다. 다시 누르면 이어서 합니다.');}}
  async function create(){try{if(!prepared){const next=await prepare();await recovery('put',next);prepared=next;}if(prepared.owner!==C.worker())throw Error('준비한 작업자 이름으로 입장해 주세요.');
    await upload(prepared.assets);
    if(prepared.xml.includes('file:///YebaeOn-Media/')){prepared.xml=await placeMedia(prepared.xml,prepared.path.replace(/\.pro6$/i,''));await recovery('put',prepared);}

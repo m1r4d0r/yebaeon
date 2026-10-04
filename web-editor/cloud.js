@@ -25,7 +25,7 @@
     $('documentPolicy').hidden=!linked||!user;
     const changed = linked && editor.state().serial !== linked.serial;
     $('dirtyState').textContent=editor.state().dirty ? '저장 안 됨' : '';
-    $('locationTitle').textContent=linked ? (window.YebaeonPlaylists?.currentName?.() ? window.YebaeonPlaylists.currentName()+' › ' : '')+editor.state().name.replace(/\.pro6$/i,'') : '예배온 Studio';
+    $('locationTitle').textContent=linked ? (window.YebaeonPlaylists?.currentName?.() ? window.YebaeonPlaylists.currentName()+' › ' : '')+editor.state().name.replace(/\.pro6$/i,'') : '';
     $('cloudContext').textContent = linked ? `서버 v${linked.version} · ${linked.updatedBy} · ${time(linked.updatedAt)}` : '';
     window.YebaeonSave?.update();
   }
@@ -101,7 +101,7 @@
         const date=doc.lastDateUsed ? new Date(doc.lastDateUsed).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric',timeZone:'Asia/Seoul'})+' 사용' : '사용일 없음';
         small.textContent=doc.available===false?'원본 미업로드 · 편집 불가':doc.matchedBy==='content'?'본문 일치':date;item.classList.toggle('unavailable',doc.available===false);item.append(window.YebaeonSyncLights.dot('document',doc.id,''),name,small);item.title=doc.path+(doc.localPresent===false?' · 마지막 Mac 인덱스에서 없음 · 서버 원본과 이력은 보존됩니다.':'');
         item.addEventListener('click',e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey)openCloud(doc.id,false,doc);});
-        item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id,false,doc)},{label:'문서 복제',disabled:doc.available===false,action:()=>YebaeonLibraryActions.duplicate(doc)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()},{label:'선택 문서를 찬양용으로 설정',action:()=>applySelectedPolicy(true,false)},{label:'선택 문서를 예배순서용으로 설정',action:()=>applySelectedPolicy(true,true)},{label:'이름 바꾸기',disabled:doc.available===false,action:()=>YebaeonLibraryManage.renameDocument(doc)},{label:'보관함으로',disabled:doc.available===false,action:()=>YebaeonLibraryManage.setDocumentState(documents.filter(d=>select.chosen.has(d.id)&&d.available!==false),'archive')},{label:'휴지통으로',disabled:doc.available===false,action:()=>YebaeonLibraryManage.setDocumentState(documents.filter(d=>select.chosen.has(d.id)&&d.available!==false),'trash')}]);};$('libraryList').append(item);
+        item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id,false,doc)},{label:'문서 복제',disabled:doc.available===false,action:()=>YebaeonLibraryActions.duplicate(doc)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()},{label:'선택 문서를 찬양용으로 설정',action:()=>applySelectedPolicy(true,false)},{label:'선택 문서를 예배순서용으로 설정',action:()=>applySelectedPolicy(true,true)},{label:'이름 바꾸기',disabled:doc.available===false,action:()=>YebaeonLibraryManage.renameDocument(doc)},{label:'휴지통으로',disabled:doc.available===false,action:()=>YebaeonLibraryManage.setDocumentState(documents.filter(d=>select.chosen.has(d.id)&&d.available!==false),'trash')}]);};$('libraryList').append(item);
       }
       select.setKeys(documents.map(d=>d.id));
       if(scroll !== null) $('libraryList').scrollTop = scroll;
@@ -239,8 +239,7 @@
     finally { $('entryPassword').value = ''; $('entrySubmit').disabled = !ready; }
   };
   $('entryLocal').onclick = () => $('entryDialog').close();
-  try { const saved=localStorage.getItem('yebaeon.librarySort.v2'); if(['relevance','name','name-desc','used','updated'].includes(saved))$('librarySort').value=saved; } catch (_) {}
-  $('librarySort').onchange = () => { try { localStorage.setItem('yebaeon.librarySort.v2',$('librarySort').value); } catch (_) {} list(); };
+  $('librarySort').value='relevance';
   let maintenanceAfter='',maintenanceDone=false;
   $('indexMaintenance').onclick=()=>{if(!needUser())return;$('accountMenu').hidden=true;$('indexMaintenanceDialog').showModal();};
   $('indexMaintenanceClose').onclick=()=>$('indexMaintenanceDialog').close();

@@ -2,14 +2,14 @@
  const $=id=>document.getElementById(id),C=YebaeonCloud,L=YebaeonPlaylists,P=PP6,BP=YebaeonBulletinParser,PL=YebaeonBulletinPlan,D=YebaeonBulletinDocuments;
  const STEPS=[['song','찬양'],['prayer','기도'],['sermon','주일말씀'],['weekday','주중말씀'],['review','검토·적용']],SVC=['1부','2부','청년예배'];
  const dialog=document.createElement('dialog');dialog.id='bulletinDialog';dialog.className='bulletin-dialog studio-import-dialog';dialog.setAttribute('aria-labelledby','bulletinHeading');
- dialog.innerHTML=`<header><strong id="bulletinHeading">주보·교회 자료</strong><button id="bulletinClose" class="import-close" aria-label="주보·교회 자료 닫기" title="닫기">×</button></header>
+ dialog.innerHTML=`<header><strong id="bulletinHeading">주보로 준비</strong><button id="bulletinClose" class="import-close" aria-label="주보로 준비 닫기" title="닫기">×</button></header>
  <div id="bulletinStart" class="import-start"></div>
  <section id="bulletinSection" aria-labelledby="bulletinHeading"><nav id="bulletinSteps" class="bulletin-steps" role="tablist" aria-label="준비 단계"></nav>
  <div id="bulletinMain" class="bulletin-main"><div id="bulletinSource" class="bulletin-source"></div><div id="bulletinWork" class="bulletin-body bulletin-work"></div></div>
  <footer class="bulletin-actions import-actions"><small id="bulletinMessage" role="status"></small><button id="bulletinPrev">이전</button><button id="bulletinNext" class="primary">다음</button></footer>
  <div id="bulletinScrim" class="bulletin-scrim" hidden></div><div id="bulletinSheet" class="bulletin-sheet" hidden role="dialog" aria-label="주보에서 고르기"><div class="bulletin-grab"></div><div class="bulletin-sheet-head"></div><div class="bulletin-sheet-body"></div></div></section>
 `;
- document.body.append(dialog);const start=YebaeonDropboxPicker.start($('bulletinStart'),{accept:/\.hwp$/i,inputAccept:'.hwp',max:16*1024*1024,kind:'주보(HWP)',onFile:file=>run(()=>loadFile(file))});start.input.id='bulletinFile';const button=document.createElement('button');button.id='bulletinOpen';button.textContent='주보·자료';if($('studioGlobalTools'))$('studioGlobalTools').append(button);else $('serverStatus').before(button);
+ document.body.append(dialog);const start=YebaeonDropboxPicker.start($('bulletinStart'),{accept:/\.hwp$/i,inputAccept:'.hwp',max:16*1024*1024,kind:'주보(HWP)',initial:'HANWOORI/06주보/주일주보',onFile:file=>run(()=>loadFile(file))});start.input.id='bulletinFile';const button=document.createElement('button');button.id='bulletinOpen';button.className='studio-tool';button.title='주보로 준비';button.setAttribute('aria-label','주보로 준비');button.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 12h7M9 16h7"/></svg><span>주보로 준비</span>';if($('studioGlobalTools'))$('studioGlobalTools').append(button);else $('serverStatus').before(button);
  let work=null,busy=false,seq=0;
  const ui={active:null,fresh:false,sheet:false,all:false,openLine:null};
  const recoveryKey='yebaeon.bulletin.work',plans=new Map(),searches=new Map();

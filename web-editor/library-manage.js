@@ -76,9 +76,8 @@
  }
 
  // ── 보관함·휴지통 창 ──
- let bin='archived-docs';
+ let bin='trashed-playlists';
  const BINS={
-  'archived-docs':{label:'문서 보관함',empty:'보관한 문서가 없습니다.'},
   'trashed-docs':{label:'문서 휴지통',empty:'휴지통이 비어 있습니다.',purge:'documents'},
   'trashed-playlists':{label:'재생목록 휴지통',empty:'휴지통이 비어 있습니다.',purge:'playlists'}
  };

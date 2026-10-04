@@ -36,10 +36,7 @@ const assert=require('node:assert/strict');
   await search('관리 찬양');await docMenu('관리 찬양','이름 바꾸기');await page.locator('#renameValue').fill('고친 찬양');await page.locator('#renameForm button[type=submit]').click();await page.locator('#renameDialog').waitFor({state:'hidden'});
   await search('고친 찬양');await page.locator('#libraryList .document-item').filter({hasText:'고친 찬양'}).waitFor();
   await page.waitForFunction(()=>YebaeonCloud.linked()?.name==='고친 찬양.pro6');
-  // 보관함으로 → 일반 검색에서 빠지고 보관함에서 꺼낸다.
-  await docMenu('고친 찬양','보관함으로');await page.waitForFunction(()=>!document.getElementById('libraryList').textContent.includes('고친 찬양'));
-  await page.locator('#libraryBins').click();await page.locator('#binsTabs button[data-bin="archived-docs"]').click();await binRows().filter({hasText:'고친 찬양'}).waitFor();
-  await binRows().filter({hasText:'고친 찬양'}).getByRole('button',{name:'꺼내기'}).click();await binRows().filter({hasText:'고친 찬양'}).waitFor({state:'hidden'});await page.locator('#binsClose').click();
+  assert.equal(await page.locator('#binsTabs button').count(),2,'trash has playlist and document tabs only');
   await search('고친 찬양');await page.locator('#libraryList .document-item').filter({hasText:'고친 찬양'}).waitFor();
   // 재생목록 휴지통으로 → 꺼내기.
   await openPlaylists();await page.locator('#playlistsList button').filter({hasText:'관리 예배'}).click({button:'right'});await page.getByRole('menuitem',{name:'휴지통으로',exact:true}).click();await page.waitForFunction(()=>!document.getElementById('playlistsList').textContent.includes('관리 예배'));

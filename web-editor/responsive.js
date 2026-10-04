@@ -12,9 +12,10 @@
  // 글꼴마다 화살표 문자 모양이 달라(맥에서 길쭉해짐) 아이콘은 SVG로 그린다.
  const svg=path=>`<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
  $('undo').innerHTML=svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>');$('undo').setAttribute('aria-label','실행취소');$('redo').innerHTML=svg('<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>');$('redo').setAttribute('aria-label','다시 실행');
- const reset=button('studioReset','','초기화 · 브라우저 수정 내역 모두 지우기');reset.innerHTML=svg('<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>');top.querySelector('.segmented').append(reset);reset.onclick=()=>YebaeonDrafts.clearAll();
+ const reset=button('studioReset','','초기화 · 브라우저 수정 내역 모두 지우기');reset.innerHTML=svg('<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>');top.querySelector('.segmented').append(reset);
+ const trash=$('libraryBins');trash.className='studio-trash';trash.textContent='';trash.title='휴지통 · 재생목록·문서';trash.setAttribute('aria-label','휴지통');trash.innerHTML=svg('<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v5M14 11v5"/>');reset.after(trash);reset.onclick=()=>YebaeonDrafts.clearAll();
  const topSave=make('div','studio-save');topSave.id='studioTopSave';top.querySelector('.account-wrap').before(topSave);
- const help=button('studioHelp','?','사용법·단축키');help.className='studio-help';$('locationTitle').after(help);
+ const help=button('studioHelp','?','사용법·단축키');help.className='studio-help';top.querySelector('.brand-name').after(help);
  $('accountMenu').prepend($('serverStatus'));
  const settings=button('studioSettings','설정·관리');$('accountMenu').prepend(settings);
  const settingsDialog=dialog('studioSettingsDialog','설정·관리');
@@ -26,7 +27,7 @@
  const toolbar=make('div','studio-editor-toolbar');const viewSelect=make('select','studio-view-select','<option value="slides">슬라이드</option><option value="reflow">리플로우</option><option value="editor">편집기</option>');viewSelect.id='studioViewSelect';viewSelect.setAttribute('aria-label','편집 화면');viewSelect.onchange=()=>E.setView(viewSelect.value);
  tabs.querySelectorAll('small').forEach(el=>el.remove());tabs.querySelectorAll('button').forEach(el=>{el.textContent=el.textContent.trim();});
  const tools=make('div','responsive-editor-tools','<span id="responsiveSelection"></span>');
- const quick=button('responsiveQuick','✎','글 수정'),multi=button('responsiveMultiple','☑','여러 장 선택'),propertiesButton=button('responsiveProperties','속성','레이어·속성'),more=button('responsiveMore','⋯','문서 메뉴');multi.setAttribute('aria-pressed','false');propertiesButton.setAttribute('aria-expanded','false');
+ const quick=button('responsiveQuick','글 수정','고른 장의 글 고치기 (Enter)'),multi=button('responsiveMultiple','','여러 장 고르기'),propertiesButton=button('responsiveProperties','속성','레이어·속성'),more=button('responsiveMore','⋯','문서 메뉴');multi.setAttribute('aria-pressed','false');multi.innerHTML='<span class="responsive-long">여러 장 </span>고르기';propertiesButton.setAttribute('aria-expanded','false');
  $('resourceOpen').textContent='성경';$('mediaOpen').textContent='미디어';$('add').textContent='＋';$('add').setAttribute('aria-label','새 슬라이드 추가');$('add').title='선택한 장 뒤에 새 슬라이드 추가';
  tools.append($('resourceOpen'),$('mediaOpen'),quick,$('add'),multi,propertiesButton,more);toolbar.append(tabs,viewSelect,tools);$('editorBody').before(toolbar);
  const documentDialog=dialog('studioDocumentDialog','문서 정보·서식');documentDialog.append(document.querySelector('.document-heading'));
@@ -43,7 +44,7 @@
  const historyInfo=make('div','studio-hidden-actions');historyInfo.hidden=true;historyInfo.append($('playlistHistory'),$('playlistSummary'));document.body.append(historyInfo);
  document.querySelector('.playlist-footer').hidden=true;document.querySelector('.editor-footer').hidden=true;$('libraryDivider').hidden=true;
  const documents=$('documentsPane'),searchHeading=documents.querySelector('.pane-heading');searchHeading.querySelector('strong').hidden=true;
- const searchMeta=make('div','studio-search-meta');searchMeta.innerHTML='<span id="studioSearchCount">문서 검색</span>';searchMeta.append($('librarySort'));if($('libraryBins'))searchMeta.append($('libraryBins'));searchHeading.after(searchMeta);
+ historyInfo.append($('librarySort'));
  $('libraryRefresh').textContent='⌕';$('libraryRefresh').setAttribute('aria-label','이름·본문 검색');
  const fold=button('studioSearchFold','×','검색 결과 접기');searchHeading.append(fold);fold.onclick=()=>{documents.classList.toggle('search-folded');fold.textContent=documents.classList.contains('search-folded')?'⌄':'×';fold.setAttribute('aria-label',documents.classList.contains('search-folded')?'검색 결과 펼치기':'검색 결과 접기');};
  const expandSearch=()=>{documents.classList.remove('search-folded');fold.textContent='×';fold.setAttribute('aria-label','검색 결과 접기');};
@@ -63,7 +64,7 @@
  orderMenu.onclick=()=>menuAt(orderMenu,[{label:'순서 저장 이력',disabled:$('playlistHistory').disabled,action:()=>$('playlistHistory').click()},{label:'순서 새로고침',action:()=>$('playlistsRefresh').click()}]);
  more.onclick=()=>menuAt(more,[{label:'문서 정보·서식',action:()=>documentDialog.showModal()},{label:'문서 복제',disabled:!E.ready()||C.linked()?.id!==E.state().key,action:()=>YebaeonLibraryActions.duplicate(C.linked())},{label:'배경 일괄 바꾸기',disabled:!E.ready(),action:()=>YebaeonPPTImport.editBackground()},{label:'문서 저장 이력',disabled:$('cloudHistory').hidden,action:()=>$('cloudHistory').click()},{label:'검색·이력 설정',disabled:$('documentPolicy').hidden,action:()=>$('documentPolicy').click()},{label:'선택 슬라이드 작업',action:()=>{const r=more.getBoundingClientRect();E.selection.options.menu({preventDefault(){},clientX:r.left,clientY:r.bottom});}}]);
  quick.onclick=()=>E.quick();propertiesButton.onclick=()=>properties(!document.body.classList.contains('responsive-properties'));
- multi.onclick=()=>{multiple=!multiple;multi.setAttribute('aria-pressed',String(multiple));multi.title=multiple?'여러 장 선택 종료':'여러 장 선택';};
+ multi.onclick=()=>{multiple=!multiple;multi.setAttribute('aria-pressed',String(multiple));multi.title=multiple?'여러 장 고르기 끝내기':'여러 장 고르기';};
  const helpDialog=dialog('studioHelpDialog','사용법·단축키');helpDialog.insertAdjacentHTML('beforeend','<ol class="studio-help-steps"><li>검색 결과의 ＋ 버튼을 누르면 순서 맨 아래에 추가됩니다. 손잡이를 끌면 원하는 위치에 넣을 수 있습니다.</li><li>순서의 제목을 눌러 문서를 열고, 편집 화면에서 슬라이드를 추가합니다.</li><li>서버 저장으로 현재 예배의 수정한 문서와 순서를 저장합니다.</li></ol><label class="studio-help-platform">단축키 <select id="studioShortcutOS"><option value="windows">Windows</option><option value="mac">Mac</option></select></label><dl id="studioShortcutList"></dl><details class="studio-help-more"><summary>선택·편집 단축키</summary><p>방향키: 선택 이동 · Shift: 범위 선택 · Ctrl/⌘: 여러 항목 선택<br>Ctrl/⌘ + A/C/X/V: 전체 선택·복사·잘라내기·붙여넣기<br>Delete: 선택 항목 삭제 · F2: 이름 변경<br>Alt/Option + Enter: 리플로우 나누기 · 맨 앞 Backspace: 앞 장에 합치기</p><p>글 입력 중에는 입력란의 편집 동작을 우선합니다.</p></details>');
  function shortcuts(){const mac=$('studioShortcutOS').value==='mac',mod=mac?'⌘':'Ctrl',alt=mac?'왼쪽 Option':'왼쪽 Alt';$('studioShortcutList').replaceChildren();for(const [name,key]of[['서버 저장',mod+' + S'],['문서 검색',mod+' + F'],['실행취소',mod+' + Z'],['다시 실행',mod+' + Shift + Z / '+mod+' + Y'],['문서 열기·빠른 편집','Enter'],['닫기·선택 해제','Esc'],['리플로우 / 편집기',alt+' + R / E'],['성경 / 미디어',alt+' + B / V']]){const row=make('div','','<dt></dt><dd><kbd></kbd></dd>');row.querySelector('dt').textContent=name;row.querySelector('kbd').textContent=key;$('studioShortcutList').append(row);}}
  $('studioShortcutOS').value=/Mac|iPhone|iPad/.test(navigator.platform)?'mac':'windows';$('studioShortcutOS').onchange=shortcuts;shortcuts();help.onclick=()=>helpDialog.showModal();
@@ -72,7 +73,7 @@
   $('responsiveTitle').textContent=page==='playlists'&&phone()?'재생목록':phone()&&page==='order'?(current?.name||'순서'):E.state().name.replace(/\.pro6$/i,'');
   $('responsiveBack').hidden=!phone()||page==='playlists';picker.textContent=(current?.name||'재생목록')+' ⌄';picker.title=current?.name||'재생목록 선택';
   nav.querySelectorAll('[data-page]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.page===page)));fab.hidden=!phone()||page!=='order';fab.disabled=!current?.editable;
-  $('studioOrderCount').textContent='순서 '+L.selection.keys.length;$('studioSearchCount').textContent=$('libraryList').querySelectorAll('.document-item').length?'검색 결과 '+$('libraryList').querySelectorAll('.document-item').length:'문서 검색';
+  $('studioOrderCount').textContent='순서 '+L.selection.keys.length;
   $('documentNew').disabled=!current?.editable||L.state().busy||L.state().blocked||!!window.YebaeonSave?.busy();
   viewSelect.value=E.view();const chosen=E.selection.values().length,total=$('slideCount').textContent.replace(/장.*/,'');$('responsiveSelection').textContent=E.ready()?(chosen>1?chosen+'장 선택':chosen||E.view()==='editor'?(E.selected()+1)+' / '+total:total+'장'):'';
   for(const b of[quick,multi,more,propertiesButton])b.disabled=!E.ready();propertiesButton.hidden=E.view()!=='editor'||!compact();multi.hidden=E.view()==='editor';
