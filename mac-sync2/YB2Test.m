@@ -314,7 +314,7 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check([RowNamed(rows, @"청년 예배")[@"status"] isEqual:@"same"], @"same after adding");
         Check([YBPlaylistRemoving(YBReadPlaylist(playlistURL), @"N3") writeToFile:playlistURL.path atomically:YES], @"mac deletes the service");
         rows = Sync(); NSDictionary *n3 = RowNamed(rows, @"청년 예배");
-        Check([n3[@"status"] isEqual:@"receive"] && [n3[@"macDeleted"] boolValue], @"mac-deleted service is marked, not resurrected by default");
+        Check([n3[@"status"] isEqual:@"receive"] && [n3[@"macDeleted"] boolValue], [NSString stringWithFormat:@"mac-deleted service is marked, not resurrected by default: %@ %@ %@ local=%@", n3[@"status"], n3[@"macDeleted"], n3[@"reason"], [YBPlaylistNodes(YBReadPlaylist(playlistURL)) valueForKey:@"id"]]);
 
         // 21. 예배 이름: 웹에서 바꾸면 받고, Mac에서 바꾸면 올린다.
         NSDictionary *webN1 = Plan();
@@ -323,6 +323,15 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check([n1[@"status"] isEqual:@"receive"] && [n1[@"renamedFrom"] isEqual:@"1부 예배"], @"server service rename received");
         result = [engine apply:@[n1]];
         Check([YBPlaylistNode(YBReadPlaylist(playlistURL), @"N1")[@"name"] isEqual:@"주일 1부"], @"local service renamed");
+        // 22. 마지막 적용 되돌리기: 21번의 서버 이름 받기를 되돌리면 Mac 이름이 돌아오고, 다음 비교는 받을 것으로 보인다(올리지 않는다).
+        Check([engine lastApply] != nil, @"last apply recorded");
+        NSDictionary *undone = [engine undoLastApply];
+        Check([undone[@"restored"] containsObject:@"재생목록"] && [undone[@"skipped"] count] == 0, [NSString stringWithFormat:@"undo restored the playlist: %@", undone]);
+        Check([YBPlaylistNode(YBReadPlaylist(playlistURL), @"N1")[@"name"] isEqual:@"1부 예배"], @"local name back");
+        rows = Sync(); n1 = RowNamed(rows, @"주일 1부");
+        Check([n1[@"status"] isEqual:@"receive"] && ![n1[@"macRenamed"] boolValue], [NSString stringWithFormat:@"undone apply shows as receivable again: %@ %@", n1[@"status"], n1[@"macRenamed"]]);
+        Check([engine lastApply] == nil, @"only one level of undo");
+
         NSString *n2Raw = YBPlaylistNode(YBReadPlaylist(playlistURL), @"N2")[@"raw"];
         NSString *renamedN2 = [n2Raw stringByReplacingOccurrencesOfString:@"displayName=\"수요예배\"" withString:@"displayName=\"수요 저녁\""];
         Check(![renamedN2 isEqual:n2Raw] && [YBPlaylistReplacing(YBReadPlaylist(playlistURL), @"N2", renamedN2) writeToFile:playlistURL.path atomically:YES], @"mac renames a service");

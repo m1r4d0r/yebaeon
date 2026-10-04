@@ -64,4 +64,8 @@
 - (NSDictionary *)uploadNew;
 // 문서 바이트가 가리키는 이미지 중 허용 폴더 안의 것을 서버에 올리고 경로표에 등록한다. 반환: 올리거나 등록한 수
 - (NSUInteger)uploadMediaFor:(NSData *)document;
+// 마지막 적용 기록({id, at, applied:[…]}) 또는 nil. 되돌리면 그 다음 것이 아니라 nil이 된다(한 단계만).
+- (NSDictionary *)lastApply;
+// 마지막 적용을 되돌린다. 적용 뒤 바뀐 파일은 건너뛴다. PP6가 꺼져 있어야 한다. 반환: {restored:[…], skipped:[…]}
+- (NSDictionary *)undoLastApply;
 @end

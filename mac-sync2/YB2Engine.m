@@ -364,12 +364,12 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
             if (!old) { [self.receipt removePending:@"doc" entity:item[@"entity"] action:action]; continue; }   // 이미 바뀜 또는 Mac에 없음
             if (now) [holds addObject:@{@"path": from, @"reason": [NSString stringWithFormat:@"새 이름 ‘%@’의 파일이 이미 있음", path]}];
             else if (![self unchangedSinceServer:from sha:item[@"sha"]]) [holds addObject:@{@"path": from, @"reason": @"이름이 바뀐 문서 · Mac에서 고침"}];
-            else [renames addObject:@{@"id": item[@"entity"], @"from": from, @"to": path}];
+            else [renames addObject:@{@"id": item[@"entity"], @"from": from, @"to": path, @"sha": item[@"sha"] ?: @""}];
         } else if ([action isEqual:@"trashed"]) {
             if (![self diskPath:path]) { [self.receipt removePending:@"doc" entity:item[@"entity"] action:action]; continue; }
             if ([activeReferences containsObject:path]) [holds addObject:@{@"path": path, @"reason": @"서버 휴지통에 있음 · Mac 예배가 아직 씀"}];
             else if (![self unchangedSinceServer:path sha:item[@"sha"]]) [holds addObject:@{@"path": path, @"reason": @"서버 휴지통에 있음 · Mac에서 고침"}];
-            else [trashes addObject:@{@"id": item[@"entity"], @"path": path}];
+            else [trashes addObject:@{@"id": item[@"entity"], @"path": path, @"sha": item[@"sha"] ?: @""}];
         }
     }
     if (renames.count || trashes.count || holds.count)
@@ -420,13 +420,13 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
                 @try {
                     after = [self rewriteReferences:after from:rename[@"from"] to:rename[@"to"]];
                     [moves addObject:@{@"from": rename[@"from"], @"to": rename[@"to"]}];
-                    [pendingDone addObject:@{@"entity": rename[@"id"], @"action": @"renamed"}];
+                    [pendingDone addObject:@{@"entity": rename[@"id"], @"action": @"renamed", @"path": rename[@"to"], @"previous": rename[@"from"], @"sha": rename[@"sha"] ?: @""}];
                     [applied addObject:[NSString stringWithFormat:@"이름 바꾸기 %@ → %@", rename[@"from"], rename[@"to"]]];
                 } @catch (NSException *e) { failed[rename[@"from"]] = e.reason ?: @"이름 바꾸기 실패"; }
             }
             for (NSDictionary *trash in row[@"trashes"]) {
                 [trashFiles addObject:trash[@"path"]];
-                [pendingDone addObject:@{@"entity": trash[@"id"], @"action": @"trashed"}];
+                [pendingDone addObject:@{@"entity": trash[@"id"], @"action": @"trashed", @"path": trash[@"path"], @"sha": trash[@"sha"] ?: @""}];
                 [applied addObject:[@"휴지통으로 " stringByAppendingString:trash[@"path"]]];
             }
             continue;
@@ -480,7 +480,12 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
 
     NSString *afterStaged = nil;
     if (![after isEqual:before]) { afterStaged = @"after.pro6pl"; YBWriteSafeFile(stageRoot, afterStaged, after, 0600, nil); }
+    // 되돌리기용: 적용 전 영수증. 되돌리면 이 값으로 돌려 다음 비교가 "받을 것"으로 다시 보이게 한다(Mac 수정으로 올리지 않는다).
+    NSMutableDictionary *beforeDocs = [NSMutableDictionary dictionary], *beforeNodes = [NSMutableDictionary dictionary];
+    for (NSDictionary *record in stagedDocs) beforeDocs[record[@"path"]] = [self.receipt document:record[@"path"]] ?: NSNull.null;
+    for (NSDictionary *record in nodeRecords) beforeNodes[record[@"key"]] = [self.receipt node:record[@"key"]] ?: NSNull.null;
     NSDictionary *journal = @{@"id": applyID, @"status": @"prepared", @"root": self.root, @"playlist": self.playlistURL.path,
+                              @"receiptBefore": @{@"documents": beforeDocs, @"nodes": beforeNodes},
                               @"beforeSha": YBHash(before), @"afterSha": YBHash(after), @"afterStaged": afterStaged ?: @"",
                               @"documents": stagedDocs, @"nodes": nodeRecords, @"applied": applied,
                               @"moves": moves, @"trash": trashFiles, @"pendingDone": pendingDone};
@@ -523,6 +528,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
         if (current && !YBReadSafeFile(docsBackup, path, NULL)) YBWriteSafeFile(docsBackup, path, current, 0600, nil);
         YBWriteSafeFile(self.root, path, output, current ? mode : 0644, ^{ YBRequire(!self.presenterRunning(), @"ProPresenter가 실행됐습니다. 적용을 중단했습니다."); });
     }
+    NSString *playlistBackup = nil;
     if ([journal[@"afterStaged"] length]) {
         NSData *after = YBReadSafeFile(stageRoot, journal[@"afterStaged"], NULL);
         YBRequire(after && [YBHash(after) isEqual:journal[@"afterSha"]], @"준비한 재생목록이 손상됐습니다. 다시 비교해 주세요.");
@@ -530,19 +536,30 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
         if (![current isEqual:after]) {
             YBRequire([YBHash(current) isEqual:journal[@"beforeSha"]], @"적용 전에 재생목록 파일이 바뀌었습니다. 다시 비교해 주세요.");
             [self report:@"재생목록 적용"];
-            YBReplacePlaylist(self.playlistURL, current, after, [backupRoot stringByAppendingPathComponent:@"playlist"], self.presenterRunning);
+            playlistBackup = YBReplacePlaylist(self.playlistURL, current, after, [backupRoot stringByAppendingPathComponent:@"playlist"], self.presenterRunning).path;
         }
     }
     // 서버 휴지통에 넣은 문서는 macOS 휴지통으로 옮긴다. 이미 없으면 끝난 것이다.
-    NSMutableArray *trashed = [NSMutableArray array];
+    NSMutableArray *trashed = [NSMutableArray array], *trashLocations = [NSMutableArray array];
     for (NSString *path in journal[@"trash"]) {
         NSString *absolute = [self diskPath:path];
         if (!absolute) { [trashed addObject:path]; continue; }
         YBRequire(!self.presenterRunning(), @"ProPresenter가 실행됐습니다. 적용을 중단했습니다.");
         [self report:[@"휴지통으로 · " stringByAppendingString:path]];
-        YBRequire(self.trashItem(absolute) != nil, [NSString stringWithFormat:@"휴지통으로 옮기지 못했습니다: %@", path]);
-        [trashed addObject:path];
+        NSString *location = self.trashItem(absolute);
+        YBRequire(location != nil, [NSString stringWithFormat:@"휴지통으로 옮기지 못했습니다: %@", path]);
+        [trashed addObject:path]; [trashLocations addObject:@{@"path": path, @"location": location}];
     }
+    // 되돌리기 기록: 이번 적용이 쓴 것과 원래 것이 있는 곳. [마지막 적용 되돌리기]가 읽는다.
+    NSMutableArray *undoDocuments = [NSMutableArray array];
+    for (NSDictionary *record in journal[@"documents"]) {
+        NSString *path = record[@"path"];
+        [undoDocuments addObject:@{@"path": path, @"sha": written[path][@"sha"] ?: @"", @"backup": @(YBReadSafeFile(docsBackup, path, NULL) != nil)}];
+    }
+    NSDictionary *undo = @{@"id": journal[@"id"], @"at": [[NSISO8601DateFormatter new] stringFromDate:NSDate.date], @"applied": journal[@"applied"] ?: @[],
+                           @"documents": undoDocuments, @"moves": journal[@"moves"] ?: @[], @"trash": trashLocations, @"pendingDone": journal[@"pendingDone"] ?: @[],
+                           @"playlistBackup": playlistBackup ?: @"", @"playlistAfterSha": journal[@"afterSha"] ?: @"", @"receiptBefore": journal[@"receiptBefore"] ?: @{}};
+    YBWriteSafeFile(backupRoot, @"undo.json", JSONData(undo), 0600, nil);
     // 2. 영수증: 실제로 쓴 것만 기록한다.
     [self.receipt transaction:^{
         for (NSDictionary *move in journal[@"moves"]) if ([self.receipt document:move[@"from"]]) [self.receipt moveDocument:move[@"from"] to:move[@"to"]];
@@ -560,6 +577,95 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     }];
     [NSFileManager.defaultManager removeItemAtPath:self.journalPath error:NULL];
     [NSFileManager.defaultManager removeItemAtPath:stageRoot error:NULL];
+}
+
+#pragma mark - 마지막 적용 되돌리기 (3차)
+
+- (NSString *)lastUndoFolder {
+    NSString *root = [self.profile stringByAppendingPathComponent:@"backups"];
+    for (NSString *name in [[[NSFileManager.defaultManager contentsOfDirectoryAtPath:root error:NULL] sortedArrayUsingSelector:@selector(compare:)] reverseObjectEnumerator]) {
+        NSString *folder = [root stringByAppendingPathComponent:name];
+        if (![NSFileManager.defaultManager fileExistsAtPath:[folder stringByAppendingPathComponent:@"undo.json"]]) continue;
+        // 가장 최근 적용 하나만 되돌린다. 이미 되돌렸으면 없음.
+        return [NSFileManager.defaultManager fileExistsAtPath:[folder stringByAppendingPathComponent:@"undone.json"]] ? nil : folder;
+    }
+    return nil;
+}
+- (NSDictionary *)lastApply {
+    NSString *folder = [self lastUndoFolder];
+    NSDictionary *undo = folder ? JSON([NSData dataWithContentsOfFile:[folder stringByAppendingPathComponent:@"undo.json"]]) : nil;
+    return [undo isKindOfClass:NSDictionary.class] ? undo : nil;
+}
+// 적용 뒤 바뀌지 않은 것만 원래대로 돌린다. 원래 없던 문서는 macOS 휴지통으로 옮긴다(지우지 않는다).
+// 영수증은 "적용 때 덮인 내용"을 기억하므로 다음 비교에서 받을 것으로 다시 보인다(올리지 않는다).
+- (NSDictionary *)undoLastApply {
+    YBRequire(!self.presenterRunning(), @"ProPresenter를 종료한 뒤 되돌려 주세요.");
+    YBRequire(![NSFileManager.defaultManager fileExistsAtPath:self.journalPath], @"끝나지 않은 적용이 있습니다. 앱을 다시 열어 마무리한 뒤 되돌려 주세요.");
+    NSString *folder = [self lastUndoFolder];
+    YBRequire(folder != nil, @"되돌릴 적용이 없습니다.");
+    NSDictionary *undo = JSON([NSData dataWithContentsOfFile:[folder stringByAppendingPathComponent:@"undo.json"]]);
+    YBRequire([undo isKindOfClass:NSDictionary.class], @"되돌리기 기록을 읽지 못했습니다.");
+    NSMutableArray *restored = [NSMutableArray array], *skipped = [NSMutableArray array];
+    NSString *docsBackup = [folder stringByAppendingPathComponent:@"documents"];
+    // 1. 재생목록: 적용 뒤 그대로일 때만 백업으로 바꾼다.
+    NSString *playlistBackup = undo[@"playlistBackup"];
+    if (![playlistBackup length] && [undo[@"playlistAfterSha"] length]) {
+        NSString *dir = [folder stringByAppendingPathComponent:@"playlist"];
+        for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:dir error:NULL]) {
+            NSString *candidate = [[dir stringByAppendingPathComponent:name] stringByAppendingPathComponent:self.playlistURL.lastPathComponent];
+            if ([NSFileManager.defaultManager fileExistsAtPath:candidate]) playlistBackup = candidate;
+        }
+    }
+    if ([playlistBackup length]) {
+        NSData *current = YBReadPlaylist(self.playlistURL), *previous = [NSData dataWithContentsOfFile:playlistBackup];
+        if (previous && [YBHash(current) isEqual:undo[@"playlistAfterSha"]]) {
+            YBReplacePlaylist(self.playlistURL, current, previous, [folder stringByAppendingPathComponent:@"undo-playlist"], self.presenterRunning);
+            [restored addObject:@"재생목록"];
+        } else [skipped addObject:@"재생목록(적용 뒤 바뀜)"];
+    }
+    // 2. 문서
+    for (NSDictionary *doc in undo[@"documents"]) {
+        NSString *path = doc[@"path"], *absolute = [self diskPath:path];
+        if (!absolute) continue;
+        if (![YBHash([NSData dataWithContentsOfFile:absolute]) isEqual:doc[@"sha"]]) { [skipped addObject:[path stringByAppendingString:@"(적용 뒤 바뀜)"]]; continue; }
+        if ([doc[@"backup"] boolValue]) {
+            mode_t mode = 0644; YBReadSafeFile(self.root, path, &mode);
+            YBWriteSafeFile(self.root, path, YBReadSafeFile(docsBackup, path, NULL), mode, ^{ YBRequire(!self.presenterRunning(), @"ProPresenter가 실행됐습니다. 되돌리기를 중단했습니다."); });
+        } else YBRequire(self.trashItem(absolute) != nil, [NSString stringWithFormat:@"휴지통으로 옮기지 못했습니다: %@", path]);
+        NSDictionary *previous = undo[@"receiptBefore"][@"documents"][path];
+        long long size = 0, mtime = 0;
+        if ([previous isKindOfClass:NSDictionary.class] && [self statPath:path size:&size mtime:&mtime])
+            [self.receipt rememberDocument:path version:previous[@"version"] sha:previous[@"sha"] size:size mtime:mtime neutral:previous[@"neutral"] replaced:previous[@"replaced"]];
+        else [self.receipt forgetDocument:path];
+        [restored addObject:path];
+    }
+    // 3. 이름 바꾸기와 휴지통을 거꾸로. 기다리던 서버 동작으로 다시 둔다.
+    for (NSDictionary *move in [undo[@"moves"] reverseObjectEnumerator]) {
+        NSString *to = [self diskPath:move[@"to"]];
+        if (!to || [self diskPath:move[@"from"]]) { [skipped addObject:[move[@"to"] stringByAppendingString:@"(이름 되돌리기 불가)"]]; continue; }
+        YBRequire(renamex_np(to.fileSystemRepresentation, [self.root stringByAppendingPathComponent:move[@"from"]].fileSystemRepresentation, RENAME_EXCL) == 0, [NSString stringWithFormat:@"이름을 되돌리지 못했습니다: %@", move[@"to"]]);
+        if ([self.receipt document:move[@"to"]]) [self.receipt moveDocument:move[@"to"] to:move[@"from"]];
+        [restored addObject:move[@"from"]];
+    }
+    for (NSDictionary *item in undo[@"trash"]) {
+        if ([self diskPath:item[@"path"]] || ![NSFileManager.defaultManager fileExistsAtPath:item[@"location"]]) { [skipped addObject:[item[@"path"] stringByAppendingString:@"(휴지통에서 찾지 못함)"]]; continue; }
+        YBRequire([NSFileManager.defaultManager moveItemAtPath:item[@"location"] toPath:[self.root stringByAppendingPathComponent:item[@"path"]] error:NULL], [NSString stringWithFormat:@"휴지통에서 꺼내지 못했습니다: %@", item[@"path"]]);
+        [restored addObject:item[@"path"]];
+    }
+    [self.receipt transaction:^{
+        for (NSDictionary *done in undo[@"pendingDone"]) {
+            NSMutableDictionary *item = [done mutableCopy]; item[@"kind"] = @"doc";
+            [self.receipt addPending:item];
+        }
+        NSDictionary *nodes = undo[@"receiptBefore"][@"nodes"];
+        for (NSString *key in nodes) {
+            NSDictionary *previous = nodes[key];
+            if ([previous isKindOfClass:NSDictionary.class]) [self.receipt rememberNode:key serverSha:previous[@"serverSha"] fingerprint:previous[@"localFingerprint"] name:previous[@"name"] replaced:previous[@"replaced"]];
+            else [self.receipt forgetNode:key];
+        }
+    }];
+    YBWriteSafeFile(folder, @"undone.json", JSONData(@{@"at": [[NSISO8601DateFormatter new] stringFromDate:NSDate.date], @"restored": restored, @"skipped": skipped}), 0600, nil);
+    return @{@"restored": restored, @"skipped": skipped};
 }
 
 - (NSString *)finishInterruptedApply {
