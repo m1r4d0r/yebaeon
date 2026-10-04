@@ -1,4 +1,5 @@
 import { documentLog } from './sync2.mjs';
+import { documentStateRoute } from './document-state.mjs';
 import {importedMedia,importMediaStatements} from './import-media.mjs';
 import { referenceCounts } from './references.mjs';
 import { catalogList } from './library-catalog.mjs';
@@ -31,7 +32,7 @@ export async function readDocument(request, previous=null) {
   return { data, hash: await sha256(data), size: data.length, lastDateUsed: usageFromXML(xml), policy, search:policy.search_enabled?searchData(xml):{text:'',error:null} };
 }
 function document(row) {
-  return { id: row.id, path: row.path, name: row.path.split('/').pop(), version: row.current_version, updatedAt: row.updated_at, updatedBy: row.updated_by, sha256: row.sha256, size: row.size, category:row.category??null,categoryManaged:!!categoryPolicy(row.category),searchEnabled:row.search_enabled!==0,historyEnabled:row.history_enabled!==0,policyRevision:row.policy_revision||0,...(row.usage_version===row.current_version ? {lastDateUsed: row.last_used, usageError: row.usage_error} : {}) };
+  return { id: row.id, path: row.path, name: row.path.split('/').pop(), version: row.current_version, updatedAt: row.updated_at, updatedBy: row.updated_by, sha256: row.sha256, size: row.size, category:row.category??null,categoryManaged:!!categoryPolicy(row.category),state:row.state||'active',...(row.state&&row.state!=='active'?{stateAt:row.state_at,stateBy:row.state_by}:{}),searchEnabled:row.search_enabled!==0,historyEnabled:row.history_enabled!==0,policyRevision:row.policy_revision||0,...(row.usage_version===row.current_version ? {lastDateUsed: row.last_used, usageError: row.usage_error} : {}) };
 }
 async function find(db, id) {
   const row = await db.prepare('SELECT * FROM yebaeon_documents WHERE id = ?').bind(id).first();
@@ -66,11 +67,14 @@ export async function documentsRoute(request, env, user, id, action) {
         catch (_) { throw new HttpError(400,'invalid_cursor','목록을 새로고침해 주세요.'); }
       }
       const field = sort==='used' ? "COALESCE(d.last_used,'')" : 'd.updated_at';
-      let clause='', args=[query];
+      // 기본 목록은 사용 중 문서만. 보관함·휴지통은 state로 따로 본다.
+      const state = url.searchParams.get('state') || 'active';
+      if (!['active','archived','trashed'].includes(state)) throw new HttpError(400,'invalid_state','목록 종류를 확인해 주세요.');
+      let clause='', args=[query, state];
       if(sort==='name'||sort==='name-desc') { clause=after ? ` AND d.path ${sort==='name' ? '>' : '<'} ?` : ''; if(after)args.push(after); }
       else if(cursor) { clause=` AND (${field} < ? OR (${field} = ? AND d.path > ?))`; args.push(cursor.value,cursor.value,cursor.path); }
       const order = sort==='name' ? 'd.path ASC' : sort==='name-desc' ? 'd.path DESC' : `${field} DESC, d.path ASC`;
-      const rows = (await db.prepare(`SELECT d.* FROM yebaeon_documents d WHERE instr(lower(d.path),lower(?))>0${clause} ORDER BY ${order} LIMIT 101`).bind(...args).all()).results;
+      const rows = (await db.prepare(`SELECT d.* FROM yebaeon_documents d WHERE instr(lower(d.path),lower(?))>0 AND d.state=?${clause} ORDER BY ${order} LIMIT 101`).bind(...args).all()).results;
       const last=rows[99], next=rows.length>100 ? ((sort==='name'||sort==='name-desc') ? last.path : JSON.stringify({path:last.path,value:sort==='used' ? last.last_used||'' : last.updated_at})) : null;
       const refs=url.searchParams.get('includeUses')==='1'?await referenceCounts(env):null;
       return json({ documents: rows.slice(0,100).map(row=>({...document(row),...(refs?{useCount:refs.pending?null:(refs.uses.get(row.path)||0)}:{})})), next, indexing, referencesPending:refs?.pending||false });
@@ -79,6 +83,8 @@ export async function documentsRoute(request, env, user, id, action) {
     const path = documentPath(url.searchParams.get('path'));
     const existing = await db.prepare('SELECT * FROM yebaeon_documents WHERE path = ?').bind(path).first();
     const content = await readDocument(request,existing);
+    // Studio에서 만드는 새 문서는 카테고리를 꼭 고른다(PP6 문서는 PP6가 이미 요구한다).
+    if (!existing && request.headers.get('X-YebaeOn-Client') === 'studio' && !content.policy.category) throw new HttpError(400, 'category_required', '카테고리를 골라 주세요.');
     if (existing) {
       if (existing.sha256 === content.hash) return unchangedDocument(db,existing,content);
       throw new HttpError(409, 'path_exists', '같은 경로의 문서가 이미 있습니다. 목록에서 열어 수정하거나 다른 경로로 저장해 주세요.');
@@ -107,6 +113,7 @@ export async function documentsRoute(request, env, user, id, action) {
   }
   if (!/^[0-9a-f-]{36}$/.test(id)) throw new HttpError(404, 'not_found', '문서를 찾지 못했습니다.');
   if(action==='policy')return documentPolicy(request,env,id);
+  if(action==='state'||action==='rename')return documentStateRoute(request,env,user,id,action,{find,document,documentPath});
   if (action === 'usage') {
     method(request, ['GET']);
     const row = await find(db, id);
@@ -146,6 +153,7 @@ export async function documentsRoute(request, env, user, id, action) {
   if (!match || !/^"[1-9][0-9]*"$/.test(match)) throw new HttpError(428, 'version_required', '문서의 기준 버전이 필요합니다.');
   const base = Number(match.slice(1, -1));
   if (base !== row.current_version) throw conflict();
+  if ((row.state||'active') === 'trashed') throw new HttpError(409, 'document_trashed', '휴지통에 있는 문서입니다. 휴지통에서 꺼낸 뒤 저장해 주세요.');
   const content = await readDocument(request,row),p=content.policy;
   if (content.hash === row.sha256) return unchangedDocument(db,row,content);
   const importRefs=await importedMedia(db,content.data);

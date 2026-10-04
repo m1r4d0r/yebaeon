@@ -1,5 +1,5 @@
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
-import { parsePlaylist, catalog, referencePath, sourceRoot, editPlaylist } from './playlist-format.mjs';
+import { parsePlaylist, catalog, referencePath, sourceRoot, editPlaylist, renameReferences, renamePlaylistNode, appendPlaylist } from './playlist-format.mjs';
 import { catalogDocument } from './library-catalog.mjs';
 import { nodeLog } from './sync2.mjs';
 import {archiveList,protectManagedPlaylists,managePlaylist} from './playlist-management.mjs';
@@ -33,7 +33,7 @@ function nodeInsert(db,r,n,fileVersion,author,at,guard=false) {
 async function baseline(env,r,parsed) {
   const nodes=await nodeSnapshots(parsed),existing=(await env.DB.prepare('SELECT DISTINCT node_id FROM yebaeon_playlist_node_versions WHERE library_id=?').bind(r.id).all()).results;const missing=nodes.filter(n=>!existing.some(v=>v.node_id===n.id));if(missing.length)await env.DB.batch(missing.map(n=>nodeInsert(env.DB,r,n,r.current_version,r.updated_by,r.updated_at)));return nodes;
 }
-async function save(env, user, r, content,extra=()=>[],{removedAction='removed'}={}) {
+async function save(env, user, r, content,extra=()=>[],{removedAction='removed',createdAction=null}={}) {
   if (content.data.length > MAX) throw new HttpError(413, 'too_large', '재생목록은 5MB까지 저장할 수 있습니다.');
   if (content.hash === r.sha256) return { library: metadata(r), unchanged: true };
   const next = r.current_version + 1, writeId = crypto.randomUUID(), key = `playlists/${r.id}/${writeId}.pro6pl`, now = new Date().toISOString(), summary = JSON.stringify(catalog(content.parsed));
@@ -47,6 +47,7 @@ async function save(env, user, r, content,extra=()=>[],{removedAction='removed'}
     // 변경 일지: 바뀐·새 예배와 빠진 예배만. 같은 batch라 저장이 실패하면 남지 않는다.
     ...changes.map(n=>nodeLog(env.DB,{libraryId:r.id,writeId,nodeId:n.id,name:n.name,sha:n.sha256,action:previous.some(p=>p.id===n.id)?'updated':'created',author:user.author,now})),
     ...removed.map(n=>nodeLog(env.DB,{libraryId:r.id,writeId,nodeId:n.id,name:n.name,sha:null,kind:'node-state',action:removedAction,author:user.author,now})),
+    ...(createdAction?changes.filter(n=>!previous.some(p=>p.id===n.id)).map(n=>nodeLog(env.DB,{libraryId:r.id,writeId,nodeId:n.id,name:n.name,sha:n.sha256,kind:'node-state',action:createdAction,author:user.author,now})):[]),
     ...extra(writeId,now)
   ]);
   if (results[0].meta.changes !== 1) throw conflict();
@@ -57,7 +58,8 @@ export async function playlistsRoute(request, env, user, id, action) {
   if (!id) {
     method(request, ['GET', 'POST']);
     if (request.method === 'GET') {
-      if(url.searchParams.get('scope')==='archived')return archiveList(request,env);
+      const scope=url.searchParams.get('scope');
+      if(scope==='archived'||scope==='trashed')return archiveList(request,env,scope);
       const after = url.searchParams.get('after') || '';
       const rows = (await db.prepare('SELECT * FROM yebaeon_playlists WHERE path > ? ORDER BY path LIMIT 51').bind(after).all()).results;
       return json({ libraries: await Promise.all(rows.slice(0,50).map(r=>enriched(env,r))), next: rows.length > 50 ? rows[49].path : null });
@@ -88,6 +90,8 @@ export async function playlistsRoute(request, env, user, id, action) {
     return json({library:metadata(r),removals,fingerprint:await sha256(JSON.stringify([r.sha256,removals]))});
   }
   if(action==='nodes'&&request.method==='PUT')return replaceNode(request,env,user,id);
+  if(action==='nodes'&&request.method==='POST'&&request.headers.get('X-YebaeOn-Sync')==='2'&&url.searchParams.has('node'))return addNodeIfAbsent(request,env,user,id);
+  if(action==='rename')return renameNode(request,env,user,id);
   if(action==='nodes'&&request.method==='GET'){
     // 예배 노드 XML 한 개. version이 있으면 노드 이력 표에서, 없으면 최신 이력에서 준다(R2·전체 파일을 읽지 않는다).
     const node=url.searchParams.get('node')||'',version=url.searchParams.get('version');
@@ -96,7 +100,7 @@ export async function playlistsRoute(request, env, user, id, action) {
     if(!v)throw new HttpError(404,'not_found','예배 순서 이력이 없습니다.');
     return json({node:{id:node,version:v.version,name:v.name,xml:v.xml,sha256:v.sha256,updatedBy:v.author,updatedAt:v.created_at}});
   }
-  if(['nodes','archive','restore'].includes(action))return managePlaylist(request,env,user,r,action,{load,save,metadata});
+  if(['nodes','archive','restore','trash','untrash'].includes(action))return managePlaylist(request,env,user,r,action,{load,save,metadata});
   if (action === 'content') {
     method(request,['GET','HEAD']);
     if(url.searchParams.has('node')){
@@ -212,4 +216,80 @@ async function replaceNode(request,env,user,id){
     }catch(error){if(error.code!=='playlist_conflict')throw error;}
   }
   throw conflict();
+}
+
+// 노드 XML 한 개를 받아 고친 파일을 저장한다. 다른 사람이 먼저 저장했으면(파일 CAS) 최신본으로 다시 시도한다.
+async function saveWithRetry(env,user,id,edit){
+  for(let attempt=0;attempt<5;attempt++){
+    const current=await row(env.DB,id),parsed=await load(env,current),xml=edit(parsed,current);
+    if(xml===null)return {library:metadata(current),unchanged:true};
+    const data=new TextEncoder().encode(xml);
+    try{return await save(env,user,current,{xml,data,parsed:parsePlaylist(xml),hash:await sha256(data)});}
+    catch(error){if(error.code!=='playlist_conflict')throw error;}
+  }
+  throw conflict();
+}
+function readNode(xml,node){
+  const wrapped=parsePlaylist(`<RVPlaylistDocument><RVPlaylistNode><array rvXMLIvarName="children">${xml}</array></RVPlaylistNode></RVPlaylistDocument>`),incoming=wrapped.playlists[0];
+  if(wrapped.playlists.length!==1||incoming.id!==node||wrapped.xml.slice(incoming.node.start,incoming.node.end)!==xml)throw new HttpError(400,'invalid_playlist','예배 하나만 올릴 수 있습니다.');
+  return incoming;
+}
+// Sync 2: PP6에서 만든 예배를 서버에 새로 더한다. 이미 있으면 바꾸지 않는다. 서버에서 보관·휴지통에 넣은 번호면 되살리지 않는다.
+async function addNodeIfAbsent(request,env,user,id){
+  sameOrigin(request);
+  const node=new URL(request.url).searchParams.get('node')||'';let body;
+  try{body=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(request,1024*1024)));}catch(error){if(error instanceof HttpError)throw error;throw new HttpError(400,'invalid_playlist','예배 순서 내용을 확인해 주세요.');}
+  if(!body||typeof body.xml!=='string')throw new HttpError(400,'invalid_playlist','예배 순서가 필요합니다.');
+  const incoming=readNode(body.xml,node),hash=await sha256(new TextEncoder().encode(body.xml));
+  const control=await env.DB.prepare('SELECT state FROM yebaeon_playlist_controls WHERE library_id=? AND node_id=?').bind(id,node).first();
+  if(control&&control.state!=='active')throw new HttpError(409,'playlist_node_state',control.state==='archived'?'서버에서 보관한 예배입니다.':'서버 휴지통에 있는 예배입니다.',{'X-YebaeOn-Node-State':control.state});
+  let existed=null;
+  const result=await saveWithRetry(env,user,id,(parsed)=>{
+    const found=parsed.playlists.find(p=>p.id===node);
+    if(found){existed=parsed.xml.slice(found.node.start,found.node.end);return null;}
+    if(parsed.playlists.some(p=>p.name.normalize('NFC')===incoming.name.normalize('NFC')))throw new HttpError(409,'playlist_name_exists','같은 이름의 예배가 서버에 있습니다.');
+    return appendPlaylist(parsed,body.xml);
+  });
+  if(existed!==null){
+    const same=await sha256(new TextEncoder().encode(existed))===hash;
+    if(!same)throw new HttpError(409,'playlist_node_exists','같은 번호의 다른 예배가 이미 서버에 있습니다.');
+    return json({...result,playlist:{id:node,sha256:hash},unchanged:true});
+  }
+  return json({...result,playlist:{id:node,sha256:hash}},201);
+}
+// 예배 이름 바꾸기(Studio). 그 노드의 sha가 기준이다.
+async function renameNode(request,env,user,id){
+  method(request,['POST']);sameOrigin(request);
+  const node=new URL(request.url).searchParams.get('node')||'';let body;
+  try{body=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(request,4096)));}catch(error){if(error instanceof HttpError)throw error;throw new HttpError(400,'invalid_playlist','이름을 확인해 주세요.');}
+  if(!body||typeof body.name!=='string'||!/^[0-9a-f]{64}$/.test(body.baseNodeHash||''))throw new HttpError(400,'invalid_playlist','새 이름과 기준이 필요합니다.');
+  let previous=null;
+  const out=await saveWithRetryHashed(env,user,id,node,body.baseNodeHash,(parsed,selected)=>{
+    previous=selected.name;
+    if(parsed.playlists.some(p=>p.id!==node&&p.name.normalize('NFC')===body.name.trim().normalize('NFC')))throw new HttpError(409,'playlist_name_exists','같은 이름의 재생목록이 있습니다.');
+    if(selected.name===body.name.trim().normalize('NFC'))return null;
+    return renamePlaylistNode(parsed,node,body.name);
+  },(current,writeId,now)=>[nodeLog(env.DB,{libraryId:current.id,writeId,nodeId:node,name:body.name.trim().normalize('NFC'),sha:null,action:'renamed',previous,author:user.author,now})]);
+  return json({...out,playlist:{id:node,name:body.name.trim().normalize('NFC'),previousName:previous}});
+}
+async function saveWithRetryHashed(env,user,id,node,baseHash,edit,extra){
+  for(let attempt=0;attempt<5;attempt++){
+    const current=await row(env.DB,id),parsed=await load(env,current),selected=parsed.playlists.find(p=>p.id===node);
+    if(!selected)throw new HttpError(404,'not_found','재생목록을 찾지 못했습니다.');
+    if(await sha256(new TextEncoder().encode(parsed.xml.slice(selected.node.start,selected.node.end)))!==baseHash)throw conflict();
+    const xml=edit(parsed,selected);if(xml===null)return {library:metadata(current),unchanged:true};
+    const data=new TextEncoder().encode(xml);
+    try{return await save(env,user,current,{xml,data,parsed:parsePlaylist(xml),hash:await sha256(data)},extra?(writeId,now)=>extra(current,writeId,now):undefined);}
+    catch(error){if(error.code!=='playlist_conflict')throw error;}
+  }
+  throw conflict();
+}
+// 문서 이름 바꾸기 뒤: 모든 재생목록 파일에서 옛 경로 참조를 새 경로로 고친다(그 예배들만 새 노드 버전).
+export async function rewriteDocumentReferences(env,user,oldPath,newPath){
+  const libraries=(await env.DB.prepare('SELECT id,source_root FROM yebaeon_playlists').all()).results,changed=[];
+  for(const library of libraries){
+    const result=await saveWithRetry(env,user,library.id,(parsed,current)=>renameReferences(parsed,current.source_root,oldPath,newPath));
+    if(!result.unchanged)changed.push(library.id);
+  }
+  return changed;
 }

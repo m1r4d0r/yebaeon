@@ -1,5 +1,7 @@
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
 import { documentAttributes } from './document-usage.mjs';
+import { ledgerRoute } from './ledger.mjs';
+import { resolveRevisionRoute } from './admin.mjs';
 
 // Sync 2 · 서버 2단계 (재설계안 7.1).
 // - 변경 일지(sync_log): 문서·예배 쓰기와 같은 batch 안에서 write_id 조건으로 한 줄씩 쌓는다. CAS가 실패한 저장은 남지 않는다.
@@ -32,12 +34,12 @@ export async function migrateSync2(db) {
 }
 
 // 일지 한 줄. 쓰기가 실제로 커밋됐을 때만 남도록 write_id 조건을 단다.
-export function documentLog(db, { id, writeId, action, author, now }) {
-  return db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,size,path,author,at) SELECT 'doc',id,?,current_version,sha256,size,path,?,? FROM yebaeon_documents WHERE id=? AND write_id=?`).bind(action, author, now, id, writeId);
+export function documentLog(db, { id, writeId, action, author, now, previous = null }) {
+  return db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,size,path,previous,author,at) SELECT 'doc',id,?,current_version,sha256,size,path,?,?,? FROM yebaeon_documents WHERE id=? AND write_id=?`).bind(action, previous, author, now, id, writeId);
 }
 // 예배(노드)는 entity = '<재생목록 id>:<노드 id>'. 순서가 바뀌면 kind 'node', 보관·삭제는 'node-state'.
-export function nodeLog(db, { libraryId, writeId, nodeId, name, sha, kind = 'node', action, author, now }) {
-  return db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,name,author,at) SELECT ?,id||':'||?,?,current_version,?,?,?,? FROM yebaeon_playlists WHERE id=? AND write_id=?`).bind(kind, nodeId, action, sha, name, author, now, libraryId, writeId);
+export function nodeLog(db, { libraryId, writeId, nodeId, name, sha, kind = 'node', action, author, now, previous = null }) {
+  return db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,name,previous,author,at) SELECT ?,id||':'||?,?,current_version,?,?,?,?,? FROM yebaeon_playlists WHERE id=? AND write_id=?`).bind(kind, nodeId, action, sha, name, previous, author, now, libraryId, writeId);
 }
 const head = async db => (await db.prepare('SELECT COALESCE(MAX(seq),0) AS seq FROM yebaeon_sync_log').first()).seq;
 
@@ -107,7 +109,7 @@ async function changesRoute(request, env) {
   const url = new URL(request.url), since = Number(url.searchParams.get('since') || 0), limit = Number(url.searchParams.get('limit') || 200);
   if (!Number.isSafeInteger(since) || since < 0 || !Number.isSafeInteger(limit) || limit < 0 || limit > 500) throw new HttpError(400, 'invalid_cursor', '변경 일지 번호를 확인해 주세요.');
   // limit=0은 지금 번호(head)만 묻는다. 처음 붙는 Mac이 지난 일지를 훑지 않게 한다.
-  const rows = limit ? (await env.DB.prepare('SELECT seq,kind,entity,action,version,sha256,size,path,name,author,at FROM yebaeon_sync_log WHERE seq>? ORDER BY seq LIMIT ?').bind(since, limit + 1).all()).results : [];
+  const rows = limit ? (await env.DB.prepare('SELECT seq,kind,entity,action,version,sha256,size,path,name,previous,author,at FROM yebaeon_sync_log WHERE seq>? ORDER BY seq LIMIT ?').bind(since, limit + 1).all()).results : [];
   const changes = rows.slice(0, limit).map(r => Object.fromEntries(Object.entries(r).filter(([, v]) => v !== null)));
   const more = rows.length > limit;
   return json({ changes, next: changes.length ? changes.at(-1).seq : since, head: await head(env.DB), more });
@@ -216,7 +218,9 @@ function revisionView(r) {
 
 export async function sync2Route(request, env, user, resource, id, sub) {
   if (resource === 'devices') return devicesRoute(request, env, user, id, sub);
+  if (resource === 'revisions' && id && sub === 'resolve') return resolveRevisionRoute(request, env, user, id);
   if (resource === 'revisions') return revisionsRoute(request, env, user, id, sub);
+  if (resource === 'ledger' && !id && !sub) return ledgerRoute(request, env);
   if (id || sub) throw new HttpError(404, 'not_found', '없는 요청입니다.');
   if (resource === 'changes') return changesRoute(request, env);
   if (resource === 'manifest') return manifestRoute(request, env);

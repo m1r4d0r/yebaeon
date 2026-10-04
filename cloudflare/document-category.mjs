@@ -1,12 +1,21 @@
 import { documentAttributes } from './document-usage.mjs';
 
-// Only explicitly approved PP6 categories are authoritative. Legacy names and
-// pending documents keep their existing independent search/history settings.
-const policies = new Map([
+// 정책표(yebaeon_categories)에 있는 카테고리만 검색·이력 설정을 정한다. 표에 없는 카테고리는
+// 문서마다의 기존 설정을 따른다(새 문서는 검색 켬·이력 켬).
+// 요청마다 표를 읽지 않도록 isolate 안에 60초 둔다. 이 isolate에서 바꾸면 바로 반영한다.
+let policies = new Map([
   ['가사찬양', [true, false]], ['악보찬양', [true, false]],
   ['예배순서', [true, true]], ['특별순서', [true, true]],
   ['옛날자료', [false, false]]
 ]);
+let loadedAt = 0;
+export async function refreshCategories(db, force = false) {
+  if (!force && Date.now() - loadedAt < 60000) return;
+  const rows = (await db.prepare('SELECT name,search_enabled,history_enabled FROM yebaeon_categories').all()).results;
+  policies = new Map(rows.map(r => [r.name, [!!r.search_enabled, !!r.history_enabled]]));
+  loadedAt = Date.now();
+}
+export function categoryNames() { return [...policies.keys()]; }
 export function categoryPolicy(category) {
   const flags = policies.get(category);
   return flags ? { searchEnabled: flags[0], historyEnabled: flags[1] } : null;

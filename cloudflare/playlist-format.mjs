@@ -111,3 +111,27 @@ export function editPlaylist(parsed, nodeId, entries, documents, root) {
   // A direct-child fixture places metadata alongside cues; such children are marked unsupported above.
   parsePlaylist(xml); return xml;
 }
+
+// 문서 이름 바꾸기: 모든 예배에서 옛 경로를 가리키는 큐의 filePath를 새 경로로 바꾼다.
+// 표시 이름이 옛 파일 이름 그대로였던 큐만 새 이름으로 바꾼다. 가리키는 곳이 없으면 null.
+export function renameReferences(parsed, root, oldPath, newPath) {
+  const hits = [];
+  for (const p of parsed.playlists) for (const item of p.items) if (item.kind === 'document' && referencePath(item.sourcePath, root) === oldPath) hits.push(item);
+  if (!hits.length) return null;
+  const stem = path => path.split('/').pop().replace(/\.pro6$/i, ''), oldName = stem(oldPath), newName = stem(newPath);
+  let xml = parsed.xml;
+  for (const item of hits.sort((a, b) => b.node.start - a.node.start)) {
+    let raw = xml.slice(item.node.start, item.node.end);
+    raw = attr(raw, 'filePath', sourceRoot(root) + '/' + newPath);
+    if ((item.node.attrs.displayName || '') === oldName) raw = attr(raw, 'displayName', newName);
+    xml = xml.slice(0, item.node.start) + raw + xml.slice(item.node.end);
+  }
+  parsePlaylist(xml); return xml;
+}
+// 예배 이름 바꾸기: 그 노드의 여는 태그 displayName만 바꾼다.
+export function renamePlaylistNode(parsed, id, name) {
+  const selected = parsed.playlists.find(p => p.id === id); if (!selected) fail('재생목록을 찾지 못했습니다.');
+  const raw = attr(parsed.xml.slice(selected.node.start, selected.node.end), 'displayName', playlistName(name));
+  const xml = parsed.xml.slice(0, selected.node.start) + raw + parsed.xml.slice(selected.node.end);
+  parsePlaylist(xml); return xml;
+}

@@ -3,10 +3,10 @@ import {parsePlaylist,playlistName,newPlaylistNode,appendPlaylist,removePlaylist
 
 const conflict=()=>new HttpError(409,'playlist_conflict','재생목록이 바뀌었습니다. 최신 목록을 확인해 주세요.');
 const encoder=new TextEncoder();
-export async function archiveList(request,env){
+export async function archiveList(request,env,state='archived'){
   const after=new URL(request.url).searchParams.get('after')||'';
   if(after.length>300)throw new HttpError(400,'invalid_cursor','보관 목록을 새로고침해 주세요.');
-  const rows=(await env.DB.prepare(`SELECT c.library_id AS libraryId,c.node_id AS id,c.name,c.updated_at AS archivedAt,c.updated_by AS archivedBy,p.path AS libraryPath FROM yebaeon_playlist_controls c JOIN yebaeon_playlists p ON p.id=c.library_id WHERE c.state='archived' AND c.library_id||'/'||c.node_id>? ORDER BY c.library_id,c.node_id LIMIT 101`).bind(after).all()).results;
+  const rows=(await env.DB.prepare(`SELECT c.library_id AS libraryId,c.node_id AS id,c.name,c.updated_at AS archivedAt,c.updated_by AS archivedBy,p.path AS libraryPath FROM yebaeon_playlist_controls c JOIN yebaeon_playlists p ON p.id=c.library_id WHERE c.state=? AND c.library_id||'/'||c.node_id>? ORDER BY c.library_id,c.node_id LIMIT 101`).bind(state,after).all()).results;
   return json({archives:rows.slice(0,100),next:rows.length>100?rows[99].libraryId+'/'+rows[99].id:null});
 }
 export async function protectManagedPlaylists(env,r,parsed){
@@ -45,11 +45,11 @@ async function snapshot(env,r,parsed,node,user){
   return {key,manifest};
 }
 export async function managePlaylist(request,env,user,r,action,helpers){
-  method(request,action==='nodes'?['POST','DELETE']:action==='archive'?['GET','POST']:['POST']);
+  method(request,action==='nodes'?['POST','DELETE']:action==='archive'||action==='trash'?['GET','POST']:['POST']);
   if(request.method!=='GET')sameOrigin(request);
   const url=new URL(request.url),nodeId=url.searchParams.get('node');
   if(request.method==='GET'){
-    const control=await env.DB.prepare("SELECT * FROM yebaeon_playlist_controls WHERE library_id=? AND node_id=? AND state='archived'").bind(r.id,nodeId).first();
+    const control=await env.DB.prepare("SELECT * FROM yebaeon_playlist_controls WHERE library_id=? AND node_id=? AND state=?").bind(r.id,nodeId,action==='trash'?'trashed':'archived').first();
     const object=control?.snapshot_key&&await env.FILES.get(control.snapshot_key);if(!object)throw new HttpError(404,'not_found','보관 원본을 찾지 못했습니다.');
     const saved=await object.json(),documentId=url.searchParams.get('document');
     if(documentId){
@@ -62,13 +62,16 @@ export async function managePlaylist(request,env,user,r,action,helpers){
   const body=request.method==='POST'?await bodyJSON(request):{};
   if(!body||Array.isArray(body)||typeof body!=='object')throw new HttpError(400,'invalid_playlist','목록 정보를 확인해 주세요.');
   const parsed=await helpers.load(env,r),control=nodeId&&await env.DB.prepare('SELECT * FROM yebaeon_playlist_controls WHERE library_id=? AND node_id=?').bind(r.id,nodeId).first();
-  const create=action==='nodes'&&request.method==='POST',restore=action==='restore',archive=action==='archive';
+  // 삭제(DELETE)도 휴지통으로 간다. 진짜 삭제는 관리자의 휴지통 비우기뿐이다.
+  const create=action==='nodes'&&request.method==='POST',restore=action==='restore'||action==='untrash',archive=action==='archive',trash=action==='trash'||(action==='nodes'&&request.method==='DELETE');
+  const restoreFrom=action==='untrash'?'trashed':'archived';
   if(create){
     if(typeof body.id!=='string'||!/^[0-9a-f-]{36}$/i.test(body.id))throw new HttpError(400,'invalid_playlist','새 목록 번호가 필요합니다.');
     const previous=parsed.playlists.find(p=>p.id===body.id);
     if(previous&&previous.name===playlistName(body.name))return json({library:helpers.metadata(r),playlist:{id:previous.id},unchanged:true});
   }
   if(archive&&control?.state==='archived')return json({library:helpers.metadata(r),archived:true,unchanged:true});
+  if(trash&&control?.state==='trashed')return json({library:helpers.metadata(r),trashed:true,unchanged:true});
   if(restore&&control?.state==='active'&&parsed.playlists.some(p=>p.id===nodeId))return json({library:helpers.metadata(r),playlist:{id:nodeId},unchanged:true});
   if(request.headers.get('If-Match')!==`"${r.current_version}"`)throw conflict();
   let xml,change,summary;
@@ -78,7 +81,7 @@ export async function managePlaylist(request,env,user,r,action,helpers){
     if(await env.DB.prepare('SELECT node_id FROM yebaeon_playlist_controls WHERE library_id=? AND node_id=?').bind(r.id,body.id).first())throw conflict();
     xml=appendPlaylist(parsed,newPlaylistNode(name,body.id));change={id:body.id,name,state:'active'};
   }else if(restore){
-    if(control?.state!=='archived'||!control.snapshot_key)throw new HttpError(404,'not_found','보관된 목록이 없습니다.');
+    if(control?.state!==restoreFrom||!control.snapshot_key)throw new HttpError(404,'not_found',restoreFrom==='trashed'?'휴지통에 그 목록이 없습니다.':'보관된 목록이 없습니다.');
     const object=await env.FILES.get(control.snapshot_key);if(!object)throw new HttpError(503,'file_unavailable','보관 원본을 읽지 못했습니다.');
     const saved=await object.json(),name=control.name;
     if(parsed.playlists.some(p=>p.name===name||p.id===nodeId))throw new HttpError(409,'playlist_name_exists','같은 이름이나 번호의 목록이 이미 있습니다.');
@@ -91,10 +94,11 @@ export async function managePlaylist(request,env,user,r,action,helpers){
   }else{
     const selected=parsed.playlists.find(p=>p.id===nodeId);if(!selected)throw new HttpError(404,'not_found','재생목록을 찾지 못했습니다.');
     if(typeof body.baseNodeHash==='string'&&body.baseNodeHash!==await sha256(encoder.encode(parsed.xml.slice(selected.node.start,selected.node.end))))throw conflict();
-    const copy=archive?await snapshot(env,r,parsed,selected,user):null;
-    xml=removePlaylist(parsed,nodeId);change={id:nodeId,name:selected.name,state:archive?'archived':'removed',snapshotKey:copy?.key};
-    summary={archived:archive,removed:!archive,missing:copy?.manifest.missing||[],mediaVerified:false};
+    // 보관함과 휴지통 모두 그 순간의 순서와 문서 사본을 남긴다. 꺼낼 때 그대로 돌아온다.
+    const copy=await snapshot(env,r,parsed,selected,user);
+    xml=removePlaylist(parsed,nodeId);change={id:nodeId,name:selected.name,state:archive?'archived':'trashed',snapshotKey:copy.key};
+    summary={archived:archive,trashed:trash,missing:copy.manifest.missing||[],mediaVerified:false};
   }
-  const data=encoder.encode(xml),result=await helpers.save(env,user,r,{xml,data,parsed:parsePlaylist(xml),hash:await sha256(data)},(writeId,now)=>[controlStatement(env.DB,r,writeId,change,now,user.author)],{removedAction:change.state==='archived'?'archived':'removed'});
+  const data=encoder.encode(xml),result=await helpers.save(env,user,r,{xml,data,parsed:parsePlaylist(xml),hash:await sha256(data)},(writeId,now)=>[controlStatement(env.DB,r,writeId,change,now,user.author)],{removedAction:change.state,createdAction:restore?(restoreFrom==='trashed'?'untrashed':'unarchived'):null});
   return json({...result,playlist:{id:change.id},...summary},create?201:200);
 }
