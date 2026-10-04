@@ -335,6 +335,7 @@ static NSString *Summary(NSDictionary *result) {
     if ([apply[@"images"] integerValue]) [text appendFormat:@"이미지 받음: %@개\n", apply[@"images"]];
     for (NSString *line in apply[@"imageFailed"]) [text appendFormat:@"이미지 받기 실패(문서는 적용함) · %@\n", line];
     for (NSString *name in apply[@"failed"]) [text appendFormat:@"적용 실패 · %@: %@\n", name, apply[@"failed"][name]];
+    if ([apply[@"held"] count]) [text appendFormat:@"이력 없는 다른 내용이라 Mac 파일을 그대로 둠(정리 창에서 고르기): %@\n", [apply[@"held"] componentsJoinedByString:@", "]];
     if ([apply[@"revisions"] integerValue]) [text appendFormat:@"Mac 수정본 %@개는 서버에 보관했습니다(웹에서 비교).\n", apply[@"revisions"]];
     for (NSString *line in apply[@"revisionFailed"]) [text appendFormat:@"보관본 올리기 실패(Mac 백업에는 있음) · %@\n", line];
     if ([apply[@"backup"] length]) [text appendFormat:@"\n바꾸기 전 파일은 백업 폴더에 있습니다.\n%@", apply[@"backup"]];

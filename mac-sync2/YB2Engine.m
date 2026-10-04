@@ -439,7 +439,7 @@ static BOOL ImageExists(NSString *path) {
     NSUInteger revisions = 0;
     NSData *after = before;
     NSMutableArray *moves = [NSMutableArray array], *trashFiles = [NSMutableArray array], *pendingDone = [NSMutableArray array];
-    NSMutableSet *numberedPaths = [NSMutableSet set]; NSMutableDictionary *prefetched = [NSMutableDictionary dictionary];
+    NSMutableSet *heldPaths = [NSMutableSet set]; NSMutableArray *held = [NSMutableArray array]; NSMutableDictionary *prefetched = [NSMutableDictionary dictionary];
     NSMutableDictionary *wantedImages = [NSMutableDictionary dictionary];   // 경로 → 서버 경로표 sha(모르면 NSNull)
     for (NSDictionary *row in rows) {
         for (NSDictionary *image in [row[@"images"] isKindOfClass:NSArray.class] ? row[@"images"] : @[]) if (image[@"path"]) wantedImages[image[@"path"]] = image[@"sha"] ?: NSNull.null;
@@ -474,26 +474,16 @@ static BOOL ImageExists(NSString *path) {
         NSMutableArray *rowDocs = [NSMutableArray array]; NSMutableDictionary *rowSeen = [NSMutableDictionary dictionary]; NSData *rowAfter = after;
         @try {
             // 0. 덮일 Mac 수정본을 먼저 서버 보관본으로 올린다(재설계안 5.1). 실패해도 Mac 백업 폴더에는 남으므로 적용은 계속한다.
-            //    이름 겹침(영수증이 본 적 없는 같은 경로, 다른 내용)은 예배가 막히지 않게 Mac 파일에 번호를 붙여 서버에 새 문서로 올리고 서버 것을 받는다.
+            //    영수증이 본 적 없는 문서(이력 없음)는 Mac과 서버 중 어느 쪽이 나중인지 모른다. 사용일만 다르면 서버 것을 받되(Mac 사용일 유지),
+            //    내용이 다르면 받지도 덮지도 않고 Mac 파일을 그대로 둔 채 정리 창 "같은 이름, 다른 내용"으로 보낸다.
             for (NSString *path in row[@"macChangedDocuments"]) {
                 NSDictionary *doc = DocumentForPath(plan, path), *knownDoc = [self.receipt document:path];
-                if (!knownDoc && doc && [row[@"macChangedReasons"][path] isEqual:@"technical"] && ![numberedPaths containsObject:path]) {
+                if (!knownDoc && doc && [row[@"macChangedReasons"][path] isEqual:@"technical"]) {
                     @try {
                         NSData *bytes = YBReadSafeFile(self.root, path, NULL), *server = [self.server download:doc];
                         prefetched[path] = server;
-                        if (!bytes || [NeutralHash(bytes) isEqual:NeutralHash(server)]) continue;   // 사용일만 다름: 겹침이 아니다
-                        NSString *target = nil, *stem = path.stringByDeletingPathExtension;
-                        for (int n = 2; n < 100 && !target; n++) {
-                            NSString *candidate = [NSString stringWithFormat:@"%@ %d.pro6", stem, n];
-                            if (![self.receipt ledger:candidate] && ![self diskPath:candidate] && ![[moves valueForKey:@"to"] containsObject:candidate]) target = candidate;
-                        }
-                        YBRequire(target != nil, @"붙일 번호를 찾지 못했습니다.");
-                        [self report:[NSString stringWithFormat:@"%@ · 이름 겹침 · %@ → %@", name, path, target]];
-                        NSDictionary *saved = [self.server upload:bytes path:target previous:nil];
-                        [moves addObject:@{@"from": path, @"to": target, @"numbered": @(YES), @"version": saved[@"version"], @"sha": saved[@"sha256"], @"id": saved[@"id"]}];
-                        [numberedPaths addObject:path];
-                        [applied addObject:[NSString stringWithFormat:@"번호 붙임 %@ → %@", path, target]];
-                    } @catch (NSException *e) { [revisionFailed addObject:[NSString stringWithFormat:@"%@ 번호 붙이기: %@", path, e.reason]]; }
+                        if (bytes && ![NeutralHash(bytes) isEqual:NeutralHash(server)]) { [heldPaths addObject:path]; [held addObject:path]; }
+                    } @catch (NSException *e) { [heldPaths addObject:path]; [held addObject:path]; }
                     continue;
                 }
                 @try {
@@ -515,6 +505,7 @@ static BOOL ImageExists(NSString *path) {
             for (NSDictionary *doc in row[@"documents"]) {
                 NSString *path = doc[@"path"];
                 if (seenPaths[path] || rowSeen[path]) continue;   // 여러 예배가 같은 문서를 쓰면 한 번만 받는다.
+                if ([heldPaths containsObject:path]) continue;   // 이력 없는 다른 내용: Mac 파일을 그대로 둔다
                 [self report:[NSString stringWithFormat:@"%@ · 문서 받는 중 · %@", name, path]];
                 NSData *data = prefetched[path] ?: [self.server download:doc];
                 NSString *staged = [NSString stringWithFormat:@"%lu.pro6", (unsigned long)(stagedDocs.count + rowDocs.count)];
@@ -537,7 +528,8 @@ static BOOL ImageExists(NSString *path) {
     // 이미지: 서버 경로표에 있고 Mac에 없는 것만 받아 둔다. 이미지 때문에 문서·순서 적용을 막지 않는다(sync.md 5.4).
     NSMutableArray *stagedImages = [NSMutableArray array], *imageFailed = [NSMutableArray array];
     [self stageImages:wantedImages into:stageRoot staged:stagedImages failed:imageFailed];
-    if (!stagedDocs.count && [after isEqual:before] && !nodeRecords.count && !moves.count && !trashFiles.count && !stagedImages.count) { [NSFileManager.defaultManager removeItemAtPath:stageRoot error:NULL]; return @{@"applied": @[], @"failed": failed, @"backup": @"", @"revisions": @(revisions), @"revisionFailed": revisionFailed, @"images": @0, @"imageFailed": imageFailed}; }
+    [self addCollisions:held];
+    if (!stagedDocs.count && [after isEqual:before] && !nodeRecords.count && !moves.count && !trashFiles.count && !stagedImages.count) { [NSFileManager.defaultManager removeItemAtPath:stageRoot error:NULL]; return @{@"applied": @[], @"held": held, @"failed": failed, @"backup": @"", @"revisions": @(revisions), @"revisionFailed": revisionFailed, @"images": @0, @"imageFailed": imageFailed}; }
 
     NSString *afterStaged = nil;
     if (![after isEqual:before]) { afterStaged = @"after.pro6pl"; YBWriteSafeFile(stageRoot, afterStaged, after, 0600, nil); }
@@ -554,7 +546,7 @@ static BOOL ImageExists(NSString *path) {
     // 이 시점부터는 중단되어도 다음 실행이 같은 내용으로 끝까지 마무리한다.
     [self performJournal:journal stageRoot:stageRoot backupRoot:backupRoot];
     [self pruneBackupsKeeping:10];
-    return @{@"applied": applied, @"failed": failed, @"backup": backupRoot, @"revisions": @(revisions), @"revisionFailed": revisionFailed, @"images": @(stagedImages.count), @"imageFailed": imageFailed};
+    return @{@"applied": applied, @"held": held, @"failed": failed, @"backup": backupRoot, @"revisions": @(revisions), @"revisionFailed": revisionFailed, @"images": @(stagedImages.count), @"imageFailed": imageFailed};
 }
 // 받을 이미지를 준비 폴더에 둔다. 영수증 경로표 사본에 없는 경로는 서버 경로표에 50개씩 묻는다(새로 가져온 이미지).
 // 경로표에도 없으면 받지 않는다(Mac에만 있던 이미지이거나 이미 깨진 참조).
@@ -1126,6 +1118,14 @@ static NSArray *MediaPaths(NSData *document) {
     }
     return items.count;
 }
+- (void)addCollisions:(NSArray *)paths {
+    if (!paths.count) return;
+    NSMutableDictionary *saved = [[self lastFullCheck] mutableCopy] ?: [@{@"macDeleted": @[], @"collisions": @[], @"external": @[], @"imageFill": @[]} mutableCopy];
+    NSMutableArray *list = [saved[@"collisions"] mutableCopy] ?: [NSMutableArray array];
+    for (NSString *path in paths) if (![[list valueForKey:@"path"] containsObject:path]) [list addObject:@{@"path": path, @"id": [self.receipt ledger:path][@"id"] ?: @""}];
+    saved[@"collisions"] = list;
+    [self.receipt setValue:[[NSString alloc] initWithData:JSONData(saved) encoding:NSUTF8StringEncoding] forKey:@"fullCheck"];
+}
 - (NSDictionary *)uploadNew {
     NSMutableArray *created = [NSMutableArray array], *collisions = [NSMutableArray array]; NSMutableDictionary *failed = [NSMutableDictionary dictionary]; NSUInteger media = 0;
     if (![self.receipt value:@"ledgerSeq"].length) return @{@"created": created, @"collisions": collisions, @"media": @0, @"failed": failed};   // 장부 사본이 없으면 새 문서를 가릴 수 없다
@@ -1152,13 +1152,7 @@ static NSArray *MediaPaths(NSData *document) {
         } @catch (NSException *e) { failed[path] = e.reason ?: @"올리기 실패"; }
     }
     // 같은 이름이라 올리지 못한 것은 정리 창 "같은 이름, 다른 내용"에 쌓는다.
-    if (collisions.count) {
-        NSMutableDictionary *saved = [[self lastFullCheck] mutableCopy] ?: [@{@"macDeleted": @[], @"collisions": @[], @"external": @[], @"imageFill": @[]} mutableCopy];
-        NSMutableArray *list = [saved[@"collisions"] mutableCopy] ?: [NSMutableArray array];
-        for (NSString *path in collisions) if (![[list valueForKey:@"path"] containsObject:path]) [list addObject:@{@"path": path, @"id": [self.receipt ledger:path][@"id"] ?: @""}];
-        saved[@"collisions"] = list;
-        [self.receipt setValue:[[NSString alloc] initWithData:JSONData(saved) encoding:NSUTF8StringEncoding] forKey:@"fullCheck"];
-    }
+    [self addCollisions:collisions];
     return @{@"created": created, @"collisions": collisions, @"media": @(media), @"failed": failed};
 }
 
