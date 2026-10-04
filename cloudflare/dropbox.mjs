@@ -2,9 +2,9 @@ import {HttpError,json,method} from './http.mjs';
 const tokens=new Map();
 export function dropboxReady(env){return ['DROPBOX_APP_KEY','DROPBOX_APP_SECRET','DROPBOX_REFRESH_TOKEN','DROPBOX_ROOT'].every(k=>typeof env[k]==='string'&&env[k].length);}
 export function folderPath(root,relative=''){
- if(!root||!root.startsWith('/')||root==='/'||root.endsWith('/')||root.split('/').slice(1).some(p=>!p||p==='.'||p==='..')||/[\\\x00-\x1f]/.test(root))throw new HttpError(503,'dropbox_root','드롭박스 전용 폴더 설정을 확인해 주세요.');
+ if(!root||!root.startsWith('/')||(root!=='/'&&(root.endsWith('/')||root.split('/').slice(1).some(p=>!p||p==='.'||p==='..')))||/[\\\x00-\x1f]/.test(root))throw new HttpError(503,'dropbox_root','드롭박스 전용 폴더 설정을 확인해 주세요.');
  if(typeof relative!=='string'||relative.length>1500||relative.startsWith('/')||/[\\\x00-\x1f]/.test(relative)||relative.split('/').some(p=>p==='.'||p==='..'||(!p&&relative)))throw new HttpError(400,'dropbox_path','허용된 폴더 안에서 선택해 주세요.');
- return root+(relative?'/'+relative:'');
+ return root==='/'?(relative?'/'+relative:''):root+(relative?'/'+relative:'');
 }
 async function access(env){const key=env.DROPBOX_REFRESH_TOKEN,cached=tokens.get(key);if(cached&&cached.until>Date.now())return cached.value;
  const r=await fetch('https://api.dropboxapi.com/oauth2/token',{method:'POST',body:new URLSearchParams({grant_type:'refresh_token',refresh_token:key,client_id:env.DROPBOX_APP_KEY,client_secret:env.DROPBOX_APP_SECRET})});
@@ -18,10 +18,10 @@ export async function dropboxRoute(request,env,action){method(request,['GET']);i
  env={...env,DROPBOX_ROOT:env.DROPBOX_ROOT.normalize('NFC')};
  const url=new URL(request.url),relative=url.searchParams.get('path')||'',path=folderPath(env.DROPBOX_ROOT,relative);
  if(action==='list'){const cursor=url.searchParams.get('cursor');const result=await rpc(env,cursor?'files/list_folder/continue':'files/list_folder',cursor?{cursor:await unseal(env,cursor,path)}:{path,recursive:false,limit:100,include_deleted:false});
-  const base=env.DROPBOX_ROOT.toLowerCase()+'/';const entries=result.entries.filter(e=>e.path_lower?.startsWith(base)).map(e=>({name:e.name,kind:e['.tag'],path:e.path_display.slice(env.DROPBOX_ROOT.length+1),size:e.size||0,modified:e.server_modified||null}));
+  const base=env.DROPBOX_ROOT==='/'?'/':env.DROPBOX_ROOT.toLowerCase()+'/';const entries=result.entries.filter(e=>e.path_lower?.startsWith(base)).map(e=>({name:e.name,kind:e['.tag'],path:e.path_display.slice(base.length),size:e.size||0,modified:e.server_modified||null}));
   return json({entries,next:result.has_more?await seal(env,result.cursor,path):null});
  }
- if(action==='file'){if(!relative)throw new HttpError(400,'dropbox_file','파일을 선택하세요.');const metadata=await rpc(env,'files/get_metadata',{path});if(metadata['.tag']!=='file'||!metadata.path_lower?.startsWith(env.DROPBOX_ROOT.toLowerCase()+'/'))throw new HttpError(403,'dropbox_scope','허용된 폴더의 파일이 아닙니다.');
+ if(action==='file'){if(!relative)throw new HttpError(400,'dropbox_file','파일을 선택하세요.');const metadata=await rpc(env,'files/get_metadata',{path});if(metadata['.tag']!=='file'||!metadata.path_lower?.startsWith(env.DROPBOX_ROOT==='/'?'/':env.DROPBOX_ROOT.toLowerCase()+'/'))throw new HttpError(403,'dropbox_scope','허용된 폴더의 파일이 아닙니다.');
   const argument=JSON.stringify({path}).replace(/[\u007f-\uffff]/g,c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'));
   const r=await fetch('https://content.dropboxapi.com/2/files/download',{method:'POST',headers:{Authorization:'Bearer '+await access(env),'Dropbox-API-Arg':argument}});if(!r.ok)throw new HttpError(502,'dropbox_download','파일을 받지 못했습니다.');
   return new Response(r.body,{headers:{'Content-Type':'application/octet-stream','Content-Disposition':"attachment; filename*=UTF-8''"+encodeURIComponent(metadata.name),'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"}});

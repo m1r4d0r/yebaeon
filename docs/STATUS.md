@@ -6,6 +6,8 @@
 
 ## 운영
 
+- Dropbox 후속: 사용자 요청으로 `/` 전체 폴더 탐색 지원. 특정 폴더 선택과 읽기 전용 유지, 실제 계정 연결은 미완료. 로컬 합성 검사로 루트/하위 폴더/다운로드/커서 범위 확인.
+
 - Studio: main `fbcab5b`(PR #31) 배포가 마지막 확인. 사이트 https://yebaeon.grace-jean-p.workers.dev/
 - Sync 최신 설치본: 0.6.6 build19 (Mac CI 37123714623, SHA-256 `444827b8…0266`). **재생목록 비교에는 쓰지 않는다**(아래 참고).
 - 서버 자료(10-04 08:50 현황판): 문서 2,884개 전부 원본 있음(미업로드 0), 72.0 MB, 재생목록 파일 1개. 교회 Mac에서 `bulk-upload.sh`로 올렸다. Mac의 `upload-log.tsv`에서 different/rejected/failed 확인은 아직.
