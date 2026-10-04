@@ -362,6 +362,20 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
             [NSFileManager.defaultManager removeItemAtPath:imagePath error:NULL];
         }
 
+        // 24. 받을 예배가 가리키는 이름 겹침: [적용] 때 Mac 파일에 번호를 붙여 서버에 올리고, 원래 이름에는 서버 것을 받는다.
+        Check([Doc(@"Mac 봉헌") writeToFile:Local(@"봉헌") atomically:YES], @"mac-only offering");
+        [web upload:Doc(@"웹 봉헌") path:@"봉헌.pro6" previous:nil];
+        NSDictionary *n2Plan = [web request:[NSString stringWithFormat:@"/api/playlists/%@/plan?node=N2", libraryID] method:@"GET" body:nil headers:nil];
+        NSString *n2XML = n2Plan[@"playlist"][@"xml"]; NSRange close = [n2XML rangeOfString:@"</RVPlaylistNode>" options:NSBackwardsSearch];
+        NSString *withOffering = [n2XML stringByReplacingCharactersInRange:NSMakeRange(close.location, 0) withString:Cue(@"C-W2", @"봉헌", docs)];
+        [web request:[NSString stringWithFormat:@"/api/playlists/%@/nodes?node=N2", libraryID] method:@"PUT" body:[NSJSONSerialization dataWithJSONObject:@{@"xml": withOffering, @"baseNodeHash": n2Plan[@"playlist"][@"sha256"]} options:0 error:NULL] headers:@{@"Content-Type": @"application/json", @"X-YebaeOn-Sync": @"2"}];
+        rows = Sync(); n2 = RowNamed(rows, @"수요 저녁");
+        Check([n2[@"status"] isEqual:@"receive"] && [n2[@"macChangedReasons"][@"봉헌.pro6"] isEqual:@"technical"], [NSString stringWithFormat:@"name collision in a service: %@ %@", n2[@"status"], n2[@"macChangedReasons"]]);
+        result = [engine apply:@[n2]];
+        Check([result[@"failed"] count] == 0 && [[NSData dataWithContentsOfFile:Local(@"봉헌 2")] isEqual:Doc(@"Mac 봉헌")] && [[NSData dataWithContentsOfFile:Local(@"봉헌")] isEqual:Doc(@"웹 봉헌")], [NSString stringWithFormat:@"numbered on apply: %@", result]);
+        Check(ServerDoc(@"봉헌 2.pro6") != nil && [[[engine numberedLog] valueForKey:@"target"] containsObject:@"봉헌 2.pro6"], @"numbered copy uploaded and logged");
+        Check([[engine uploadNew][@"created"] count] == 0, @"numbered copy is not uploaded twice");
+
         // 7. PP6가 켜져 있으면 적용하지 않는다.
         engine.presenterRunning = ^BOOL { return YES; };
         BOOL refused = NO; @try { [engine apply:@[n1]]; } @catch (NSException *e) { refused = [e.reason containsString:@"ProPresenter"]; }

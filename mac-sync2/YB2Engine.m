@@ -406,6 +406,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     NSUInteger revisions = 0;
     NSData *after = before;
     NSMutableArray *moves = [NSMutableArray array], *trashFiles = [NSMutableArray array], *pendingDone = [NSMutableArray array];
+    NSMutableSet *numberedPaths = [NSMutableSet set]; NSMutableDictionary *prefetched = [NSMutableDictionary dictionary];
     for (NSDictionary *row in rows) {
         // 서버 휴지통에 넣은 예배: 이 노드만 뺀다. 다른 노드 바이트는 그대로다.
         if ([row[@"status"] isEqual:@"trash"]) {
@@ -438,8 +439,28 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
         NSMutableArray *rowDocs = [NSMutableArray array]; NSMutableDictionary *rowSeen = [NSMutableDictionary dictionary]; NSData *rowAfter = after;
         @try {
             // 0. 덮일 Mac 수정본을 먼저 서버 보관본으로 올린다(재설계안 5.1). 실패해도 Mac 백업 폴더에는 남으므로 적용은 계속한다.
+            //    이름 겹침(영수증이 본 적 없는 같은 경로, 다른 내용)은 예배가 막히지 않게 Mac 파일에 번호를 붙여 서버에 새 문서로 올리고 서버 것을 받는다.
             for (NSString *path in row[@"macChangedDocuments"]) {
                 NSDictionary *doc = DocumentForPath(plan, path), *knownDoc = [self.receipt document:path];
+                if (!knownDoc && doc && [row[@"macChangedReasons"][path] isEqual:@"technical"] && ![numberedPaths containsObject:path]) {
+                    @try {
+                        NSData *bytes = YBReadSafeFile(self.root, path, NULL), *server = [self.server download:doc];
+                        prefetched[path] = server;
+                        if (!bytes || [NeutralHash(bytes) isEqual:NeutralHash(server)]) continue;   // 사용일만 다름: 겹침이 아니다
+                        NSString *target = nil, *stem = path.stringByDeletingPathExtension;
+                        for (int n = 2; n < 100 && !target; n++) {
+                            NSString *candidate = [NSString stringWithFormat:@"%@ %d.pro6", stem, n];
+                            if (![self.receipt ledger:candidate] && ![self diskPath:candidate] && ![[moves valueForKey:@"to"] containsObject:candidate]) target = candidate;
+                        }
+                        YBRequire(target != nil, @"붙일 번호를 찾지 못했습니다.");
+                        [self report:[NSString stringWithFormat:@"%@ · 이름 겹침 · %@ → %@", name, path, target]];
+                        NSDictionary *saved = [self.server upload:bytes path:target previous:nil];
+                        [moves addObject:@{@"from": path, @"to": target, @"numbered": @(YES), @"version": saved[@"version"], @"sha": saved[@"sha256"], @"id": saved[@"id"]}];
+                        [numberedPaths addObject:path];
+                        [applied addObject:[NSString stringWithFormat:@"번호 붙임 %@ → %@", path, target]];
+                    } @catch (NSException *e) { [revisionFailed addObject:[NSString stringWithFormat:@"%@ 번호 붙이기: %@", path, e.reason]]; }
+                    continue;
+                }
                 @try {
                     NSData *bytes = YBReadSafeFile(self.root, path, NULL);
                     if (!bytes || !doc) continue;
@@ -460,7 +481,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
                 NSString *path = doc[@"path"];
                 if (seenPaths[path] || rowSeen[path]) continue;   // 여러 예배가 같은 문서를 쓰면 한 번만 받는다.
                 [self report:[NSString stringWithFormat:@"%@ · 문서 받는 중 · %@", name, path]];
-                NSData *data = [self.server download:doc];
+                NSData *data = prefetched[path] ?: [self.server download:doc];
                 NSString *staged = [NSString stringWithFormat:@"%lu.pro6", (unsigned long)(stagedDocs.count + rowDocs.count)];
                 YBWriteSafeFile(stageRoot, staged, data, 0600, nil);
                 NSDictionary *record = @{@"path": path, @"staged": staged, @"sha": doc[@"sha256"], @"version": doc[@"version"]};
@@ -563,7 +584,14 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     YBWriteSafeFile(backupRoot, @"undo.json", JSONData(undo), 0600, nil);
     // 2. 영수증: 실제로 쓴 것만 기록한다.
     [self.receipt transaction:^{
-        for (NSDictionary *move in journal[@"moves"]) if ([self.receipt document:move[@"from"]]) [self.receipt moveDocument:move[@"from"] to:move[@"to"]];
+        for (NSDictionary *move in journal[@"moves"]) {
+            if ([move[@"numbered"] boolValue]) {   // 번호 붙인 Mac 파일은 서버에 새 문서로 올라가 있다
+                long long size = 0, mtime = 0;
+                if ([self statPath:move[@"to"] size:&size mtime:&mtime]) [self.receipt rememberDocument:move[@"to"] version:move[@"version"] sha:move[@"sha"] size:size mtime:mtime];
+                [self.receipt setLedger:move[@"to"] id:move[@"id"] version:move[@"version"] sha:move[@"sha"] state:@"active"];
+                [self logNumbered:move[@"from"] target:move[@"to"]];
+            } else if ([self.receipt document:move[@"from"]]) [self.receipt moveDocument:move[@"from"] to:move[@"to"]];
+        }
         for (NSString *path in trashed) [self.receipt forgetDocument:path];
         for (NSDictionary *done in journal[@"pendingDone"]) [self.receipt removePending:@"doc" entity:done[@"entity"] action:done[@"action"]];
         for (NSDictionary *record in journal[@"documents"]) {
@@ -575,6 +603,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
             else [self.receipt rememberNode:node[@"key"] serverSha:node[@"serverSha"] fingerprint:node[@"fingerprint"] name:node[@"name"] replaced:node[@"replaced"]];
         }
         [self.receipt setValue:[[NSISO8601DateFormatter new] stringFromDate:NSDate.date] forKey:@"lastApplied"];
+        [self.receipt setValue:journal[@"id"] forKey:@"lastApplyID"];
     }];
     [NSFileManager.defaultManager removeItemAtPath:self.journalPath error:NULL];
     [NSFileManager.defaultManager removeItemAtPath:stageRoot error:NULL];
@@ -749,10 +778,14 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     // 3. 원래 이름에는 서버 것
     [self receiveServer:[self serverDocument:entry[@"id"]] into:path backup:folder];
     [self dropFromFullCheck:@"collisions" path:path];
+    [self logNumbered:path target:target];
+    return target;
+}
+- (void)logNumbered:(NSString *)path target:(NSString *)target {
     NSMutableArray *log = [JSON([[self.receipt value:@"numbered"] dataUsingEncoding:NSUTF8StringEncoding]) mutableCopy] ?: [NSMutableArray array];
     [log addObject:@{@"path": path, @"target": target, @"at": [[NSISO8601DateFormatter new] stringFromDate:NSDate.date]}];
+    while (log.count > 200) [log removeObjectAtIndex:0];
     [self.receipt setValue:[[NSString alloc] initWithData:JSONData(log) encoding:NSUTF8StringEncoding] forKey:@"numbered"];
-    return target;
 }
 - (NSArray *)numberedLog {
     NSArray *log = JSON([[self.receipt value:@"numbered"] dataUsingEncoding:NSUTF8StringEncoding]);
@@ -782,15 +815,13 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
 
 #pragma mark - 마지막 적용 되돌리기 (3차)
 
+// 가장 최근 적용 하나만 되돌린다(영수증의 마지막 적용 번호). 이미 되돌렸으면 없음.
 - (NSString *)lastUndoFolder {
-    NSString *root = [self.profile stringByAppendingPathComponent:@"backups"];
-    for (NSString *name in [[[NSFileManager.defaultManager contentsOfDirectoryAtPath:root error:NULL] sortedArrayUsingSelector:@selector(compare:)] reverseObjectEnumerator]) {
-        NSString *folder = [root stringByAppendingPathComponent:name];
-        if (![NSFileManager.defaultManager fileExistsAtPath:[folder stringByAppendingPathComponent:@"undo.json"]]) continue;
-        // 가장 최근 적용 하나만 되돌린다. 이미 되돌렸으면 없음.
-        return [NSFileManager.defaultManager fileExistsAtPath:[folder stringByAppendingPathComponent:@"undone.json"]] ? nil : folder;
-    }
-    return nil;
+    NSString *last = [self.receipt value:@"lastApplyID"];
+    if (!last.length) return nil;
+    NSString *folder = [self backupRoot:last];
+    if (![NSFileManager.defaultManager fileExistsAtPath:[folder stringByAppendingPathComponent:@"undo.json"]]) return nil;
+    return [NSFileManager.defaultManager fileExistsAtPath:[folder stringByAppendingPathComponent:@"undone.json"]] ? nil : folder;
 }
 - (NSDictionary *)lastApply {
     NSString *folder = [self lastUndoFolder];
@@ -1176,6 +1207,7 @@ static NSArray *MediaPaths(NSData *document) {
     NSString *root = [self.profile stringByAppendingPathComponent:@"backups"];
     NSArray *names = [[NSFileManager.defaultManager contentsOfDirectoryAtPath:root error:NULL] sortedArrayUsingSelector:@selector(compare:)];
     if (names.count <= limit) return;
-    for (NSString *name in [names subarrayWithRange:NSMakeRange(0, names.count - limit)]) [NSFileManager.defaultManager removeItemAtPath:[root stringByAppendingPathComponent:name] error:NULL];
+    NSString *last = [self.receipt value:@"lastApplyID"];
+    for (NSString *name in [names subarrayWithRange:NSMakeRange(0, names.count - limit)]) if (![name isEqual:last]) [NSFileManager.defaultManager removeItemAtPath:[root stringByAppendingPathComponent:name] error:NULL];
 }
 @end
