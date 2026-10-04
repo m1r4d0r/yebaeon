@@ -22,15 +22,15 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
  await page.route('**/resources/**',async route=>{const name=new URL(route.request().url()).pathname.split('/').pop();await route.fulfill({json:name==='catalog.json'?{fonts:[],media:[]}:name==='templates.json'?[{id:'104',name:'말씀',label:'본문',width:1920,height:1080,xml:template}]:bible});});
  try{await page.goto(`http://127.0.0.1:${server.address().port}`);await page.waitForFunction(()=>window.YebaeonBulletin&&YebaeonCloud.authenticated());
   const made=await page.evaluate(()=>{const make=slides=>{const m=PP6.parse(YebaeonLibraryActions.blankDocument('예배순서'),'x'),first=PP6.slides(m)[0],holder=first.parentNode,proto=first.cloneNode(true);first.remove();
-    for(const s of slides){const slide=proto.cloneNode(true);PP6.refreshIDs(slide);const box=PP6.textElements(slide)[0],boxes=[box];for(let i=1;i<s.boxes.length;i++){const b=box.cloneNode(true);PP6.refreshIDs(b);box.parentNode.append(b);boxes.push(b);}s.boxes.forEach((t,i)=>PP6.setText(boxes[i],t));if(s.label)slide.setAttribute('label',s.label);holder.append(slide);}return PP6.serialize(m);};
+    for(const s of slides){const slide=proto.cloneNode(true);PP6.refreshIDs(slide);const box=PP6.textElements(slide)[0],boxes=[box];for(let i=1;i<s.boxes.length;i++){const b=box.cloneNode(true);PP6.refreshIDs(b);box.parentNode.append(b);boxes.push(b);}s.boxes.forEach((t,i)=>PP6.setText(boxes[i],t));if(s.small)PP6.formatRange(boxes[0],0,s.small,{size:40});if(s.label)slide.setAttribute('label',s.label);holder.append(slide);}return PP6.serialize(m);};
    const title=t=>({boxes:[t]}),verse=(ref)=>({boxes:['옛 본문',ref],label:ref+' (NKRV)'});
    return {plain:make([title('자료')]),template:(()=>{const m=PP6.parse(make([verse('창세기 1:1')]),'t');return new XMLSerializer().serializeToString(PP6.slides(m)[0]);})(),
     prayer:make([title('대표기도\n홍길동 집사')]),prayer3:make([title('대표기도\n김철수형제')]),
     sermon:make([title('옛 시리즈\n옛 제목\n(창세기 2:1)'),verse('창세기 2:1'),{boxes:['What? 옛 질문\n옛 문장입니다.']},verse('요한복음 1:1')]),
-    simple:make([title('옛 제목\n(요한복음 1:1)'),verse('요한복음 1:1')])};});
+    simple:make([title('옛 제목\n(요한복음 1:1)'),verse('요한복음 1:1')]),split:make([{boxes:['예수 기도 1\n\n구하는 자에게','(누가복음 11:1-13)'],small:6},verse('누가복음 11:1')]),plainTitle:make([{boxes:['보고 듣고 배우는\n복된 삶!','(마태복음 13:10-17)']},verse('마태복음 13:10')])};});
   template=made.template;const add=(name,xml,category)=>{const id=randomUUID();docs.set(id,{path:name+'.pro6',xml,version:1,category});return id;};
   for(const n of ['첫화면','사도신경(구)','광고','2026엔딩','나의 모습 나의 소유','마무리','주일예배말씀 목사님 ppt','옛 곡 1','옛 곡 2','옛 설교후','옛 헌금','합성 찬양 A','합성 찬양 B','합성 찬양 C','합성 찬양 D','합성 찬양 E','합성 찬양 F'])add(n,made.plain,'가사찬양');
-  add('100 주 이름 가사',made.plain,'가사찬양');add('100 주 이름 악보',made.plain,'악보찬양');add('1부기도',made.prayer);add('2부 기도',made.prayer);add('3부 기도',made.prayer3);add('주일예배말씀',made.sermon);for(const n of ['청년부 말씀','수요예배','금요예배말씀'])add(n,made.simple);
+  add('100 주 이름 가사',made.plain,'가사찬양');add('100 주 이름 악보',made.plain,'악보찬양');add('1부기도',made.prayer);add('2부 기도',made.prayer);add('3부 기도',made.prayer3);add('주일예배말씀',made.sermon);for(const n of ['청년부 말씀','수요예배'])add(n,made.simple);add('금요예배말씀',made.split);add('청년부 말씀 서식',made.plainTitle);
   const node=(name,list)=>nodes.push({id:randomUUID(),name,items:list.map(n=>({id:randomUUID(),doc:byName(n)}))});
   node('1부 예배(품성)',['첫화면','사도신경(구)','옛 곡 1','1부기도','광고','주일예배말씀','주일예배말씀 목사님 ppt','옛 설교후','옛 헌금','2026엔딩','마무리']);node('1부 예배(클래식)',['첫화면','사도신경(구)','옛 곡 1','1부기도','광고','주일예배말씀','옛 설교후','옛 헌금','2026엔딩']);
   node('2부 예배',['첫화면','사도신경(구)','옛 곡 1','옛 곡 2','2부 기도','광고','주일예배말씀','옛 설교후','옛 헌금','2026엔딩']);node('청년예배',['첫화면','사도신경(구)','옛 곡 2','3부 기도','주일예배말씀','주일예배말씀 목사님 ppt','옛 설교후','광고','나의 모습 나의 소유','2026엔딩']);
@@ -70,15 +70,15 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   assert.deepEqual(names('청년예배'),['첫화면','사도신경(구)','합성 찬양 C','3부 기도','청년부 말씀','주일예배말씀 목사님 ppt','옛 설교후','광고','나의 모습 나의 소유','2026엔딩']);
   assert.deepEqual(names('2부 예배'),['첫화면','사도신경(구)','옛 곡 1','옛 곡 2','2부 기도','광고','주일예배말씀','옛 설교후','옛 헌금','2026엔딩']);assert.deepEqual(patches.sort(),['1부 예배(품성)','청년예배']);
   assert.ok(!puts.includes('수요예배.pro6'));
-  const check=await page.evaluate(x=>{const t=xml=>{const m=PP6.parse(xml,'c');return PP6.slides(m).map(s=>({label:s.getAttribute('label'),boxes:PP6.textElements(s).map(b=>PP6.parseRTF(PP6.textNode(b).textContent))}));};
+  const x_split=made.split;const check=await page.evaluate(x=>{const t=xml=>{const m=PP6.parse(xml,'c');return PP6.slides(m).map(s=>({label:s.getAttribute('label'),boxes:PP6.textElements(s).map(b=>PP6.parseRTF(PP6.textNode(b).textContent))}));};
    const sermon=t(x.sermon),point=sermon.find(s=>s.boxes[0].text.startsWith('What?'));
-   return {prayer1:t(x.p1)[0].boxes[0].text,prayer3:t(x.p3)[0].boxes[0].text,count:sermon.length,title:sermon[0].boxes[0].text,labels:sermon.map(s=>s.label).filter(l=>/NKRV/.test(l)),point:point.boxes[0].text,underlined:point.boxes[0].runs.filter(r=>r.style.underline).map(r=>r.text),youth:t(x.youth).map(s=>s.boxes[0].text),friday:t(x.friday).length,fridayTitle:t(x.friday)[0].boxes[0].text};},
-   {sermon:docs.get(byName('주일예배말씀')).xml,p1:docs.get(byName('1부기도')).xml,p3:docs.get(byName('3부 기도')).xml,youth:docs.get(byName('청년부 말씀')).xml,friday:docs.get(byName('금요예배말씀')).xml});
+   return {prayer1:t(x.p1)[0].boxes[0].text,prayer3:t(x.p3)[0].boxes[0].text,count:sermon.length,title:sermon[0].boxes[0].text,labels:sermon.map(s=>s.label).filter(l=>/NKRV/.test(l)),point:point.boxes[0].text,underlined:point.boxes[0].runs.filter(r=>r.style.underline).map(r=>r.text),youth:t(x.youth).map(s=>s.boxes[0].text),friday:t(x.friday).length,fridayTitle:t(x.friday)[0].boxes.map(b=>b.text),fridaySizes:t(x.friday)[0].boxes[0].runs.filter(r=>r.text.trim()).map(r=>[r.text,r.style.size]),before:t(x.split)[0].boxes[0].runs.filter(r=>r.text.trim()).map(r=>r.style.size)};},
+   {sermon:docs.get(byName('주일예배말씀')).xml,p1:docs.get(byName('1부기도')).xml,p3:docs.get(byName('3부 기도')).xml,youth:docs.get(byName('청년부 말씀')).xml,friday:docs.get(byName('금요예배말씀')).xml,split:x_split});
   assert.equal(check.prayer1,'대표기도\n가나다 집사');assert.equal(check.prayer3,'대표기도\n사아자형제');
   assert.equal(check.count,12);assert.equal(check.title,'합성 시리즈3\n합성 설교 제목!\n(창세기 1:1-3)');
   assert.deepEqual(check.labels,['창세기 1:1 (NKRV)','창세기 1:2 (NKRV)','창세기 1:3 (NKRV)','창세기 1:1 (NKRV)','요한복음 13:36 (NKRV)','요한복음 13:37 (NKRV)']);
   assert.equal(check.point,'What? 합성 믿음의 원리는?\n믿음은 의심이 아닙니다.\n믿기 위해 기도하십시오.');assert.deepEqual(check.underlined,['의심','기도']);
-  assert.equal(check.youth[0],'청년 합성 설교\n(요한복음 3:16)');assert.equal(check.friday,3);assert.equal(check.fridayTitle,'합성 기도2\n금요 합성 제목\n(누가복음 22:31-32)');
+  assert.equal(check.youth[0],'청년 합성 설교\n(요한복음 3:16)');assert.equal(check.friday,3);assert.deepEqual(check.fridayTitle,['합성 기도2\n\n금요 합성 제목','(누가복음 22:31-32)']);assert.deepEqual(check.fridaySizes.map(r=>r[1]),check.before,'series and title keep their own sizes');assert.ok(check.before[0]<check.before.at(-1),JSON.stringify(check.before));
   // Mobile: the work column is primary and the bulletin opens as a sheet; lines expand into word buttons.
   await page.setViewportSize({width:390,height:844});await page.locator('#bulletinSteps button',{hasText:'찬양'}).click();await page.locator('.bulletin-svc button',{hasText:'2부'}).click();
   assert.equal(await page.locator('#bulletinSource').isVisible(),false);await slot('찬양 2').locator('.src').click();await page.locator('#bulletinSheet').waitFor();

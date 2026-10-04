@@ -24,8 +24,12 @@
    const seriesStyle=body.length>=2?styles[body[0]]:null,titleStyle=styles[body.length>=2?body[1]:body[0]??0],refStyle=refAt>=0?styles[refAt]:titleStyle;
    setLines(boxes[0],[...(series?[{text:series,style:seriesStyle||titleStyle}]:[]),{text:title,style:titleStyle},...(refText?[{text:refText,style:refStyle}]:[])]);return;}
   const refBox=boxes.find(b=>isRefLine(boxText(b))),rest=boxes.filter(b=>b!==refBox);
-  if(rest.length>=2){P.setText(rest[0],series||'');P.setText(rest[1],title);}else P.setText(rest[0],(series?series+'\n':'')+title);
+  if(rest.length>=2){P.setText(rest[0],series||'');P.setText(rest[1],title);}else titleLines(rest[0],series,title);
   if(refBox)P.setText(refBox,refText);}
+ // A title box is either 'series, blank line, title' or the title alone (possibly broken over lines).
+ function titleLines(box,series,title){const {styles,empty}=lineStyles(box),lines=boxText(box).split('\n'),gap=lines.findIndex((l,i)=>i>0&&!l.trim()&&lines.slice(i+1).some(x=>x.trim()));
+  const last=lines.map((l,i)=>l.trim()?i:-1).filter(i=>i>=0).at(-1)??0,titleStyle=styles[last]||empty,seriesStyle=gap>0?styles[0]:{...titleStyle,size:Math.round((titleStyle.size||90)*0.6)};
+  setLines(box,series?[{text:series,style:seriesStyle},{text:'',style:seriesStyle},{text:title,style:titleStyle}]:[{text:title,style:titleStyle}]);}
  function sentence(template,fills){const marks=[];let text='';template.split(/_{2,}/).forEach((part,i,parts)=>{text+=part;if(i<parts.length-1){const v=fills[i]||'　　　';marks.push({start:text.length,end:text.length+v.length});text+=v;}});
   const lines=[];let start=0;for(const m of text.matchAll(/[.!?]\s+/g)){lines.push([start,m.index+1]);start=m.index+m[0].length;}lines.push([start,text.length]);
   return lines.filter(([a,b])=>b>a).map(([a,b])=>({text:text.slice(a,b).trim(),marks:marks.filter(m=>m.start>=a&&m.end<=b).map(m=>{const lead=text.slice(a,b).length-text.slice(a,b).trimStart().length;return {start:m.start-a-lead,end:m.end-a-lead};})}));}
