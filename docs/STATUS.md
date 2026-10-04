@@ -2,7 +2,7 @@
 
 이 파일은 세션마다 **덮어써서** 갱신한다. 새 인계 파일을 만들지 않는다. 끝난 일은 [CHANGELOG](CHANGELOG.md), 남은 일은 [BACKLOG](BACKLOG.md)에 둔다.
 
-갱신: 2026-10-04 밤 · main 2a8c735(Studio UX 개선, 사용자 승인) · Deploy run 37202085729 성공
+갱신: 2026-10-04 밤 · main f198ed9(Studio UX 2차, 사용자 승인) · Deploy run 37204851580 성공
 
 ## 운영
 
