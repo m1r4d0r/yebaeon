@@ -23,7 +23,7 @@
    const refAt=lines.findIndex(isRefLine),body=lines.map((_,i)=>i).filter(i=>i!==refAt);
    const seriesStyle=body.length>=2?styles[body[0]]:null,titleStyle=styles[body.length>=2?body[1]:body[0]??0],refStyle=refAt>=0?styles[refAt]:titleStyle;
    setLines(boxes[0],[...(series?[{text:series,style:seriesStyle||titleStyle}]:[]),{text:title,style:titleStyle},...(refText?[{text:refText,style:refStyle}]:[])]);return;}
-  const refBox=boxes.find(b=>isRefLine(boxText(b))),rest=boxes.filter(b=>b!==refBox);
+  const refBox=boxes.find(b=>isRefLine(boxText(b))),rest=boxes.filter(b=>b!==refBox).sort((a,b)=>P.rect(a).y-P.rect(b).y);
   if(rest.length>=2){P.setText(rest[0],series||'');P.setText(rest[1],title);}else titleLines(rest[0],series,title);
   if(refBox)P.setText(refBox,refText);}
  // A title box is either 'series, blank line, title' or the title alone (possibly broken over lines).
