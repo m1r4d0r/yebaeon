@@ -22,15 +22,27 @@
 - (instancetype)initWithServer:(YBServer *)server root:(NSString *)root playlist:(NSURL *)playlist profile:(NSString *)profile;
 
 // 예배별 비교 결과. 각 항목:
-//   key, nodeID, name, status("same" | "receive" | "mac" | "hold"), reason(hold일 때),  mac = Mac에서만 바뀜(건드리지 않음, 올리기는 2차)
+//   key, nodeID, name, status("same" | "receive" | "mac" | "hold"), reason(hold일 때),  mac = Mac에서만 바뀜(올리기 대상)
+//   usageOnly(사용 기록만 바뀐 문서), revertedDocuments·revertedOrder(PP6가 옛 내용을 다시 씀 → 다시 적용), macChangedReasons, localXML
 //   orderChanged(BOOL), macOrderChanged(BOOL), macOnlyOrder(BOOL), documents(받을 서버 문서 목록), macChangedDocuments(백업될 경로 목록), macOnlyDocuments(건드리지 않는 Mac 수정 문서),
 //   missingServer(원본 없는 참조 수), missingLocal(Mac에도 없는 참조 경로 목록), updatedBy, updatedAt, plan, localFingerprint
 - (NSArray *)compare;
 @property(nonatomic, readonly) NSString *comparedPlaylistHash;
 
-// 선택한 예배를 적용한다. 반환: {applied:[name…], failed:{name:reason…}, backup:폴더}
+// 선택한 예배를 적용한다. 덮일 Mac 수정본은 먼저 서버 보관본으로 올린다.
+// 반환: {applied:[name…], failed:{name:reason…}, backup:폴더, revisions:올린 보관본 수, revisionFailed:[…]}
 - (NSDictionary *)apply:(NSArray *)rows;
 
 // 시작할 때 호출. 중단된 적용이 있으면 끝까지 마무리한다. 마무리한 것이 있으면 설명을 돌려준다.
 - (NSString *)finishInterruptedApply;
+
+// ── 2차 ──
+// Mac에서만 바뀐 것을 올린다: 문서(서버 새 버전), 예배 순서(노드 교체), 사용일(버전 없이 usage).
+// 반환: {uploaded:[name…], usage:보고한 문서 수, failed:{name:reason…}}. PP6가 켜져 있어도 된다(Mac 파일을 바꾸지 않는다).
+- (NSDictionary *)upload:(NSArray *)rows;
+// 변경 일지 확인(요청 1번). 반환: {relevant:BOOL, head:번호}. relevant면 compare를 돌린다.
+- (NSDictionary *)checkChanges;
+- (void)markSeen:(NSNumber *)head;
+// 장치 열쇠로 들어왔을 때만: "어디까지 적용했나 + 보류 예배"를 서버에 한 줄로 보고한다.
+- (void)reportApplied:(NSNumber *)seq rows:(NSArray *)rows;
 @end
