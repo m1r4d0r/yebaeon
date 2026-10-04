@@ -54,7 +54,7 @@ Studio에서 HWP 주보를 읽어 예배 순서 초안을 만드는 방법과, �
 3. 공유폴더가 소유자 계정에 추가되어 API 경로로 보이는지 확인한다. 링크만 받은 경우는 경로 방식으로 읽을 수 없다. 경로는 `/교회/주보`처럼 지정한다. 전체 Dropbox를 탐색하려면 `/`를 입력한다. 전체 모드에서는 예배온 이용자가 연결 계정으로 열람 가능한 전체 폴더를 볼 수 있다. 읽기 전용은 동일하다.
 4. 저장소를 받은 본인 컴퓨터에서 Node 22 이상으로 `npm ci`, `npx wrangler login`을 한 뒤 `node scripts/connect-dropbox.mjs`를 실행한다.
 5. App key, 폴더 경로, App secret을 입력한다. 표시된 승인 주소를 열어 한 번 승인하고 승인 코드를 입력한다. App secret과 코드는 화면에 표시되지 않는다. 스크립트가 폴더 읽기를 확인하고 네 값을 Worker secrets로 직접 전달한다. 채팅이나 GitHub에 토큰을 올리지 않는다.
-6. Studio의 `교회 자료` 탭에서 폴더 탐색, 다운로드, HWP 주보 선택을 확인한다. `PPT 추가` 창의 `드롭박스에서 고르기`도 같은 루트를 쓴다([PPT·PDF 가져오기](ppt-import.md)).
+6. Studio `주보·자료` 창 맨 위 `드롭박스에서 가져오기`로 폴더 탐색과 HWP 주보 선택을 확인한다. `PPT 추가` 창도 같은 시작 줄과 같은 루트를 쓴다([PPT·PDF 가져오기](ppt-import.md)). 다운로드 전용 목록(옛 `교회 자료` 탭)은 없앴다.
 
 스크립트 대신 Cloudflare 대시보드에서 Worker 비밀값 `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REFRESH_TOKEN`, `DROPBOX_ROOT`를 직접 등록해도 된다. access token만 등록하면 만료되므로 offline 승인으로 받은 refresh token이 필요하다.
 

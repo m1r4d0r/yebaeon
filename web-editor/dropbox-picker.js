@@ -11,7 +11,7 @@
   const [,label,color]=kinds.find(([re])=>re.test(name))||[null,'',' #8792a3'.trim()];
   box.innerHTML=`<svg viewBox="0 0 32 32" width="28" height="28"><path d="M7 3h13l7 7v17.5A1.5 1.5 0 0 1 25.5 29h-18A1.5 1.5 0 0 1 6 27.5v-23A1.5 1.5 0 0 1 7.5 3z" fill="#fff" stroke="#c9d1dd"/><path d="M20 3v5.5A1.5 1.5 0 0 0 21.5 10H27" fill="#eef1f6" stroke="#c9d1dd"/><rect x="3" y="16" width="20" height="9" rx="2" fill="${color}"/><text x="13" y="22.6" text-anchor="middle" font-size="6.6" font-weight="700" font-family="system-ui,sans-serif" fill="#fff">${label}</text></svg>`;return box;}
  const size=n=>n>=1048576?(n/1048576).toFixed(1)+'MB':Math.max(1,Math.round(n/1024))+'KB';
- // box: 비어 있는 요소. accept: 고를 수 있는 파일 이름. max: 바이트. onFile(File)이 끝날 때까지 다른 행동을 막는다.
+ // box: 비어 있는 요소. accept: 고를 수 있는 파일 이름. max: 바이트, 또는 파일 이름을 받아 바이트를 돌려주는 함수. onFile(File)이 끝날 때까지 다른 행동을 막는다.
  function attach(box,{accept,max,kind,onFile}){
   box.classList.add('dropbox-picker');box.hidden=true;
   const bar=el('div','bulletin-toolbar dropbox-toolbar'),up=el('button','','↑ 상위'),where=el('strong','dropbox-picker-path','교회 자료'),refresh=el('button','','새로고침'),close=el('button','','닫기');
@@ -30,8 +30,8 @@
     const row=el('div','dropbox-row'+(folderItem?' is-folder':'')),name=el('span','',item.name);row.append(icon(item.name,folderItem),name);
     if(folderItem){const b=el('button','','열기');b.type='button';const open=()=>run(()=>list(item.path));b.onclick=e=>{e.stopPropagation();open();};row.onclick=()=>{if(!busy)open();};row.append(b);}
     else{const info=el('small','dropbox-picker-size',size(item.size||0));row.append(info);const b=el('button','primary','가져오기');b.type='button';
-     if(max&&item.size>max){b.dataset.tooBig='1';b.disabled=true;b.title=`${Math.floor(max/1048576)}MB 이하만 가져올 수 있습니다.`;}
-     b.onclick=()=>run(async()=>{note.textContent=item.name+' 받는 중…';const r=await C.api('/dropbox/file?'+new URLSearchParams({path:item.path,...max?{max:String(max)}:{}}));const file=new File([await r.blob()],item.name.normalize('NFC'));note.textContent='';box.hidden=true;await onFile(file);});row.append(b);}
+     const limit=typeof max==='function'?max(item.name):max;if(limit&&item.size>limit){b.dataset.tooBig='1';b.disabled=true;b.title=`${Math.floor(limit/1048576)}MB 이하만 가져올 수 있습니다.`;}
+     b.onclick=()=>run(async()=>{note.textContent=item.name+' 받는 중…';const r=await C.api('/dropbox/file?'+new URLSearchParams({path:item.path,...limit?{max:String(limit)}:{}}));const file=new File([await r.blob()],item.name.normalize('NFC'));note.textContent='';box.hidden=true;await onFile(file);});row.append(b);}
     rows.append(row);
    }
    if(!append&&!shown&&!next)rows.append(el('p','bulletin-message',`이 폴더에 ${kind} 파일이나 하위 폴더가 없습니다.`));
@@ -42,5 +42,13 @@
   up.onclick=()=>run(()=>list(path.split('/').slice(0,-1).join('/')));refresh.onclick=()=>run(()=>list(path));more.onclick=()=>run(()=>list(path,true));close.onclick=()=>{box.hidden=true;};
   return {show,hide:()=>{box.hidden=true;},toggle:()=>box.hidden?show():(box.hidden=true),busy:()=>busy};
  }
- window.YebaeonDropboxPicker={attach,icon};
+ // 가져오기 창 공통 시작 줄: [파일 추가] [드롭박스에서 가져오기]와 고른 파일 이름, 그 아래 드롭박스 목록.
+ function start(box,{accept,inputAccept,max,kind,onFile}){
+  box.classList.add('file-start');const row=el('div','file-start-row'),add=el('label','file-start-add'),input=document.createElement('input'),drop=el('button','file-start-dropbox','드롭박스에서 가져오기'),name=el('span','file-start-name'),panel=el('div');
+  add.append(document.createTextNode('파일 추가'),input);input.type='file';input.accept=inputAccept;drop.type='button';row.append(add,drop,name);box.append(row,panel);
+  const picker=attach(panel,{accept,max,kind,onFile:file=>{name.textContent=file.name;return onFile(file);}});
+  input.onchange=()=>{const file=input.files[0];input.value='';if(!file)return;picker.hide();name.textContent=file.name;onFile(file);};drop.onclick=()=>picker.toggle();
+  return {input,picker,setName:text=>{name.textContent=text||'';},setDisabled(value){input.disabled=drop.disabled=value;add.classList.toggle('disabled',value);}};
+ }
+ window.YebaeonDropboxPicker={attach,icon,start};
 })();
