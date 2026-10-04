@@ -170,3 +170,7 @@
  .dropbox-row button,.dropbox-row a{min-height:36px}
 }
 .dropbox-row>.dropbox-icon{flex:none;display:flex;width:28px;height:28px;font-style:normal}.dropbox-row.is-folder{cursor:pointer}.dropbox-row.is-folder:hover{background:#eef2f8}.dropbox-row.is-folder>span{font-weight:600}
+.bulletin-staged{display:grid;gap:4px;padding:10px 0;border-bottom:1px solid var(--line,#dce2ed)}.bulletin-staged>small{color:#657187;font-size:12px}.bulletin-staged.bad>small{color:#b4233c}
+.bulletin-preview{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;margin-top:4px}.bulletin-preview canvas{width:132px;height:auto;border-radius:4px;background:#182338}.bulletin-preview small{align-self:center;color:#657187}
+.bulletin-order{margin:0;padding-left:22px;font-size:12px;line-height:1.7;columns:2;column-gap:28px}.bulletin-order .changed{font-weight:700;color:var(--blue,#3e55cf)}
+@media(max-width:600px){.bulletin-preview canvas{width:calc(50% - 3px)}.bulletin-order{columns:1}}

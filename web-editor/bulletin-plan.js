@@ -1,7 +1,8 @@
 (function(root){'use strict';
  const SERMON=/^(주일예배말씀|청년부\s*말씀|[123]부\s*말씀)(?!\s*목사님)/;
- const PRAYER=/^[123]\s*부\s*기도$/;
- const ENDING=/엔딩|마지막 화면/;
+ // 기도 문서는 ‘2부 기도 v2’·‘1부기도’처럼 뒤에 붙는 말이 있다.
+ const PRAYER=/^[123]\s*부\s*(대표\s*)?기도(?!자)/;
+ const ENDING=/엔딩|마지막 화면/,PASTOR=/목사님\s*ppt/i;
  const firstSunday=date=>!!date&&Number(date.slice(8,10))<=7;
  // 1부 has two playlists: the 품성 service on the first Sunday of a month, 클래식 otherwise.
  function playlistFor(service,date,names){
@@ -12,7 +13,8 @@
  }
  // 2부 is the main service; when sermons split, the group containing 2부 keeps 주일예배말씀.
  function sermonDoc(services){if(services.includes(1))return '주일예배말씀';if(services.length===1)return services[0]===2?'청년부 말씀':'1부 말씀';return '주일예배말씀';}
- function sermonIndex(names,from=0){const main=names.findIndex((n,i)=>i>from&&SERMON.test(n.trim()));if(main<0)return {main:-1,last:-1};return {main,last:/목사님\s*ppt/i.test(names[main+1]||'')?main+1:main};}
+ // 말씀 문서가 없고 ‘주일예배말씀 목사님 ppt’만 있으면 그것을 말씀 자리로 본다.
+ function sermonIndex(names,from=0){const main=names.findIndex((n,i)=>i>from&&SERMON.test(n.trim()));if(main<0){const slides=names.findIndex((n,i)=>i>from&&PASTOR.test(n.trim()));return slides<0?{main:-1,last:-1}:{main:-1,last:slides};}return {main,last:PASTOR.test(names[main+1]||'')?main+1:main};}
  // Returns the new item list for one service. Song slots change only when the user chose a document.
  function songPlan(names,service,{songs=[],after=null,offering=null,sermon=null}){
   const rows=names.map((name,index)=>({name,index,action:'keep'})),warnings=[];
@@ -26,6 +28,7 @@
   const put=(offset,s,slot)=>{if(!s?.choice||s.choice.keep)return;if(at.last<0){warnings.push(slot+': 말씀 문서를 찾지 못해 바꾸지 않습니다.');return;}const i=at.last+offset,endAt=rows.findIndex(r=>ENDING.test(r.name));if(!rows[i]||(endAt>=0&&i>=endAt)){warnings.push(slot+': 자리가 엔딩 뒤라 바꾸지 않습니다.');return;}rows[i]={...rows[i],previous:rows[i].name,name:s.choice.name,document:s.choice,action:'replace',slot};};
   put(1,after,'설교 후 찬양');if(service<2)put(2,offering,'헌금 찬양');
   if(ending<0&&rows.some(r=>r.action!=='keep'))warnings.push('엔딩 문서를 찾지 못했습니다. 바뀌는 자리를 확인하세요.');
+  if(warnings.some(w=>/찾지 못해/.test(w)))warnings.push('이 순서의 이름: '+names.filter(Boolean).join(' · '));
   return {rows:rows.filter(r=>r.action!=='remove'),removed:rows.filter(r=>r.action==='remove'),changed:rows.some(r=>r.action!=='keep'),warnings,currentAfter:at.last>=0?names[at.last+1]:'',currentOffering:at.last>=0&&service<2?names[at.last+2]:''};
  }
  root.YebaeonBulletinPlan={playlistFor,sermonDoc,songPlan,sermonIndex,PRAYER};

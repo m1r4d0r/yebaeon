@@ -296,12 +296,29 @@
   $('cloudHistory').onclick = () => { if (linked && needUser()) { historyDoc = { ...linked }; $('historyDialog').showModal(); history(); } };
   async function activity(more=false){
     const sequence=++activitySequence;if(!needUser())return;if(!$('activityDialog').open)$('activityDialog').showModal();$('accountMenu').hidden=true;
-    if(!more){activityNext=null;$('activityList').replaceChildren();}$('activityMessage').textContent='작업 이력을 불러오고 있습니다…';
+    if(!more){activityNext=null;activityItems=[];$('activityList').replaceChildren();}$('activityMessage').textContent='작업 이력을 불러오고 있습니다…';
     try{const params=new URLSearchParams({scope:activityScope});if(more&&activityNext)params.set('cursor',activityNext);const data=await(await api('/activity?'+params)).json();
-      if(sequence!==activitySequence)return;for(const item of data.items){$('activityList').append(row(item.path,`${time(item.createdAt)} · ${item.author} · ${item.kind==='document'?'문서':item.node?'예배 순서':'이전 재생목록 파일'} v${item.version}`,'열기',async()=>{if(item.kind==='document')await openCloud(item.id);else if(item.node)await window.YebaeonPlaylists.openNode(item.id,item.node);else await window.YebaeonPlaylists.openLibrary(item.id);$('activityDialog').close();}));}
+      if(sequence!==activitySequence)return;for(const item of data.items){const index=activityItems.push(item)-1;const line=row(item.path,`${time(item.createdAt)} · ${item.author} · ${item.kind==='document'?'문서':item.node?'예배 순서':'이전 재생목록 파일'} v${item.version}`,'열기',async()=>{if(item.kind==='document')await openCloud(item.id);else if(item.node)await window.YebaeonPlaylists.openNode(item.id,item.node);else await window.YebaeonPlaylists.openLibrary(item.id);$('activityDialog').close();});
+        const back=document.createElement('button');back.textContent='이 저장부터 되돌리기';back.title='이 저장과 그 뒤의 저장(목록 위쪽)을 모두 그 전 버전으로 되돌립니다';back.onclick=()=>rollback(index).catch(error=>{$('activityMessage').textContent=error.message;});line.append(back);$('activityList').append(line);}
       activityNext=data.next;$('activityMore').hidden=!data.next;$('activityMessage').textContent=activityScope==='mine'?'현재 작업자 이름으로 저장한 이력입니다.':'모든 작업자의 이력입니다.';
     }catch(error){$('activityMessage').textContent=error.message;}
   }
+  // 이 시점으로 되돌리기: 목록에서 고른 저장과 그 뒤의 저장이 건드린 문서·예배 순서마다, 그 가운데 가장 앞선 저장 바로 전 버전으로 새 버전을 만든다.
+  // 버전을 지우지 않으므로 되돌린 것도 이력에 남고 다시 되돌릴 수 있다.
+  let activityItems=[];
+  async function rollback(index){if(!needUser()||saving||window.YebaeonSave?.busy())return;if(window.YebaeonPlaylists?.state().dirty)throw new Error('Studio에서 열린 순서의 변경사항을 먼저 저장하거나 되돌려 주세요.');
+    const targets=new Map();for(const item of activityItems.slice(0,index+1)){if(item.kind==='playlist'&&!item.node)continue;const key=item.kind+':'+item.id+':'+item.node;const t=targets.get(key);if(!t||item.version<t.version)targets.set(key,{...item});}
+    const list=[...targets.values()];if(!list.length)throw new Error('되돌릴 저장이 없습니다.');
+    const pending=list.filter(t=>t.kind==='document'&&editor.isDirty(t.id));if(pending.length)throw new Error(pending.map(t=>t.path).join(', ')+'에 저장하지 않은 변경이 있습니다. 먼저 저장하거나 되돌려 주세요.');
+    if(!confirm(`${list.length}개 항목(${list.map(t=>t.path.split('/').pop().replace(/\.pro6$/i,'')).join(', ')})을 이 저장 전 상태로 되돌릴까요?\n각 항목의 그 뒤 저장은 다른 작업자의 것까지 함께 되돌아갑니다. 새로 만든 문서는 휴지통에서 따로 정리하세요.`))return;
+    const done=[],skipped=[],failed=[];
+    for(const t of list){const to=t.version-1;const name=t.path.split('/').pop().replace(/\.pro6$/i,'');$('activityMessage').textContent=`${name} 되돌리는 중…`;
+      try{if(to<1){skipped.push(name+'(새로 만든 것)');continue;}
+        if(t.kind==='document'){const {document:doc}=await(await api('/documents/'+t.id)).json();const bytes=await(await api(`/documents/${t.id}/content?version=${to}`)).arrayBuffer();const result=await(await api('/documents/'+t.id,{method:'PUT',headers:{'Content-Type':'application/xml; charset=utf-8','If-Match':`"${doc.version}"`},body:bytes})).json();done.push(name+(result.unchanged?' (이미 같음)':` → v${to} 내용`));}
+        else{const latest=await(await api(`/playlists/${t.id}/plan?`+new URLSearchParams({node:t.node}))).json();await api(`/playlists/${t.id}?`+new URLSearchParams({node:t.node}),{method:'PATCH',headers:{'Content-Type':'application/json','If-Match':`"${latest.library.version}"`},body:JSON.stringify({restoreVersion:to,baseNodeHash:latest.playlist.sha256})});done.push(name+` → 순서 v${to}`);}
+      }catch(error){failed.push(name+': '+error.message);}}
+    const open=window.YebaeonPlaylists?.selectedPlaylist();if(open&&done.length){const [library,node]=open.key.split('/');await window.YebaeonPlaylists.openNode(library,node).catch(()=>{});}
+    await activity();$('activityMessage').textContent=[done.length?'되돌림: '+done.join(', '):'',skipped.length?'건너뜀: '+skipped.join(', '):'',failed.length?'실패: '+failed.join(' / '):''].filter(Boolean).join('\n')+(done.length?'\n열려 있는 문서는 다시 열어 확인하세요.':'');}
   $('activityOpen').onclick=()=>{activityScope='mine';activity();};$('activityMine').onclick=()=>{activityScope='mine';activity();};$('activityAll').onclick=()=>{activityScope='all';activity();};$('activityMore').onclick=()=>activity(true);$('activityClose').onclick=()=>$('activityDialog').close();
   $('historyClose').onclick = () => $('historyDialog').close(); $('historyMore').onclick = () => history(true);
   window.addEventListener('yebaeonbeforeopen', () => { checkpointDraft().catch(drafts.report); });

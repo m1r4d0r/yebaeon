@@ -65,6 +65,10 @@ test('playlist plan changes only chosen song slots and respects the ending',()=>
  const c=PL.songPlan(noPpt,0,{after:{choice:{id:'a',name:'A'}},offering:{choice:{id:'b',name:'B'}}});assert.deepEqual(plain(c.rows.slice(6).map(x=>x.name)),['A','B','하나님께로 더 가까이','마지막 화면(1부 예배)'],'songs after the offering remain');
  const tight=PL.songPlan(['사도신경','1부기도','주일예배말씀','설교 후','엔딩'],0,{offering:{choice:{id:'b',name:'B'}}});assert.equal(tight.changed,false);assert.match(tight.warnings[0],/엔딩/);
  const keep=PL.songPlan(noPpt,0,{after:{choice:{id:'x',name:'나는 믿네',keep:true}}});assert.equal(keep.changed,false);
+ // 실제 순서 이름의 변형: 기도 뒤 ‘v2’, 말씀 문서 없이 목사님 ppt만 있는 순서.
+ const variant=PL.songPlan(['신앙고백(사도신경)','옛 곡','2부 기도 v2','주일예배말씀 목사님 ppt','옛 설교후','옛 헌금','2026엔딩'],1,{songs:[{choice:{id:'s',name:'새 곡'}}],after:{choice:{id:'a',name:'A'}},offering:{choice:{id:'b',name:'B'}}});
+ assert.deepEqual(plain(variant.warnings),[]);assert.deepEqual(plain(variant.rows.map(x=>x.name)),['신앙고백(사도신경)','새 곡','2부 기도 v2','주일예배말씀 목사님 ppt','A','B','2026엔딩']);
+ const lost=PL.songPlan(['찬양','기도','엔딩'],1,{songs:[{choice:{id:'s',name:'새 곡'}}]});assert.match(lost.warnings.at(-1),/이 순서의 이름: 찬양 · 기도 · 엔딩/,'unmatched orders list their names');
  const swap=PL.songPlan(youth,2,{sermon:{id:'y',name:'청년부 말씀'}});assert.equal(swap.rows[5].name,'청년부 말씀');assert.equal(swap.rows[6].name,'주일예배말씀 목사님 ppt');
  const back=PL.songPlan(['사도신경','3부 기도','청년부 말씀','x','엔딩'],2,{sermon:{id:'m',name:'주일예배말씀'}});assert.equal(back.rows[2].name,'주일예배말씀','a shared sermon returns to 주일예배말씀');
  assert.equal(PL.songPlan(youth,2,{sermon:{id:'m',name:'주일예배말씀'}}).changed,false);

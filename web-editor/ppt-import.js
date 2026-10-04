@@ -4,7 +4,8 @@
  const $=id=>document.getElementById(id),C=YebaeonCloud,P=PP6,E=YebaeonEditor,L=YebaeonPlaylists;
  const SCORE='악보찬양',PPT_MAX=40*1024*1024,PDF_MAX=60*1024*1024,IMAGE_MAX=180*1024*1024;
  // 기존 문서 교체의 첫 후보. 다른 문서는 작은 검색으로 고른다. 파일 종류로 넣을 곳을 짐작하지 않는다.
- const CANDIDATES=['주일예배말씀 ppt','광고'];
+ // 이름이 둘 중 하나일 수 있는 후보는 앞의 이름부터 찾는다.
+ const CANDIDATES=[{label:'주일예배말씀 목사님 ppt',names:['주일예배말씀 목사님 ppt','주일예배말씀 ppt']},{label:'광고',names:['광고']}];
  const FALLBACK_CATEGORIES=['가사찬양','악보찬양','예배순서','특별순서','옛날자료'];
  const dialog=document.createElement('dialog');dialog.id='pptDialog';dialog.className='ppt-dialog studio-import-dialog';dialog.setAttribute('aria-labelledby','pptHeading');
  dialog.innerHTML=`<header><strong id="pptHeading">PPT·PDF 가져오기</strong><button id="pptClose" class="import-close" aria-label="PPT·PDF 가져오기 닫기" title="닫기">×</button></header>
@@ -47,9 +48,9 @@
   $('pptScoreOptions').hidden=!scoreMode();$('pptCropAmount').hidden=!$('pptCropOn').checked;$('pptSave').textContent=replace?'검수 완료 · 슬라이드 교체':'검수 완료 · 문서 추가';$('pptStartHelp').hidden=!!source;$('pptFooter').hidden=!source;
   for(const card of $('pptSlides').querySelectorAll('.ppt-card'))card.querySelector('select')?.toggleAttribute('hidden',!scoreMode());lock(busy);}
  function setMode(value){const radio=dialog.querySelector(`input[name=pptTarget][value=${value}]`);if(radio)radio.checked=true;target=null;$('pptTargetInfo').textContent='';candidates();options();}
- function candidates(){const root=$('pptCandidates');root.replaceChildren();for(const name of CANDIDATES){const b=document.createElement('button');b.type='button';b.className='ppt-candidate';b.textContent=name;b.setAttribute('aria-pressed',String(target?.name===name));b.onclick=()=>choose(name);root.append(b);}
-  const other=document.createElement('button');other.type='button';other.className='ppt-candidate ppt-candidate-other';other.id='pptOther';const custom=target&&!CANDIDATES.includes(target.name);other.textContent=custom?target.name:'다른 문서 고르기…';other.setAttribute('aria-pressed',String(!!custom));other.onclick=()=>{$('pptSearch').hidden=false;$('pptTargetName').focus();};root.append(other);}
- async function choose(name){if(busy)return;lock(true);try{await findTarget(name);$('pptSearch').hidden=true;$('pptResults').replaceChildren();invalidate();}catch(e){message(e.message);}finally{candidates();lock(false);}}
+ function candidates(){const root=$('pptCandidates');root.replaceChildren();for(const c of CANDIDATES){const b=document.createElement('button');b.type='button';b.className='ppt-candidate';b.textContent=c.label;b.setAttribute('aria-pressed',String(c.names.includes(target?.name)));b.onclick=()=>choose(c.names);root.append(b);}
+  const other=document.createElement('button');other.type='button';other.className='ppt-candidate ppt-candidate-other';other.id='pptOther';const custom=target&&!CANDIDATES.some(c=>c.names.includes(target.name));other.textContent=custom?target.name:'다른 문서 고르기…';other.setAttribute('aria-pressed',String(!!custom));other.onclick=()=>{$('pptSearch').hidden=false;$('pptTargetName').focus();};root.append(other);}
+ async function choose(names){if(busy)return;lock(true);try{const list=[].concat(names);for(const [i,name] of list.entries()){try{await findTarget(name);break;}catch(e){if(i===list.length-1)throw e;}}$('pptSearch').hidden=true;$('pptResults').replaceChildren();invalidate();}catch(e){message(e.message);}finally{candidates();lock(false);}}
  async function search(){const q=$('pptTargetName').value.trim();const root=$('pptResults');root.replaceChildren();if(!q)return;lock(true);
   try{const data=await(await C.api('/documents?'+new URLSearchParams({q,sort:'relevance',includeIndexed:'1'}))).json(),docs=(data.documents||[]).filter(d=>d.available!==false).slice(0,8);
    if(!docs.length)root.append(Object.assign(document.createElement('p'),{className:'ppt-help',textContent:'찾는 문서가 없습니다.'}));
