@@ -43,14 +43,15 @@
 
 ## 운영·결정
 
-- **공개 저장소 노출**: `church-resources/`의 개역개정 본문·교회 이미지·폰트 원본, 공개 릴리스의 정리 ZIP. private 전환 시점 (보류, 결정 필요)
+- **private 전환**: Sync 2 검사가 끝나면 전환한다(사용자 결정 10-04). `church-resources/`(폰트·템플릿·개역개정·이미지)는 빌드 입력이므로 그대로 둔다. 전환 뒤에는 Mac 검사 workflow의 public 조건을 다시 본다 (보류)
+- **`mac-app/` 삭제**: Sync 2가 자리 잡은 뒤. 그 전에 `YBPlaylistIO.m`·`YBPlaylistFormat.m`·`assets/SyncIcon-1024.png`를 `mac-sync2/`로 옮기고, `mac-sync/PP6Core.*`·`test-server.mjs`, `cloudflare/inventory.mjs`·`sync-observations.mjs`도 같이 정리 (보류)
 - 운영 D1 실측 (미완). 자동 검사가 운영 DB를 치지 않도록 운영 바인딩을 검사 환경에서 제외 (미완)
 - Cloudflare Git 연결과 Actions 배포 중복 확인 (미완)
 - Sync 설치본 영구 보관(Actions artifact 만료) (미완)
 - Dropbox 실제 계정 연결 (확인)
 - 원격 브랜치 정리(main만 남김) — 삭제 명령은 사용자가 실행 (확인)
+- `bulk-upload.mjs`·`bulk-media.mjs`를 저장소 `scripts/`에 넣을지 (보류)
 
 ## 문서
 
-- 「예배온-저장소-문서정리안」대로 docs 재구성: rules/·design/·guides/·archive/, AGENTS.md 슬림화, README 4개 현행화, `build-dev-bundle.py`의 문서 경로 의존 처리 (미완)
-- 재설계안 확정 시 `docs/design/sync.md`로 옮기고 Sync 인계 문서를 archive로 (미완)
+- `web-editor/README.md`·`cloudflare/README.md`·`mac-sync2/README.md` 본문 현행화(옛 검증 기록·0.6.x 서술 제거) (미완)

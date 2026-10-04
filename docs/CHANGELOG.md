@@ -13,4 +13,5 @@
 | 2026-10-03 | 서버 비움 → 장부 2,884 등록 → 원본 309개 업로드(말씀·기도·광고 우선). 웹에서 1부·2부·청년예배 순서 편집 |
 | 2026-10-04 | Sync 결함 분석(F01–F08, A1–A16), 재설계안, 단독 업로더(`bulk-upload.mjs`/`.sh`), Sync 2 1차(받기 전용) 코드와 서버 변경(`sync2` 브랜치, Mac 검사 전) |
 | 2026-10-04 | 교회 Mac에서 Sync 2 1차로 서버 순서 받기 실기 성공. 서버 2단계(333befb)·Mac 2차(a732290, 318e83b) 구현, Mac 검사 run 37163928226 성공(배포·병합 전) |
+| 2026-10-04 | 서버 2차·Mac 2차를 main에 병합(d8a1d5a). 원본 2,884개 전부 업로드 완료. 원격 브랜치 정리, `sync.yml` 삭제, `Verify Mac Sync 2`를 main `[verify-mac]`으로. 문서 재구성(rules/·design/·guides/·archive/, AGENTS.md 슬림화), 미사용 `tools/`·Core CLI·woff2 4개·`build-dev-bundle.py` 삭제 |
 | 2026-10-04 | Deploy YebaeOn(main ad1f881, run 37160263447) 성공. Verify Mac Sync 2 첫 실행(run 37160263776) Worker 검사 1건 실패 → 검사 보조 함수 수정(bdd0e64) → 재실행(run 37160685710) 성공: Worker 65, 엔진 통합 33, Apple clang 10.13 대상 빌드, 설치 ZIP |

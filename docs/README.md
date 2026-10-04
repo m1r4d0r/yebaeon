@@ -1,28 +1,34 @@
-# 프로젝트 문서
+# 문서 색인
 
 세 파일이 기준이다. 세션마다 새 인계 파일을 만들지 않는다.
 
-- [STATUS.md](STATUS.md) — 지금 상태와 다음 세 가지. 세션마다 덮어쓴다.
+- [STATUS.md](STATUS.md) — 지금 상태와 다음 할 일. 세션마다 덮어쓴다.
 - [BACKLOG.md](BACKLOG.md) — 남은 일의 유일한 목록.
 - [CHANGELOG.md](CHANGELOG.md) — 끝난 일 한 줄씩.
 
-Sync 재설계안과 결함 분석은 claude.ai 프로젝트 「예배온」의 문서에 있다(저장소에 넣지 않음).
+## rules/ — 지켜야 할 규칙
 
-## 유효한 설계·규칙
+- [working-rules.md](rules/working-rules.md) — 보고, 승인, Actions, 공개 저장소, 문서 규칙
+- [d1-cost.md](rules/d1-cost.md) — D1 조회량과 운영 비용 원칙
+- [cross-platform.md](rules/cross-platform.md) — 경로·한글(NFC/NFD), High Sierra 제약, PP6 동작, 서버·검사 교훈
 
-- [Mac ↔ Windows 시행착오·재발 방지](CROSS-PLATFORM-LESSONS.md) — 앞부분 원칙 절이 규칙이고, 날짜별 절은 기록이다.
-- [플레이리스트 중심 흐름](PLAYLIST-WORKFLOW.md), [저장 범위와 서버 기획](SERVER-PLAN.md), [브랜드](BRANDING.md)
-- [이미지 범위·전송](IMAGE-SYNC-PLAN-2026-10-03.md), [자료 생명주기 계약](SYNC-LIFECYCLE-CONTRACT-HANDOFF-2026-10-03.md) — 미디어 범위는 IMAGE-SYNC-PLAN이 우선
-- [Studio 렌더 결정](STUDIO-RENDER-DECISIONS-2026-10-02.md), [카테고리 정책과 정리 결과](LIBRARY-CLEANUP-NEXT-2026-10-03.md)
-- [주보·Dropbox](BULLETIN-PREP.md), [PPT 가져오기](PPT-IMPORT.md)
-- 사용법: [Studio](../web-editor/README.md) · [Sync 0.6.x](../mac-app/README.md) · [Sync 2](../mac-sync2/README.md) · [엔진·CLI](../mac-sync/README.md) · [배포](../cloudflare/README.md)
+## design/ — 결정된 설계
 
-## 교회 이관
+- [sync.md](design/sync.md) — Mac Sync 2 ↔ 서버 규약(정본·영수증·변경 일지·판정·이미지·상주 모드·전환)
+- [server-storage.md](design/server-storage.md) — 자료별 저장 위치, 버전·CAS, 집과 교회의 역할
+- [media.md](design/media.md) — 이미지 범위와 서버 저장. Mac 설치 규칙은 sync.md 5.4
+- [library-policy.md](design/library-policy.md) — 카테고리별 검색·이력 설정, 옛날자료 숨김, 재생목록 정리
+- [studio-render.md](design/studio-render.md) — 폰트·RTF 해석·미리보기
+- [architecture.md](design/architecture.md) — 구성도, 코드 위치, 이름·표기
 
-- [빈 서버 재구축 절차(0.6.5 기준)](SYNC-RESET-COMPARE-2026-10-03.md), [클라우드 인계·초기화 범위](CLOUD-NEXT-SESSION-2026-10-03.md), [현장 단계·중단 대처](CHURCH-MIGRATION-2026-10-03.md) — 보관 7개는 마지막에 처리한다는 최신 결정이 우선이다.
+## guides/ — 절차
 
-## 기록 (당시 상태, 현재 기준 아님)
+- [church-migration.md](guides/church-migration.md) — 교회 Mac 전환 단계, 이미지 올리기, 중단 대처, 현장 기록 칸
+- [bulletin-dropbox.md](guides/bulletin-dropbox.md) — 주보 준비와 Dropbox 연결
+- [ppt-import.md](guides/ppt-import.md) — PPT 가져오기
 
-SESSION-HANDOFF, SYNC-STUDIO-FOLLOWUP-PLAN, STUDIO-EDITING-FOLLOWUP, SYNC-UX-REPAIR, UX-HANDOFF-REVIEW, INTEGRATION-HANDOFF, SYNC-NEXT-SESSION-2026-10-02, SYNC-MAC-LOCAL-CHECK, NEXT-STAGE, CHURCH-TEST, HOME-CHECK, UPDATE-PACKAGE-SPEC. 「예배온-저장소-문서정리안」대로 `archive/`로 옮길 예정이다.
+사용법은 각 폴더의 README: [Studio](../web-editor/README.md) · [Sync 2](../mac-sync2/README.md) · [서버](../cloudflare/README.md).
 
-`archive/`: [2026-09-28 프로젝트 검토](archive/PROJECT-REVIEW-2026-09-28.md), [Cloudflare 최초 연결 기록](archive/cloudflare-bindings-2026-09-28.jsonc)
+## archive/ — 당시 기록 (현재 기준 아님)
+
+`archive/2026-09/`, `archive/2026-10/`에 원문 그대로 둔다. 인계 문서, 시행착오 일지, 옛 Sync(0.4~0.6.6) 설계, 옛 AGENTS.md가 여기 있다. 현재 규칙·설계와 어긋나면 위 문서가 우선이다.
