@@ -239,8 +239,8 @@
     finally { $('entryPassword').value = ''; $('entrySubmit').disabled = !ready; }
   };
   $('entryLocal').onclick = () => $('entryDialog').close();
-  try { const saved=localStorage.getItem('yebaeon.librarySort'); if(['name','name-desc','used','updated'].includes(saved))$('librarySort').value=saved; } catch (_) {}
-  $('librarySort').onchange = () => { try { localStorage.setItem('yebaeon.librarySort',$('librarySort').value); } catch (_) {} list(); };
+  try { const saved=localStorage.getItem('yebaeon.librarySort.v2'); if(['relevance','name','name-desc','used','updated'].includes(saved))$('librarySort').value=saved; } catch (_) {}
+  $('librarySort').onchange = () => { try { localStorage.setItem('yebaeon.librarySort.v2',$('librarySort').value); } catch (_) {} list(); };
   let maintenanceAfter='',maintenanceDone=false;
   $('indexMaintenance').onclick=()=>{if(!needUser())return;$('accountMenu').hidden=true;$('indexMaintenanceDialog').showModal();};
   $('indexMaintenanceClose').onclick=()=>$('indexMaintenanceDialog').close();

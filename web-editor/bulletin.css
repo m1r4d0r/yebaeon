@@ -166,6 +166,7 @@
  .bulletin-slot .acts button,.bulletin-svc button,.bulletin-cands button{min-height:40px}
  .studio-import-dialog .bulletin-cell-tools button{min-height:36px;font-size:12px}
  .dropbox-row{flex-wrap:wrap;column-gap:12px;row-gap:2px}
- .dropbox-row>span{flex-basis:100%}
+ .dropbox-row>span{flex-basis:100%} .dropbox-row>.dropbox-icon+span{flex-basis:calc(100% - 40px)}
  .dropbox-row button,.dropbox-row a{min-height:36px}
 }
+.dropbox-row>.dropbox-icon{flex:none;display:flex;width:28px;height:28px;font-style:normal}.dropbox-row.is-folder{cursor:pointer}.dropbox-row.is-folder:hover{background:#eef2f8}.dropbox-row.is-folder>span{font-weight:600}

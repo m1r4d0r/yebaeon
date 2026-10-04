@@ -56,6 +56,11 @@ test('catalog-only playlist entries and current-version content search preserve 
   await db.prepare('DELETE FROM yebaeon_document_search WHERE document_id=? AND version=2').bind(doc.id).run();
   assert.equal((await ok(await call('/documents?includeIndexed=1&q=새문장'))).searchIndex,undefined);
   assert.equal((await call('/search-index','POST',undefined,{Origin:'https://elsewhere.test'})).status,403);
+  // Relevance: exact name, name prefix, name contains, every word in the name, content only. Spaces in names are ignored.
+  for(const [name,body] of [['마음을 주님의 손에.pro6','가사'],['[청년] 주님의 마음.pro6','가사'],['주님의 마음 (G).pro6','가사'],['주님의마음.pro6','가사'],['다른 찬양.pro6','주님의 마음 가사']])await ok(await call('/documents?path='+encodeURIComponent(name),'POST',xml(body)),201);
+  const relevance=await ok(await call('/documents?includeIndexed=1&sort=relevance&q='+encodeURIComponent('주님의 마음')));
+  assert.deepEqual(relevance.documents.map(d=>d.name),['주님의마음.pro6','주님의 마음 (G).pro6','[청년] 주님의 마음.pro6','마음을 주님의 손에.pro6','다른 찬양.pro6']);
+  assert.equal(relevance.documents.at(-1).matchedBy,'content');assert.equal(relevance.documents[3].matchedBy,'name');
   const progress=await ok(await call('/search-index','POST'));assert.equal(progress.next,null);assert.equal(progress.processed,1);
   assert.equal((await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('새문장')))).documents[0].id,doc.id);
   assert.equal((await call('/documents?includeIndexed=1&cursor=bad')).status,400);

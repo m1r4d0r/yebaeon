@@ -194,6 +194,8 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     let after='sort-fixture/';do{const p=await(await call('/search-index?after='+encodeURIComponent(after),{cookie,method:'POST'})).json();after=p.next;}while(after);
     const used=await collect('used'); assert.equal(used.length,130);assert.equal(new Set(used.map(d=>d.id)).size,130);
     assert.equal(used[0].id,ids[128]);assert.equal(used[1].id,ids[129]);assert.equal(used.at(-1).id,ids[0]);
+    const indexedCollect=async(sort)=>{let result=[],next=null; do {const params=new URLSearchParams({q:'sort-fixture/',sort,includeIndexed:'1'});if(next)params.set('cursor',next);const page=await (await call('/documents?'+params,{cookie})).json();result.push(...page.documents);next=page.next;}while(next);return result;};
+    const relevant=await indexedCollect('relevance'),indexedUsed=await indexedCollect('used');assert.equal(relevant.length,130);assert.deepEqual(relevant.map(d=>d.id),indexedUsed.map(d=>d.id),'equal relevance keeps the latest-use order across pages');
     const updated=await collect('updated');assert.equal(updated[0].id,ids[129]);assert.equal(updated.length,130);
     const reverse=await collect('name-desc');assert.equal(reverse[0].id,ids[129]);assert.equal(reverse.at(-1).id,ids[0]);
     const cache=await db.prepare('SELECT last_used FROM yebaeon_documents WHERE id=?').bind(ids[128]).first();assert.equal(cache.last_used,'2026-10-01T01:00:00.000Z');

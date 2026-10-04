@@ -9,8 +9,10 @@
  const button=(id,label,title=label)=>{const b=document.createElement('button');b.id=id;b.type='button';b.textContent=label;b.title=title;b.setAttribute('aria-label',title);return b;};
  function dialog(id,title){const el=make('dialog','studio-dialog');el.id=id;el.setAttribute('aria-labelledby',id+'Title');el.innerHTML=`<div class="dialog-heading"><h2 id="${id}Title">${title}</h2></div>`;const close=button(id+'Close','×','닫기');close.onclick=()=>el.close();el.firstChild.append(close);document.body.append(el);return el;}
  const globalTools=make('div','studio-global-tools');globalTools.id='studioGlobalTools';top.querySelector('.segmented').before(globalTools);
- $('undo').textContent='↶';$('undo').setAttribute('aria-label','실행취소');$('redo').textContent='↷';$('redo').setAttribute('aria-label','다시 실행');
- const reset=button('studioReset','초기화','브라우저 수정 내역 모두 지우기');top.querySelector('.segmented').append(reset);reset.onclick=()=>YebaeonDrafts.clearAll();
+ // 글꼴마다 화살표 문자 모양이 달라(맥에서 길쭉해짐) 아이콘은 SVG로 그린다.
+ const svg=path=>`<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+ $('undo').innerHTML=svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>');$('undo').setAttribute('aria-label','실행취소');$('redo').innerHTML=svg('<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>');$('redo').setAttribute('aria-label','다시 실행');
+ const reset=button('studioReset','','초기화 · 브라우저 수정 내역 모두 지우기');reset.innerHTML=svg('<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>');top.querySelector('.segmented').append(reset);reset.onclick=()=>YebaeonDrafts.clearAll();
  const topSave=make('div','studio-save');topSave.id='studioTopSave';top.querySelector('.account-wrap').before(topSave);
  const help=button('studioHelp','?','사용법·단축키');help.className='studio-help';$('locationTitle').after(help);
  $('accountMenu').prepend($('serverStatus'));

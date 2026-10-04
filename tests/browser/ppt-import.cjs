@@ -41,7 +41,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
 
  // 드롭박스에서 PPT 고르기: PPT만 보이고, 큰 파일은 막히며, 고른 파일은 같은 흐름으로 읽힌다.
  await page.locator('#pptDropboxOpen').click();await page.locator('#pptDropbox .dropbox-row').first().waitFor();
- assert.deepEqual(await page.locator('#pptDropbox .dropbox-row>span').allTextContents(),['주일/','synthetic.pptx','big.pptx'],'only folders and PPT files');
+ assert.deepEqual(await page.locator('#pptDropbox .dropbox-row>span').allTextContents(),['주일','synthetic.pptx','big.pptx'],'only folders and PPT files');assert.equal(await page.locator('#pptDropbox .dropbox-row .dropbox-icon').count(),3,'every row has a folder or file icon');
  assert.equal(await page.locator('#pptDropbox .dropbox-row',{hasText:'big.pptx'}).locator('button').isDisabled(),true,'over 40MB cannot be picked');
  await page.locator('#pptDropbox .dropbox-row',{hasText:'synthetic.pptx'}).locator('button').click();await page.waitForFunction(()=>document.querySelector('#pptName').value==='synthetic'&&YebaeonPPTImport.state().deck?.slides.length===2&&!YebaeonPPTImport.state().busy);assert.equal(await page.locator('#pptDropbox').isHidden(),true);
  // 말씀 PDF: 대상 문서를 이름으로 찾고, 쪽마다 슬라이드 크기 그림(비율이 다르면 검은 여백)을 만들어 슬라이드 전체를 교체한다.
@@ -50,8 +50,8 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
  await page.locator('#pptTabPdf').click();await page.waitForFunction(()=>YebaeonPPTPdf.state().target&&!YebaeonPPTPdf.state().busy);
  assert.match(await page.locator('#pdfTargetInfo').textContent(),/주일예배말씀 ppt · 버전 4 · 1920×1080 · 지금 슬라이드 3장/);assert.equal(await page.locator('#pptBody').isHidden(),true);assert.equal(await page.locator('#pptFooter').isHidden(),true);
  await page.locator('#pdfDropboxOpen').click();await page.locator('#pdfDropbox .dropbox-row').first().waitFor();
- assert.deepEqual(await page.locator('#pdfDropbox .dropbox-row>span').allTextContents(),['주일/'],'PDF tab shows PDF files only');
- await page.locator('#pdfDropbox .dropbox-row',{hasText:'주일/'}).locator('button').click();await page.locator('#pdfDropbox .dropbox-row',{hasText:'sermon.pdf'}).waitFor();
+ assert.deepEqual(await page.locator('#pdfDropbox .dropbox-row>span').allTextContents(),['주일'],'PDF tab shows PDF files only');
+ await page.locator('#pdfDropbox .dropbox-row',{hasText:'주일'}).locator('button').click();await page.locator('#pdfDropbox .dropbox-row',{hasText:'sermon.pdf'}).waitFor();
  await mkdir('artifacts',{recursive:true});await page.setViewportSize({width:390,height:844});await page.screenshot({path:'artifacts/ppt-dropbox-390-844.png'});await page.setViewportSize({width:1440,height:960});
  await page.locator('#pdfDropbox .dropbox-row',{hasText:'sermon.pdf'}).locator('button').click();await page.waitForFunction(()=>YebaeonPPTPdf.state().outputs.length===2&&!YebaeonPPTPdf.state().busy,null,{timeout:60000});
  assert.equal(await page.evaluate(()=>localStorage.getItem('yebaeon-dropbox-import-folder')),'주일','last folder remembered');
