@@ -101,7 +101,7 @@
         const date=doc.lastDateUsed ? new Date(doc.lastDateUsed).toLocaleDateString('ko-KR',{month:'numeric',day:'numeric',timeZone:'Asia/Seoul'})+' 사용' : '사용일 없음';
         small.textContent=doc.available===false?'원본 미업로드 · 편집 불가':doc.matchedBy==='content'?'본문 일치':date;item.classList.toggle('unavailable',doc.available===false);item.append(window.YebaeonSyncLights.dot('document',doc.id,''),name,small);item.title=doc.path+(doc.localPresent===false?' · 마지막 Mac 인덱스에서 없음 · 서버 원본과 이력은 보존됩니다.':'');
         item.addEventListener('click',e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey)openCloud(doc.id,false,doc);});
-        item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id,false,doc)},{label:'문서 복제',disabled:doc.available===false,action:()=>YebaeonLibraryActions.duplicate(doc)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()},{label:'선택 문서를 찬양용으로 설정',action:()=>applySelectedPolicy(true,false)},{label:'선택 문서를 예배순서용으로 설정',action:()=>applySelectedPolicy(true,true)}]);};$('libraryList').append(item);
+        item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id,false,doc)},{label:'문서 복제',disabled:doc.available===false,action:()=>YebaeonLibraryActions.duplicate(doc)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()},{label:'선택 문서를 찬양용으로 설정',action:()=>applySelectedPolicy(true,false)},{label:'선택 문서를 예배순서용으로 설정',action:()=>applySelectedPolicy(true,true)},{label:'이름 바꾸기',disabled:doc.available===false,action:()=>YebaeonLibraryManage.renameDocument(doc)},{label:'보관함으로',disabled:doc.available===false,action:()=>YebaeonLibraryManage.setDocumentState(documents.filter(d=>select.chosen.has(d.id)&&d.available!==false),'archive')},{label:'휴지통으로',disabled:doc.available===false,action:()=>YebaeonLibraryManage.setDocumentState(documents.filter(d=>select.chosen.has(d.id)&&d.available!==false),'trash')}]);};$('libraryList').append(item);
       }
       select.setKeys(documents.map(d=>d.id));
       if(scroll !== null) $('libraryList').scrollTop = scroll;
@@ -151,7 +151,13 @@
     try {
       await checkpointDraft();
       const endpoint = target ? '/documents/' + target.id : '/documents?' + new URLSearchParams({ path });
-      const result = await (await api(endpoint, { method: target ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/xml; charset=utf-8', ...(target ? { 'If-Match': `"${target.version}"` } : {}) }, body: current.xml })).json();
+      let result;
+      try { result = await (await api(endpoint, { method: target ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/xml; charset=utf-8', ...(target ? { 'If-Match': `"${target.version}"` } : {}) }, body: current.xml })).json(); }
+      catch (error) {
+        // 늦게 저장한 쪽: 내 편집은 저장 직전 초안으로 남아 있다. 누가 언제 저장했는지 알려 준다.
+        if (error.status === 409 && error.code === 'version_conflict' && target) { try { const latest = (await (await api('/documents/' + target.id)).json()).document; const minutes = Math.max(0, Math.round((Date.now() - Date.parse(latest.updatedAt)) / 60000)); error.message = `${latest.updatedBy}님이 ${minutes < 1 ? '방금' : minutes + '분 전에'} 저장했습니다(v${latest.version}). 내 편집은 브라우저 초안에 남아 있습니다. 최신 내용을 불러온 뒤 초안을 옆에 두고 다시 적용해 주세요.`; } catch (_) {} }
+        throw error;
+      }
       if(target && contexts.has(target.id)){const c=contexts.get(target.id);if(c.draftID===savedDraftID){c.linked={...result.document,serial:current.serial};c.baseXML=current.xml;}}
       if (epoch === startedEpoch) {
         linked = { ...result.document, serial: current.serial }; baseXML = current.xml; editor.markSaved(current.serial);
@@ -303,7 +309,9 @@
   window.addEventListener('yebaeonopen', () => { epoch++; linked = null; draftID=drafts.id(); baseXML=editor.document().xml; update(); });
   window.addEventListener('yebaeonchange', () => queueMicrotask(() => { update(); checkpointDraft().catch(drafts.report); }));
   document.addEventListener('visibilitychange', () => { if(document.hidden)checkpointDraft().catch(drafts.report); });
-  window.YebaeonCloud = { api, authenticated:()=>!!user, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, refresh:list, checkpointDraft, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)),pendingDocuments,saveRecord,listedDocument:id=>documents.find(doc=>doc.id===id),
+  // 서버에서 이름이 바뀐 문서: 열린 문서·보관 맥락·편집기 캐시의 이름만 맞춘다. 내용과 버전은 그대로다.
+  function renamed(doc){const c=contexts.get(doc.id);if(c?.linked)c.linked={...c.linked,path:doc.path,name:doc.name};const cached=editor.cache?.(doc.id);if(cached)cached.name=doc.name;if(linked?.id===doc.id){linked={...linked,path:doc.path,name:doc.name};editor.model().name=doc.name;editor.redraw();update();}}
+  window.YebaeonCloud = { api, authenticated:()=>!!user, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, renamed, refresh:list, checkpointDraft, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)),pendingDocuments,saveRecord,listedDocument:id=>documents.find(doc=>doc.id===id),
     async documentCopySource(id){
       const local=editor.cache(id);if(local?.dirty)return {xml:local.xml,local:true};
       const doc=(await(await api('/documents/'+id)).json()).document;
@@ -315,7 +323,7 @@
     async createDocument(path,xml){
       if(!needUser()||saving||window.YebaeonSave?.busy())throw new Error('현재 저장이 끝난 뒤 추가해 주세요.');
       await checkpointDraft();
-      const result=await(await api('/documents?'+new URLSearchParams({path}),{method:'POST',headers:{'Content-Type':'application/xml'},body:xml})).json();
+      const result=await(await api('/documents?'+new URLSearchParams({path}),{method:'POST',headers:{'Content-Type':'application/xml','X-YebaeOn-Client':'studio'},body:xml})).json();
       const opened=await openCloud(result.document.id,false,result.document);
       if(!opened)editor.status('문서는 추가됐습니다. 이름으로 검색해 열어 주세요.');
       return result.document;

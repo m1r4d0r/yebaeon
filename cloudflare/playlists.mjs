@@ -285,6 +285,12 @@ async function saveWithRetryHashed(env,user,id,node,baseHash,edit,extra){
   throw conflict();
 }
 // 문서 이름 바꾸기 뒤: 모든 재생목록 파일에서 옛 경로 참조를 새 경로로 고친다(그 예배들만 새 노드 버전).
+// 사용 중인 재생목록이 가리키는 문서 경로. 휴지통 비우기가 이 문서는 남긴다.
+export async function referencedDocumentPaths(env){
+  const libraries=(await env.DB.prepare('SELECT * FROM yebaeon_playlists').all()).results,paths=new Set();
+  for(const r of libraries)for(const p of (await load(env,r)).playlists)for(const item of p.items)if(item.kind==='document'){const path=referencePath(item.sourcePath,r.source_root);if(path)paths.add(path);}
+  return paths;
+}
 export async function rewriteDocumentReferences(env,user,oldPath,newPath){
   const libraries=(await env.DB.prepare('SELECT id,source_root FROM yebaeon_playlists').all()).results,changed=[];
   for(const library of libraries){

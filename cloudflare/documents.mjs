@@ -56,6 +56,7 @@ export async function documentsRoute(request, env, user, id, action) {
     method(request, ['GET', 'POST']);
     if (request.method === 'GET') {
       if(url.searchParams.get('includeIndexed')==='1')return catalogList(request,env);
+      if(url.searchParams.has('checkPath'))return checkPath(db,url.searchParams.get('checkPath'));
       const query = url.searchParams.get('q') || '', after = url.searchParams.get('after') || '';
       if (query.length > 120 || after.length > 600) throw new HttpError(400, 'invalid_query', '검색어가 너무 깁니다.');
       const sort = url.searchParams.get('sort') || 'name';
@@ -201,4 +202,12 @@ async function documentPolicy(request,env,id){
   if(data)statements.push(db.prepare('INSERT OR REPLACE INTO yebaeon_document_search(document_id,version,search_text,error) SELECT id,current_version,?,? FROM yebaeon_documents WHERE id=? AND write_id=? AND search_enabled=1').bind(data.text,data.error,id,writeId));
   const result=await db.batch(statements);if(result[0].meta.changes!==1)throw conflict();
   return json({document:document(await find(db,id))});
+}
+
+// 새 문서 이름이 서버(문서·장부, 휴지통 포함)에 있으면 `이름 2`, `이름 3`… 중 빈 이름을 제안한다. 한 번에 한 문장.
+async function checkPath(db,value){
+  const path=documentPath(/\.pro6$/i.test(value||'')?value:(value||'').trim()+'.pro6'),stem=path.replace(/\.pro6$/i,''),candidates=[path,...Array.from({length:30},(_,i)=>`${stem} ${i+2}.pro6`)];
+  const marks=candidates.map(()=>'?').join(',');
+  const taken=new Set((await db.prepare(`SELECT path FROM yebaeon_documents WHERE path IN (${marks}) UNION SELECT path FROM yebaeon_library_catalog WHERE path IN (${marks})`).bind(...candidates,...candidates).all()).results.map(r=>r.path));
+  return json({path,available:!taken.has(path),suggestion:taken.has(path)?candidates.find(c=>!taken.has(c))||null:null});
 }

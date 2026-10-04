@@ -9,11 +9,12 @@ const assert=require('node:assert/strict');
  const browser=await chromium.launch(process.env.CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.CHROMIUM_EXECUTABLE_PATH,args:['--no-sandbox']}:undefined),context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true}),page=await context.newPage(),errors=[];
  let handleDialog=d=>d.accept();page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>handleDialog(d));
  const ids=['11111111-1111-4111-a111-111111111111','22222222-2222-4222-a222-222222222222','33333333-3333-4333-a333-333333333333'];
- const docs=new Map(),writes=[];let order=[{id:'one',documentId:ids[0]},{id:'two',documentId:ids[1]}],pv=1,fail=null,failOrder=false,requests=[],observations=0,templateXML='';
+ const docs=new Map(),writes=[];let order=[{id:'one',documentId:ids[0]},{id:'two',documentId:ids[1]}],pv=1,fail=null,failOrder=false,requests=[],editingRequests=[],observations=0,templateXML='';
  const metadata=id=>{const d=docs.get(id);return {id,name:d.name,path:d.name,version:d.version,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',sha256:createHash('sha256').update(d.xml).digest('hex')};};
  const library=()=>({id:'library',path:'기본.pro6pl',version:pv,updatedBy:'시험',updatedAt:'2026-10-02T00:00:00Z',playlists:[{id:'A',name:'예배',itemCount:order.length}]});
  const hash=()=>createHash('sha256').update(JSON.stringify(order)).digest('hex');
- await page.route('**/api/**',async route=>{const req=route.request(),url=new URL(req.url()),path=url.pathname;requests.push(req.method()+' '+url.pathname+url.search);let data={};
+ await page.route('**/api/**',async route=>{const req=route.request(),url=new URL(req.url()),path=url.pathname;// 편집 중 표시(첫 수정 때 한 줄, 저장·이동 때 삭제)는 결정된 요청이라 '로컬 편집에 서버 요청 없음' 집계에서 따로 센다.
+ if(path==='/api/editing')editingRequests.push(req.method());else requests.push(req.method()+' '+url.pathname+url.search);let data={};
  if(path==='/api/session')data={ready:true,authenticated:true,name:'시험'};
  else if(path==='/api/sync-observations'){observations++;data={items:{}};}
  else if(path==='/api/playlists')data={libraries:docs.size?[library()]:[],next:null};
@@ -22,7 +23,7 @@ const assert=require('node:assert/strict');
  else if(path==='/api/documents')data={documents:[...docs.keys()].map(metadata),next:null};
  else if(path.startsWith('/api/documents/')){const id=path.split('/')[3];if(path.endsWith('/content')){await route.fulfill({body:docs.get(id).xml,contentType:'application/xml'});return;}
  if(req.method()==='PUT'){assert.equal(req.headers()['if-match'],`"${docs.get(id).version}"`);if(fail===id){await route.fulfill({status:409,json:{message:'다른 작업자가 먼저 저장했습니다.'}});return;}docs.get(id).xml=req.postData();docs.get(id).version++;writes.push(id);}data={document:metadata(id)};}
- else throw Error('Unexpected API '+path);await route.fulfill({json:data});});
+ else if(path==='/api/sync/devices')data={head:0,devices:[]};else if(path==='/api/editing')data={others:[]};else if(path==='/api/categories')data={categories:['가사찬양','악보찬양','예배순서','특별순서','옛날자료'].map(name=>({name,searchEnabled:true,historyEnabled:true}))};else throw Error('Unexpected API '+path);await route.fulfill({json:data});});
  await page.route('**/resources/**',async route=>{const name=new URL(route.request().url()).pathname.split('/').pop();const templates=['104','105'].map(id=>({id,name:'성경',label:'설교 본문',width:1920,height:1080,xml:templateXML}));await route.fulfill({json:name==='catalog.json'?{fonts:[],media:[]}:name==='templates.json'?templates:{books:[{name:'창세기',chapters:[{number:1,verses:[{number:1,text:'첫 줄\n둘째 줄\n'}]}]}]}});});
  try{
  await page.goto(`http://127.0.0.1:${server.address().port}/`);await page.waitForFunction(()=>window.YebaeonSave&&YebaeonCloud.authenticated());await page.addScriptTag({path:'web-editor/sample-demo.js'});

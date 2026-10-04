@@ -22,7 +22,7 @@ const assert=require('node:assert/strict');
  else if(path==='/api/documents')data={documents:[...docs.keys()].map(metadata),next:null};
  else if(path.startsWith('/api/documents/')){const id=path.split('/')[3];if(path.endsWith('/content')){await route.fulfill({body:docs.get(id).xml,contentType:'application/xml'});return;}
  if(req.method()==='PUT'){assert.equal(req.headers()['if-match'],`"${docs.get(id).version}"`);if(fail===id){await route.fulfill({status:409,json:{message:'다른 작업자가 먼저 저장했습니다.'}});return;}docs.get(id).xml=req.postData();docs.get(id).version++;writes.push(id);}data={document:metadata(id)};}
- else throw Error('Unexpected API '+path);await route.fulfill({json:data});});
+ else if(path==='/api/sync/devices')data={head:0,devices:[]};else if(path==='/api/editing')data={others:[]};else if(path==='/api/categories')data={categories:['가사찬양','악보찬양','예배순서','특별순서','옛날자료'].map(name=>({name,searchEnabled:true,historyEnabled:true}))};else throw Error('Unexpected API '+path);await route.fulfill({json:data});});
  await page.route('**/resources/**',async route=>{const name=new URL(route.request().url()).pathname.split('/').pop();const templates=['104','105'].map(id=>({id,name:'성경',label:'설교 본문',width:1920,height:1080,xml:templateXML}));await route.fulfill({json:name==='catalog.json'?{fonts:[],media:[]}:name==='templates.json'?templates:{books:[{name:'창세기',chapters:[{number:1,verses:[{number:1,text:'첫 줄\n둘째 줄\n'}]}]}]}});});
  try{
  await page.goto(`http://127.0.0.1:${server.address().port}/`);await page.waitForFunction(()=>window.YebaeonSave&&YebaeonCloud.authenticated());await page.addScriptTag({path:'web-editor/sample-demo.js'});

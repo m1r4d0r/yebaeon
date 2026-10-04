@@ -29,6 +29,7 @@ const assert=require('node:assert/strict');
  else if(path==='/api/playlists/'+libraryID&&method==='PATCH'){orderPatches++;if(failOrderSave){await route.fulfill({status:409,json:{message:'서버 순서가 먼저 바뀌었습니다.'}});return;}const body=JSON.parse(route.request().postData());assert.equal(body.baseNodeHash,nodeHash());order=body.items;playlistVersion++;data={library:library(),playlist:{sha256:nodeHash()}};}
  else if(path==='/api/activity')data={items:[{kind:'document',...doc(),author:'시험',createdAt:doc().updatedAt}],next:null};
  else if(path.endsWith('/versions'))data={versions:[],next:null};
+ else if(path==='/api/sync/devices')data={head:0,devices:[]};else if(path==='/api/editing')data={others:[]};else if(path==='/api/categories')data={categories:['가사찬양','악보찬양','예배순서','특별순서','옛날자료'].map(name=>({name,searchEnabled:true,historyEnabled:true}))};
  else throw Error('Unhandled '+path);
  await route.fulfill({json:data});});
  let templateXML='',templateReads=0;const template={id:'104',name:'성경',label:'본문',width:1920,height:1080,file:'template-aaaaaaaaaaaaaaaaaaaaaaaa.json'};

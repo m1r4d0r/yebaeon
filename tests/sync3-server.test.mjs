@@ -102,7 +102,7 @@ test('admin lock: empty trash and revision resolution need the admin password',{
  // 관리자 표시는 그 세션에만 묶인다.
  other.addCookie(granted.headers.get('Set-Cookie'));assert.equal((await read(await other.call('/admin'))).admin,false);
  const head=(await read(await user.call('/sync/changes?since=0&limit=0'))).head;
- assert.deepEqual(await read(await user.call('/admin/trash','POST',JSON.stringify({kind:'documents'}))),{purged:1,remaining:0});
+ assert.deepEqual(await read(await user.call('/admin/trash','POST',JSON.stringify({kind:'documents'}))),{purged:1,remaining:0,kept:[]});
  assert.equal((await user.call(`/documents/${d.id}`)).status,404);
  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM yebaeon_versions WHERE document_id=?').bind(d.id).first()).n,0);
  assert.deepEqual((await changes(user.call,read,head)).map(c=>c.action),['purged']);
@@ -111,6 +111,12 @@ test('admin lock: empty trash and revision resolution need the admin password',{
  await read(await user.call(`/playlists/${library.id}/nodes?node=A`,'DELETE',undefined,{'If-Match':'"1"'}));
  assert.deepEqual(await read(await user.call('/admin/trash','POST',JSON.stringify({kind:'playlists'}))),{purged:1,remaining:0});
  assert.equal((await db.prepare("SELECT state FROM yebaeon_playlist_controls WHERE node_id='A'").first()).state,'removed');
+ // 사용 중인 재생목록에 든 문서는 비우지 않는다.
+ const used=(await read(await user.call('/documents?path=쓰는것.pro6','POST',doc('u')),201)).document;
+ await read(await user.call(`/playlists/${library.id}/nodes?node=B`,'POST',JSON.stringify({xml:node('B','2부',[cue('c1','쓰는것.pro6')])}),{'X-YebaeOn-Sync':'2'}),201);
+ await read(await user.call(`/documents/${used.id}/state`,'POST',JSON.stringify({action:'trash'})));
+ assert.deepEqual(await read(await user.call('/admin/trash','POST',JSON.stringify({kind:'documents'}))),{purged:0,remaining:1,kept:['쓰는것.pro6']});
+ assert.equal((await user.call(`/documents/${used.id}`)).status,200);
  // 보관본 해결은 관리자만
  const r=(await read(await other.call(`/sync/revisions?kind=doc&id=${(await read(await user.call('/documents?path=남길것.pro6','POST',doc('y')),201)).document.id}&baseVersion=1`,'POST',doc('Mac'),{'Content-Type':'application/xml'}),201)).revision;
  assert.equal((await other.call(`/sync/revisions/${r.id}/resolve`,'POST',JSON.stringify({resolution:'dismissed'}))).status,403);
@@ -135,7 +141,12 @@ test('categories table, Studio category requirement and editing notice',{timeout
  const seen=(await read(await b.call('/editing','POST',JSON.stringify({kind:'doc',entity:created.id})))).others;assert.deepEqual(seen.map(x=>x.author),['지은']);
  await read(await a.call('/editing','DELETE',JSON.stringify({kind:'doc',entity:created.id})));
  assert.deepEqual((await read(await b.call('/editing','POST',JSON.stringify({kind:'doc',entity:created.id})))).others,[]);
+ assert.deepEqual((await read(await a.call('/editing?kind=doc&entity='+created.id))).others.map(x=>x.author),['은혜']);
  assert.equal((await a.call('/editing','POST',JSON.stringify({kind:'x',entity:'y'}))).status,400);
+ // 이름 겹침: 휴지통 문서도 이름을 차지한다. 빈 번호를 제안한다.
+ await read(await a.call('/documents?path='+encodeURIComponent('새문서 2.pro6'),'POST',doc('y')),201);
+ assert.deepEqual(await read(await a.call('/documents?checkPath='+encodeURIComponent('새문서'))),{path:'새문서.pro6',available:false,suggestion:'새문서 3.pro6'});
+ assert.deepEqual(await read(await a.call('/documents?checkPath='+encodeURIComponent('아무도 없는 이름.pro6'))),{path:'아무도 없는 이름.pro6',available:true,suggestion:null});
 });
 
 test('media paths and the R2 ledger follow the change log',{timeout:90000},async t=>{

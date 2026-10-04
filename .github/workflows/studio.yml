@@ -25,6 +25,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: node tests/browser/studio.cjs
       - run: node tests/browser/library-management.cjs
+      - run: node tests/browser/library-bins.cjs
       - run: node tests/browser/responsive.cjs
       - run: node tests/browser/bulletin.cjs
       - run: node tests/browser/ppt-import.cjs

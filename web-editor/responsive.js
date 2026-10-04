@@ -42,7 +42,7 @@
  const historyInfo=make('div','studio-hidden-actions');historyInfo.hidden=true;historyInfo.append($('playlistHistory'),$('playlistSummary'));document.body.append(historyInfo);
  document.querySelector('.playlist-footer').hidden=true;document.querySelector('.editor-footer').hidden=true;$('libraryDivider').hidden=true;
  const documents=$('documentsPane'),searchHeading=documents.querySelector('.pane-heading');searchHeading.querySelector('strong').hidden=true;
- const searchMeta=make('div','studio-search-meta');searchMeta.innerHTML='<span id="studioSearchCount">문서 검색</span>';searchMeta.append($('librarySort'));searchHeading.after(searchMeta);
+ const searchMeta=make('div','studio-search-meta');searchMeta.innerHTML='<span id="studioSearchCount">문서 검색</span>';searchMeta.append($('librarySort'));if($('libraryBins'))searchMeta.append($('libraryBins'));searchHeading.after(searchMeta);
  $('libraryRefresh').textContent='⌕';$('libraryRefresh').setAttribute('aria-label','이름·본문 검색');
  const fold=button('studioSearchFold','×','검색 결과 접기');searchHeading.append(fold);fold.onclick=()=>{documents.classList.toggle('search-folded');fold.textContent=documents.classList.contains('search-folded')?'⌄':'×';fold.setAttribute('aria-label',documents.classList.contains('search-folded')?'검색 결과 펼치기':'검색 결과 접기');};
  const expandSearch=()=>{documents.classList.remove('search-folded');fold.textContent='×';fold.setAttribute('aria-label','검색 결과 접기');};

@@ -19,3 +19,4 @@ body{overflow:hidden}button{touch-action:manipulation}button:focus-visible,selec
 @media(max-width:700px){body[data-page=playlists] .studio-order-workspace{display:none}.studio-order-workspace{width:100%}}
 
 #saveScope:before{display:none}
+.studio-search-meta #libraryBins{margin-left:auto;font-size:11px;padding:2px 6px;min-height:0;height:auto}

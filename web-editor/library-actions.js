@@ -1,7 +1,8 @@
 (function(){'use strict';
  const $=id=>document.getElementById(id),C=YebaeonCloud,P=PP6;
  let sourceXML=null,prepared=null,creating=false,listId=null,emptyLibraryXML=null,sourceGeneration=0,appendTarget=null;
- const names=['가사찬양','악보찬양','예배순서','특별순서','옛날자료','미결'];
+ // 서버 카테고리 정책표를 불러오기 전 기본값. 창을 열 때 library-manage.js가 서버 목록으로 바꾼다.
+ const names=['가사찬양','악보찬양','예배순서','특별순서','옛날자료'];
  const escape=value=>String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
  const dialog=$('newDocumentDialog');
  for(const category of names)$('newDocumentCategory').add(new Option(category,category));
@@ -23,7 +24,7 @@
    if(!C.needUser()||creating)return;
    appendTarget=doc?null:YebaeonPlaylists.selectedPlaylist();
    if(!doc&&(!appendTarget?.editable||YebaeonPlaylists.state().busy||YebaeonSave?.busy())){YebaeonEditor.status('문서를 추가할 재생목록을 먼저 선택하세요.');return;}
-   const generation=++sourceGeneration;sourceXML=null;prepared=null;$('newDocumentTitle').textContent=doc?'문서 복제':'문서 추가';$('newDocumentMessage').textContent='';$('newDocumentName').value=doc?doc.name.replace(/\.pro6$/i,'')+' 복사':'';$('newDocumentCategory').value='예배순서';$('newDocumentSubmit').disabled=!!doc;dialog.showModal();
+   const generation=++sourceGeneration;sourceXML=null;prepared=null;$('newDocumentTitle').textContent=doc?'문서 복제':'문서 추가';$('newDocumentMessage').textContent='';$('newDocumentName').value=doc?doc.name.replace(/\.pro6$/i,'')+' 복사':'';if([...$('newDocumentCategory').options].some(o=>o.value==='예배순서'))$('newDocumentCategory').value='예배순서';$('newDocumentSubmit').disabled=!!doc;dialog.showModal();
    if(doc){try{const value=await C.documentCopySource(doc.id);if(!dialog.open||generation!==sourceGeneration)return;sourceXML=value.xml;const category=P.parse(sourceXML,'source').doc.documentElement.getAttribute('category')||'미결';if(![...$('newDocumentCategory').options].some(o=>o.value===category))$('newDocumentCategory').add(new Option(category,category));$('newDocumentCategory').value=category;$('newDocumentMessage').textContent=value.local?'이 브라우저에서 편집 중인 내용을 복제합니다. 원본의 미저장 변경도 그대로 남습니다.':'서버에 저장된 가사·서식·배경을 복제합니다. 원본은 바뀌지 않습니다.';$('newDocumentSubmit').disabled=false;}catch(error){$('newDocumentMessage').textContent=error.message;}}
    if(appendTarget){$('newDocumentMessage').textContent=appendTarget.name+' 순서 맨 아래에 추가합니다. 순서는 서버 저장으로 확정하세요.';}
    $('newDocumentSubmit').textContent=doc?'복제':'만들고 추가';$('newDocumentName').focus();$('newDocumentName').select();
@@ -32,6 +33,7 @@
  dialog.addEventListener('cancel',e=>{if(creating)e.preventDefault();});
  $('newDocumentForm').onsubmit=async e=>{e.preventDefault();if(creating)return;creating=true;$('newDocumentSubmit').disabled=true;
    try{const name=filename($('newDocumentName').value),category=$('newDocumentCategory').value,key=name+'\0'+category;
+     if(!category||category==='__new__')throw new Error('카테고리를 골라 주세요.');
      if(prepared?.key!==key)prepared={key,xml:sourceXML?copyDocument(sourceXML,category):blankDocument(category)};
      if(appendTarget&&YebaeonPlaylists.selectedPlaylist()?.key!==appendTarget.key)throw new Error('재생목록이 바뀌었습니다. 창을 닫고 추가할 순서에서 다시 시작하세요.');
      const made=await C.createDocument(name,prepared.xml);

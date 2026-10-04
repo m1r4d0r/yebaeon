@@ -1,4 +1,5 @@
 import { HttpError, bodyJSON, json, method, sameOrigin } from './http.mjs';
+import { referencedDocumentPaths } from './playlists.mjs';
 
 // 관리자 잠금. 되돌릴 수 없는 일(휴지통 비우기, 카테고리 정책 변경, 보관본 해결, 고아 이미지 정리)만 요구한다.
 // Worker 비밀값 ADMIN_PASSWORD 하나. 맞으면 15분짜리 서명 쿠키를 준다. 계정·D1 행은 쓰지 않는다.
@@ -49,7 +50,10 @@ export async function emptyTrashRoute(request, env, user) {
   method(request, ['POST']); sameOrigin(request); await requireAdmin(request, env, user);
   const body = await bodyJSON(request), db = env.DB;
   if (body?.kind === 'documents') {
-    const rows = (await db.prepare("SELECT id FROM yebaeon_documents WHERE state='trashed' ORDER BY state_at LIMIT ?").bind(BATCH).all()).results, ids = rows.map(r => r.id);
+    // 사용 중인 재생목록에 들어 있는 문서는 비우지 않는다(목록이 깨진다). 순서에서 뺀 뒤 다시 비운다.
+    const used = await referencedDocumentPaths(env);
+    const trashed = (await db.prepare("SELECT id,path FROM yebaeon_documents WHERE state='trashed' ORDER BY state_at").all()).results;
+    const kept = trashed.filter(r => used.has(r.path)), ids = trashed.filter(r => !used.has(r.path)).slice(0, BATCH).map(r => r.id);
     if (ids.length) {
       const marks = ids.map(() => '?').join(',');
       const keys = (await db.prepare(`SELECT object_key FROM yebaeon_versions WHERE document_id IN (${marks})`).bind(...ids).all()).results.map(r => r.object_key);
@@ -62,8 +66,7 @@ export async function emptyTrashRoute(request, env, user) {
       ]);
       for (let i = 0; i < keys.length; i += 1000) await env.FILES.delete(keys.slice(i, i + 1000));
     }
-    const remaining = (await db.prepare("SELECT COUNT(*) AS n FROM yebaeon_documents WHERE state='trashed'").first()).n;
-    return json({ purged: ids.length, remaining });
+    return json({ purged: ids.length, remaining: trashed.length - ids.length, kept: kept.map(r => r.path) });
   }
   if (body?.kind === 'playlists') {
     const rows = (await db.prepare("SELECT library_id,node_id,snapshot_key FROM yebaeon_playlist_controls WHERE state='trashed' ORDER BY updated_at LIMIT ?").bind(BATCH).all()).results;
