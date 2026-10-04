@@ -7,7 +7,7 @@ STAGING="$(mktemp -d "${TMPDIR:-/tmp}/yebaeon-sync2-build.XXXXXX")"
 trap 'rm -rf -- "$STAGING"' EXIT
 mkdir -p "$STAGING/예배온 Sync 2.app/Contents/MacOS" "$STAGING/예배온 Sync 2.app/Contents/Resources"
 COMMON=( -fobjc-arc -fobjc-arc-exceptions -fblocks -arch x86_64 -mmacosx-version-min=10.13 -Werror=unguarded-availability -framework Cocoa -framework Security -lsqlite3 )
-clang "${COMMON[@]}" ../mac-sync/YBSync.m ../mac-sync/YBServer.m ../mac-app/YBPlaylistIO.m ../mac-app/YBPlaylistFormat.m YB2Server.m YB2Receipt.m YB2Engine.m YB2App.m -o "$STAGING/예배온 Sync 2.app/Contents/MacOS/YebaeOnSync2"
+clang "${COMMON[@]}" ../mac-sync/YBSync.m ../mac-sync/YBServer.m ../mac-app/YBPlaylistIO.m ../mac-app/YBPlaylistFormat.m ../mac-sync/PP6Core.m ../mac-app/YBAppUI.m ../mac-app/YBDocumentComparison.m YB2Server.m YB2Receipt.m YB2Engine.m YB2App.m -o "$STAGING/예배온 Sync 2.app/Contents/MacOS/YebaeOnSync2"
 cp Info.plist "$STAGING/예배온 Sync 2.app/Contents/Info.plist"
 if [[ -f ../mac-app/assets/SyncIcon-1024.png ]] && command -v iconutil >/dev/null 2>&1; then
   ICONSET="$STAGING/AppIcon.iconset"; mkdir -p "$ICONSET"

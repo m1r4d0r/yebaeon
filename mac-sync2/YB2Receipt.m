@@ -116,6 +116,16 @@ static NSString *Column(sqlite3_stmt *stmt, int index) {
     NSUInteger count = sqlite3_step(stmt) == SQLITE_ROW ? (NSUInteger)sqlite3_column_int64(stmt, 0) : 0;
     sqlite3_finalize(stmt); return count;
 }
+- (NSArray *)documentPaths {
+    sqlite3_stmt *stmt = Prepare(_db, "SELECT path FROM docs ORDER BY path"); NSMutableArray *paths = [NSMutableArray array];
+    while (sqlite3_step(stmt) == SQLITE_ROW) if (Column(stmt, 0)) [paths addObject:Column(stmt, 0)];
+    sqlite3_finalize(stmt); return paths;
+}
+- (NSArray *)mediaPaths {
+    sqlite3_stmt *stmt = Prepare(_db, "SELECT path, sha FROM media ORDER BY path"); NSMutableArray *items = [NSMutableArray array];
+    while (sqlite3_step(stmt) == SQLITE_ROW) if (Column(stmt, 0) && Column(stmt, 1)) [items addObject:@{@"path": Column(stmt, 0), @"sha": Column(stmt, 1)}];
+    sqlite3_finalize(stmt); return items;
+}
 - (NSString *)mediaSha:(NSString *)path {
     sqlite3_stmt *stmt = Prepare(_db, "SELECT sha FROM media WHERE path = ?"); BindText(stmt, 1, path);
     NSString *result = sqlite3_step(stmt) == SQLITE_ROW ? Column(stmt, 0) : nil;

@@ -64,6 +64,20 @@
 - (NSDictionary *)uploadNew;
 // 문서 바이트가 가리키는 이미지 중 허용 폴더 안의 것을 서버에 올리고 경로표에 등록한다. 반환: 올리거나 등록한 수
 - (NSUInteger)uploadMediaFor:(NSData *)document;
+// 전체 확인(7일 규칙). Mac 디스크와 장부 사본·영수증만 본다(서버 요청 없음). Mac 파일을 바꾸지 않는다.
+// 반환·저장: {at, macDeleted:[{path,id}], collisions:[{path,id}], external:[{path,references}], imageFill:[{path,sha}]}
+- (NSDictionary *)fullCheck;
+- (NSDictionary *)lastFullCheck;
+- (BOOL)fullCheckDue;
+// 정리 창 버튼. 모두 사용자가 누를 때만 돈다.
+- (void)trashOnServer:(NSString *)path;          // Mac에서 지운 문서를 서버 휴지통으로
+- (void)takeServer:(NSString *)path;             // 같은 이름 다른 내용: 서버 것으로(Mac 것은 백업·서버 보관본)
+- (void)takeMac:(NSString *)path;                // 같은 이름 다른 내용: Mac 것을 서버 새 버전으로
+- (NSString *)keepBothNumbered:(NSString *)path; // 같은 이름 다른 내용: Mac 파일에 번호를 붙여 둘 다 둔다. 반환: 새 경로
+- (NSArray *)numberedLog;                        // 번호 붙인 기록 [{path, target, at}]
+- (void)fetchImage:(NSDictionary *)item;         // 이미지 보충 {path, sha}
+- (NSString *)webLink:(NSString *)path;          // Studio에서 그 문서 열기
+- (NSData *)serverBytes:(NSString *)path;        // 차이 창용 서버 바이트
 // 마지막 적용 기록({id, at, applied:[…]}) 또는 nil. 되돌리면 그 다음 것이 아니라 nil이 된다(한 단계만).
 - (NSDictionary *)lastApply;
 // 마지막 적용을 되돌린다. 적용 뒤 바뀐 파일은 건너뛴다. PP6가 꺼져 있어야 한다. 반환: {restored:[…], skipped:[…]}

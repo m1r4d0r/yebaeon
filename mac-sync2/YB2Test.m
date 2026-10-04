@@ -342,6 +342,26 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         rows = Sync();
         Check([RowNamed(rows, @"수요 저녁")[@"status"] isEqual:@"same"], @"server follows the mac rename");
 
+        // 23. 전체 확인: Mac에서 지운 문서·같은 이름 다른 내용·이미지 보충 후보를 목록으로만 만들고, 정리 창 버튼으로 처리한다.
+        Check([NSFileManager.defaultManager removeItemAtPath:Local(@"새 찬양") error:NULL], @"mac deletes a document");
+        Check([Doc(@"Mac의 광고") writeToFile:Local(@"광고 보관") atomically:YES], @"same name, different content");
+        NSDictionary *full = [engine fullCheck];
+        Check([[full[@"macDeleted"] valueForKey:@"path"] containsObject:@"새 찬양.pro6"], [NSString stringWithFormat:@"mac-deleted document listed: %@", full[@"macDeleted"]]);
+        Check([[full[@"collisions"] valueForKey:@"path"] isEqual:@[@"광고 보관.pro6"]], [NSString stringWithFormat:@"collision listed: %@", full[@"collisions"]]);
+        Check([NSFileManager.defaultManager fileExistsAtPath:Local(@"새 찬양")] == NO && [[NSData dataWithContentsOfFile:Local(@"광고 보관")] isEqual:Doc(@"Mac의 광고")], @"full check changes nothing");
+        if (withImage) Check([[full[@"imageFill"] valueForKey:@"path"] containsObject:imagePath], @"missing image listed for fill");
+        [engine trashOnServer:@"새 찬양.pro6"];
+        NSString *songID = [engine.receipt ledger:@"새 찬양.pro6"][@"id"];
+        Check([[web request:[@"/api/documents/" stringByAppendingString:songID] method:@"GET" body:nil headers:nil][@"document"][@"state"] isEqual:@"trashed"] && ![[[engine lastFullCheck][@"macDeleted"] valueForKey:@"path"] containsObject:@"새 찬양.pro6"], @"mac-deleted document sent to the server trash on request");
+        NSString *numbered = [engine keepBothNumbered:@"광고 보관.pro6"];
+        Check([numbered isEqual:@"광고 보관 2.pro6"] && [[NSData dataWithContentsOfFile:Local(@"광고 보관 2")] isEqual:Doc(@"Mac의 광고")] && [[NSData dataWithContentsOfFile:Local(@"광고 보관")] isEqual:Doc(@"무관한 광고")], @"numbered: both kept");
+        Check(ServerDoc(@"광고 보관 2.pro6") != nil && [engine numberedLog].count == 1, @"numbered copy on the server and logged");
+        if (withImage) {
+            [engine fetchImage:@{@"path": imagePath, @"sha": YBHash([NSData dataWithBytes:png length:sizeof png])}];
+            Check([[NSData dataWithContentsOfFile:imagePath] isEqual:[NSData dataWithBytes:png length:sizeof png]], @"image filled from the server");
+            [NSFileManager.defaultManager removeItemAtPath:imagePath error:NULL];
+        }
+
         // 7. PP6가 켜져 있으면 적용하지 않는다.
         engine.presenterRunning = ^BOOL { return YES; };
         BOOL refused = NO; @try { [engine apply:@[n1]]; } @catch (NSException *e) { refused = [e.reason containsString:@"ProPresenter"]; }

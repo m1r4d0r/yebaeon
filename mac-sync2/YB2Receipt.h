@@ -27,6 +27,8 @@
 - (NSDictionary *)ledger:(NSString *)path;
 - (void)setLedger:(NSString *)path id:(NSString *)identifier version:(NSNumber *)version sha:(NSString *)sha state:(NSString *)state;
 - (NSUInteger)ledgerCount;
+- (NSArray *)documentPaths;                            // 영수증에 있는 문서 경로 전부
+- (NSArray *)mediaPaths;                               // 서버 이미지 경로표 사본의 경로 전부 {path, sha}
 // 서버 이미지 경로표 사본: 경로 → sha
 - (NSString *)mediaSha:(NSString *)path;
 - (void)setMedia:(NSString *)path sha:(NSString *)sha;
