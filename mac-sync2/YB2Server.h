@@ -1,5 +1,5 @@
 #import <Foundation/Foundation.h>
-#import "../mac-sync/YBSync.h"
+#import "YBCore.h"
 
 // Sync 2 서버 연결. 기존 YBServer(0.6.6과 공유)는 고치지 않고 장치 열쇠만 덧붙인다.
 // 장치 열쇠가 있으면 모든 요청에 Authorization: Bearer 를 붙인다. 상주 Mac은 비밀번호·30일 쿠키 없이 계속 들어온다.

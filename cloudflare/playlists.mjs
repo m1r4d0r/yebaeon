@@ -284,10 +284,17 @@ async function saveWithRetryHashed(env,user,id,node,baseHash,edit,extra){
   }
   throw conflict();
 }
-// 사용 중인 재생목록이 가리키는 문서 경로. 휴지통 비우기가 이 문서는 남긴다.
+// 사용 중·보관함 예배가 가리키는 문서 경로. 휴지통 비우기가 이 문서는 남긴다(휴지통 예배만 가리키는 문서는 비울 수 있다).
+// 보관함 예배는 보관 사본 목록(manifest)의 경로를 읽는다(R2, D1 행 1개).
 export async function referencedDocumentPaths(env){
   const libraries=(await env.DB.prepare('SELECT * FROM yebaeon_playlists').all()).results,paths=new Set();
   for(const r of libraries)for(const p of (await load(env,r)).playlists)for(const item of p.items)if(item.kind==='document'){const path=referencePath(item.sourcePath,r.source_root);if(path)paths.add(path);}
+  const keys=(await env.DB.prepare("SELECT snapshot_key FROM yebaeon_playlist_controls WHERE state='archived' AND snapshot_key IS NOT NULL").all()).results.map(r=>r.snapshot_key);
+  for(let i=0;i<keys.length;i+=10)for(const object of await Promise.all(keys.slice(i,i+10).map(key=>env.FILES.get(key)))){
+    if(!object)continue;const saved=await object.json();
+    for(const d of saved.documents||[])if(d.path)paths.add(d.path);
+    for(const path of saved.missing||[])paths.add(path);
+  }
   return paths;
 }
 // 문서 이름 바꾸기 뒤: 모든 재생목록 파일에서 옛 경로 참조를 새 경로로 고친다(그 예배들만 새 노드 버전).

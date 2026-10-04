@@ -1,5 +1,5 @@
 #import "YBDocumentComparison.h"
-#import "../mac-sync/PP6Core.h"
+#import "PP6Core.h"
 
 NSArray *YBComparisonRows(NSDictionary *local,NSDictionary *remote) {
     NSArray *left=local[@"slides"] ?: @[],*right=remote[@"slides"] ?: @[];

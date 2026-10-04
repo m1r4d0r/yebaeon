@@ -50,7 +50,7 @@ export async function emptyTrashRoute(request, env, user) {
   method(request, ['POST']); sameOrigin(request); await requireAdmin(request, env, user);
   const body = await bodyJSON(request), db = env.DB;
   if (body?.kind === 'documents') {
-    // 사용 중인 재생목록에 들어 있는 문서는 비우지 않는다(목록이 깨진다). 순서에서 뺀 뒤 다시 비운다.
+    // 사용 중·보관함 예배에 들어 있는 문서는 비우지 않는다(목록이 깨진다). 순서에서 빼거나 그 예배를 휴지통에 넣은 뒤 다시 비운다.
     const used = await referencedDocumentPaths(env);
     const trashed = (await db.prepare("SELECT id,path FROM yebaeon_documents WHERE state='trashed' ORDER BY state_at").all()).results;
     const kept = trashed.filter(r => used.has(r.path)), ids = trashed.filter(r => !used.has(r.path)).slice(0, BATCH).map(r => r.id);

@@ -1,5 +1,5 @@
 #import "YBPlaylistIO.h"
-#import "../mac-sync/YBSync.h"
+#import "YBCore.h"
 #import <sys/file.h>
 #import <fcntl.h>
 #import <unistd.h>

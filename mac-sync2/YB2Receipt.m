@@ -1,5 +1,5 @@
 #import "YB2Receipt.h"
-#import "../mac-sync/YBSync.h"
+#import "YBCore.h"
 #import <sqlite3.h>
 
 @interface YB2Receipt ()

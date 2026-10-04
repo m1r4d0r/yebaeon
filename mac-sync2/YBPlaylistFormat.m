@@ -1,6 +1,6 @@
 #import "YBPlaylistFormat.h"
 #import "YBPlaylistIO.h"
-#import "../mac-sync/YBSync.h"
+#import "YBCore.h"
 static NSData *UTF8(NSString *s){return [s dataUsingEncoding:NSUTF8StringEncoding];}
 static NSArray *Children(NSDictionary *node) {
     for(NSDictionary *child in node[@"children"])if([child[@"tag"] isEqual:@"array"] && [@[@"children",@"items"] containsObject:child[@"attrs"][@"rvXMLIvarName"]])return child[@"children"];

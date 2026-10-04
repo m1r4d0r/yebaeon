@@ -117,6 +117,13 @@ test('admin lock: empty trash and revision resolution need the admin password',{
  await read(await user.call(`/documents/${used.id}/state`,'POST',JSON.stringify({action:'trash'})));
  assert.deepEqual(await read(await user.call('/admin/trash','POST',JSON.stringify({kind:'documents'}))),{purged:0,remaining:1,kept:['쓰는것.pro6']});
  assert.equal((await user.call(`/documents/${used.id}`)).status,200);
+ // 보관함 예배가 가리켜도 남긴다. 휴지통 예배만 가리키면 비울 수 있다.
+ const ltag=async()=>({'If-Match':`"${(await read(await user.call('/playlists/'+library.id))).library.version}"`});
+ await read(await user.call(`/playlists/${library.id}/archive?node=B`,'POST','{}',await ltag()));
+ assert.deepEqual(await read(await user.call('/admin/trash','POST',JSON.stringify({kind:'documents'}))),{purged:0,remaining:1,kept:['쓰는것.pro6']});
+ await read(await user.call(`/playlists/${library.id}/restore?node=B`,'POST','{}',await ltag()));
+ await read(await user.call(`/playlists/${library.id}/trash?node=B`,'POST','{}',await ltag()));
+ assert.deepEqual(await read(await user.call('/admin/trash','POST',JSON.stringify({kind:'documents'}))),{purged:1,remaining:0,kept:[]});
  // 보관본 해결은 관리자만
  const r=(await read(await other.call(`/sync/revisions?kind=doc&id=${(await read(await user.call('/documents?path=남길것.pro6','POST',doc('y')),201)).document.id}&baseVersion=1`,'POST',doc('Mac'),{'Content-Type':'application/xml'}),201)).revision;
  assert.equal((await other.call(`/sync/revisions/${r.id}/resolve`,'POST',JSON.stringify({resolution:'dismissed'}))).status,403);

@@ -1,7 +1,7 @@
 #import "YB2Engine.h"
 #import "YB2Server.h"
-#import "../mac-app/YBPlaylistFormat.h"
-#import "../mac-app/YBPlaylistIO.h"
+#import "YBPlaylistFormat.h"
+#import "YBPlaylistIO.h"
 
 // Sync 2 엔진 통합 검사. 로컬 Worker(test-server2.mjs)가 띄운 주소를 받아 실제 API로 돈다.
 static int checks = 0;

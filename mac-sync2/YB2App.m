@@ -1,8 +1,8 @@
 #import <Cocoa/Cocoa.h>
 #import "YB2Engine.h"
 #import "YB2Server.h"
-#import "../mac-app/YBDocumentComparison.h"
-#import "../mac-sync/PP6Core.h"
+#import "YBDocumentComparison.h"
+#import "PP6Core.h"
 
 // 예배온 Sync 2: 데일리 창 하나 + 메뉴 막대 상주.
 // - Mac 파일을 바꾸는 일은 모두 [적용]으로만 한다: 받기, 서버 휴지통 예배 빼기, 문서 이름 바꾸기·휴지통.

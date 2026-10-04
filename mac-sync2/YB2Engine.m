@@ -1,7 +1,7 @@
 #import "YB2Engine.h"
 #import "YB2Server.h"
-#import "../mac-app/YBPlaylistFormat.h"
-#import "../mac-app/YBPlaylistIO.h"
+#import "YBPlaylistFormat.h"
+#import "YBPlaylistIO.h"
 #import <sys/stat.h>
 #import <stdio.h>
 

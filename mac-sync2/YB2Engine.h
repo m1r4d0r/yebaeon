@@ -1,5 +1,5 @@
 #import <Foundation/Foundation.h>
-#import "../mac-sync/YBSync.h"
+#import "YBCore.h"
 #import "YB2Receipt.h"
 
 // Sync 2 엔진.

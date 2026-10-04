@@ -110,9 +110,9 @@
  }
  async function purge(){
   const kind=BINS[bin].purge;if(!kind)return;
-  if(!confirm(`${BINS[bin].label}을(를) 비울까요? 비운 항목은 되살릴 수 없습니다.${kind==='documents'?' 사용 중인 재생목록에 들어 있는 문서는 남깁니다. 보관·휴지통 재생목록이 가리키던 문서를 비우면 그 목록은 다시 꺼낼 수 없습니다(보관 사본 파일은 남음).':''}`))return;
+  if(!confirm(`${BINS[bin].label}을(를) 비울까요? 비운 항목은 되살릴 수 없습니다.${kind==='documents'?' 사용 중·보관함 재생목록에 들어 있는 문서는 남깁니다. 휴지통 재생목록만 가리키던 문서를 비우면 그 재생목록은 다시 꺼낼 수 없습니다.':''}`))return;
   $('binsPurge').disabled=true;
-  try{let total=0,result;do{result=await asAdmin(async()=>await(await C.api('/admin/trash',json('POST',{kind}))).json());if(!result)break;total+=result.purged;$('binsMessage').textContent=`${total}개 비움 · 남은 ${result.remaining}개${result.kept?.length?` · 재생목록에 들어 있어 남김: ${result.kept.map(stem).join(', ')}`:''}`;}while(result.remaining>0&&result.purged>0);
+  try{let total=0,result;do{result=await asAdmin(async()=>await(await C.api('/admin/trash',json('POST',{kind}))).json());if(!result)break;total+=result.purged;$('binsMessage').textContent=`${total}개 비움 · 남은 ${result.remaining}개${result.kept?.length?` · 사용 중·보관함 재생목록에 들어 있어 남김: ${result.kept.map(stem).join(', ')}`:''}`;}while(result.remaining>0&&result.purged>0);
    if(result){const note=$('binsMessage').textContent;await openBins();if(result.kept?.length)$('binsMessage').textContent=note};}
   catch(error){$('binsMessage').textContent=error.message;}finally{$('binsPurge').disabled=false;}
  }
