@@ -183,4 +183,14 @@ test('media paths and the R2 ledger follow the change log',{timeout:90000},async
  assert.deepEqual(ledger.documents.map(x=>[x.path,x.version,x.state]),[['광고.pro6',1,'active'],['말씀.pro6',2,'trashed']]);
  assert.equal(ledger.seq,(await read(await call('/sync/changes?since=0&limit=0'))).head);
  const stored=JSON.parse(await (await (await mf.getR2Bucket('FILES')).get('ledger/library.json')).text());assert.equal(stored.seq,ledger.seq);
+ // 200개 묶음(4KB 공통 한도를 넘는 본문)은 한 요청으로 등록되고, 일지에도 200줄이 남는다. 다시 보내면 쓰지 않는다.
+ const head=(await read(await call('/sync/changes?since=0&limit=0'))).head;
+ const many=Array.from({length:200},(_,i)=>({path:`${root}ImportedImages/긴 이름의 발표 자료 폴더/슬라이드 묶음 ${i}/Slide${i}.png`,sha256:sha,size:png.length}));
+ assert.ok(JSON.stringify({items:many}).length>4096);
+ assert.deepEqual(await read(await reg(many)),{registered:200,changed:200,missing:[],outside:[]});
+ const logged=(await read(await call(`/sync/changes?since=${head}&limit=500`))).changes;
+ assert.equal(logged.filter(c=>c.kind==='media'&&c.action==='created').length,200);
+ assert.deepEqual(await read(await reg(many)),{registered:200,changed:0,missing:[],outside:[]});
+ assert.equal((await read(await call(`/sync/changes?since=${head}&limit=500`))).changes.length,200,'unchanged paths write no log');
+ assert.equal((await reg([...many,many[0]])).status,400);
 });

@@ -31,33 +31,31 @@ export async function mediaPathsRoute(request, env, user) {
     return json({ paths: rows.slice(0, 500), next: rows.length > 500 ? rows[499].path : null });
   }
   sameOrigin(request);
-  const body = await bodyJSON(request).catch(error => { throw error; });
-  const items = body?.items;
+  // 200개 묶음은 4KB 공통 한도를 넘는다. 이 경로만 256KB까지 받는다.
+  const items = (await bodyJSON(request, 256 * 1024))?.items;
   if (!Array.isArray(items) || !items.length || items.length > 200) throw new HttpError(400, 'invalid_media_paths', '이미지 경로는 200개씩 보내 주세요.');
-  const clean = [], outside = [];
+  const clean = new Map(), outside = [];
   for (const item of items) {
     const path = mediaPathKey(item?.path);
     if (!path) { outside.push(String(item?.path || '').slice(0, 300)); continue; }
     if (!SHA.test(item.sha256 || '') || !Number.isSafeInteger(item.size) || item.size < 0) throw new HttpError(400, 'invalid_media_paths', '이미지 sha256·크기를 확인해 주세요.');
-    clean.push({ path, sha256: item.sha256, size: item.size });
+    clean.set(path, { path, sha256: item.sha256, size: item.size });   // 같은 경로가 겹치면 마지막 것
   }
-  if (!clean.length) return json({ registered: 0, outside });
-  // 이미지 바이트가 서버에 먼저 있어야 경로를 등록한다.
-  const hashes = [...new Set(clean.map(i => i.sha256))], known = new Set();
-  for (let i = 0; i < hashes.length; i += 80) {
-    const part = hashes.slice(i, i + 80);
-    for (const r of (await db.prepare(`SELECT sha256 FROM yebaeon_media_assets WHERE sha256 IN (${part.map(() => '?').join(',')})`).bind(...part).all()).results) known.add(r.sha256);
-  }
-  const missing = clean.filter(i => !known.has(i.sha256)).map(i => i.path);
-  const ready = clean.filter(i => known.has(i.sha256)), now = new Date().toISOString();
-  // 같은 경로·같은 sha면 쓰지 않는다. 바뀐 것만 일지에 남긴다(Mac 장부가 따라온다).
-  const statements = ready.flatMap(i => [
-    db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) SELECT 'media',?,CASE WHEN EXISTS(SELECT 1 FROM yebaeon_media_paths WHERE path=?) THEN 'updated' ELSE 'created' END,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM yebaeon_media_paths WHERE path=? AND sha256=? AND state='active')`).bind(i.path, i.path, i.sha256, i.size, i.path, user.author, now, i.path, i.sha256),
-    db.prepare(`INSERT INTO yebaeon_media_paths(path,sha256,size,state,updated_at,updated_by) VALUES (?,?,?,'active',?,?) ON CONFLICT(path) DO UPDATE SET sha256=excluded.sha256,size=excluded.size,state='active',updated_at=excluded.updated_at,updated_by=excluded.updated_by WHERE yebaeon_media_paths.sha256<>excluded.sha256 OR yebaeon_media_paths.state<>'active'`).bind(i.path, i.sha256, i.size, now, user.author)
+  if (!clean.size) return json({ registered: 0, outside });
+  // 이미지 바이트가 서버에 먼저 있어야 경로를 등록한다. 묶음 전체를 json_each 한 문장으로 확인한다.
+  const all = [...clean.values()];
+  const known = new Set((await db.prepare('SELECT sha256 FROM yebaeon_media_assets WHERE sha256 IN (SELECT value FROM json_each(?))').bind(JSON.stringify([...new Set(all.map(i => i.sha256))])).all()).results.map(r => r.sha256));
+  const missing = all.filter(i => !known.has(i.sha256)).map(i => i.path), ready = all.filter(i => known.has(i.sha256));
+  if (!ready.length) return json({ registered: 0, changed: 0, missing, outside });
+  // 두 문장: 바뀐 것만 일지에 남기고(Mac 장부가 따라온다), 바뀐 것만 경로표에 쓴다. 같은 경로·같은 sha·사용 중이면 쓰지 않는다.
+  const now = new Date().toISOString(), input = JSON.stringify(ready);
+  const incoming = `SELECT json_extract(j.value,'$.path') AS path, json_extract(j.value,'$.sha256') AS sha256, json_extract(j.value,'$.size') AS size FROM json_each(?) j`;
+  const changedOnly = `FROM (${incoming}) i LEFT JOIN yebaeon_media_paths m ON m.path=i.path WHERE m.path IS NULL OR m.sha256<>i.sha256 OR m.state<>'active'`;
+  const [, written] = await db.batch([
+    db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) SELECT 'media',i.path,CASE WHEN m.path IS NULL THEN 'created' ELSE 'updated' END,i.sha256,i.size,i.path,?,? ${changedOnly}`).bind(user.author, now, input),
+    db.prepare(`INSERT OR REPLACE INTO yebaeon_media_paths(path,sha256,size,state,updated_at,updated_by) SELECT i.path,i.sha256,i.size,'active',?,? ${changedOnly}`).bind(now, user.author, input)
   ]);
-  const results = statements.length ? await db.batch(statements) : [];
-  const changed = results.filter((_, n) => n % 2 === 1).reduce((sum, r) => sum + (r.meta.changes || 0), 0);
-  return json({ registered: ready.length, changed, missing, outside });
+  return json({ registered: ready.length, changed: written.meta.changes || 0, missing, outside });
 }
 
 // ── R2 장부 파일 ───────────────────────────────────────────

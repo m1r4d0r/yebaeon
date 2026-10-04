@@ -30,9 +30,9 @@ export async function bytes(request, limit) {
   for (const part of parts) { output.set(part, offset); offset += part.length; }
   return output;
 }
-export async function bodyJSON(request) {
+export async function bodyJSON(request, limit = 4096) {
   if (!request.headers.get('Content-Type')?.startsWith('application/json')) throw new HttpError(415, 'json_required', 'JSON 요청이 필요합니다.');
-  try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await bytes(request, 4096))); }
+  try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await bytes(request, limit))); }
   catch (error) { if (error instanceof HttpError) throw error; throw new HttpError(400, 'invalid_json', '입력값을 확인해 주세요.'); }
 }
 export async function sha256(value) {
