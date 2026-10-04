@@ -108,6 +108,7 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         result = [engine apply:@[n1]];
         Check([[NSData dataWithContentsOfFile:[docs stringByAppendingPathComponent:@"오 신실하신 주.pro6".decomposedStringWithCanonicalMapping]] isEqual:Doc(@"찬양 1 웹 수정")], @"server copy applied");
         Check([[NSData dataWithContentsOfFile:[result[@"backup"] stringByAppendingPathComponent:@"documents/오 신실하신 주.pro6"]] isEqual:Doc(@"찬양 1 Mac 수정")], @"Mac copy backed up");
+        Check([result[@"revisions"] integerValue] == 1 && [result[@"revisionFailed"] count] == 0, @"Mac copy also kept as a server revision");
 
         // ── 2차: 올리기·되돌림·보관본·사용일·변경 일지·장치 열쇠 ──
         NSString *(^Local)(NSString *) = ^NSString *(NSString *name) { return [docs stringByAppendingPathComponent:[name stringByAppendingString:@".pro6"].decomposedStringWithCanonicalMapping]; };
@@ -175,7 +176,9 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check([n1[@"status"] isEqual:@"receive"] && [n1[@"macChangedDocuments"] isEqual:@[@"오 신실하신 주.pro6"]] && [n1[@"macChangedReasons"][@"오 신실하신 주.pro6"] isEqual:@"both-changed"], @"both-sides document change");
         result = [engine apply:@[n1]];
         NSArray *songRevisions = Revisions(song[@"id"]);
-        Check([result[@"revisions"] integerValue] == 1 && songRevisions.count == 1 && [songRevisions[0][@"sha256"] isEqual:YBHash(Doc(@"찬양 1 교회 수정"))] && [songRevisions[0][@"reason"] isEqual:@"both-changed"], @"Mac copy kept on the server");
+        // 6번의 양쪽 수정도 보관본을 남겼으므로 이 문서의 보관본은 둘이다.
+        NSArray *macCopies = [songRevisions filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"sha256 == %@ AND reason == 'both-changed'", YBHash(Doc(@"찬양 1 교회 수정"))]];
+        Check([result[@"revisions"] integerValue] == 1 && songRevisions.count == 2 && macCopies.count == 1, @"Mac copy kept on the server");
         Check([[NSData dataWithContentsOfFile:Local(@"오 신실하신 주")] isEqual:Doc(@"찬양 1 웹 다시")], @"server copy applied");
 
         // 13. 받아 덮을 때 Mac의 사용일·사용 횟수는 유지한다. 사용일만 다른 Mac 파일은 백업·보관본 대상이 아니다.
