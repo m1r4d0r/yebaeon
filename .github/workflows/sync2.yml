@@ -1,9 +1,9 @@
 name: Verify Mac Sync 2
-# Sync 2 후보만 검사한다. 작은 수정마다 돌리지 않고 [verify-mac] 커밋이나 수동 실행에서만 돈다.
+# Mac 러너 시간을 아끼기 위해 main의 [verify-mac] 커밋이나 수동 실행에서만 돈다.
 on:
   workflow_dispatch:
   push:
-    branches: [sync2]
+    branches: [main]
 concurrency:
   group: mac-sync2-${{ github.ref }}
   cancel-in-progress: true

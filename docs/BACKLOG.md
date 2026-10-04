@@ -48,7 +48,7 @@
 - Cloudflare Git 연결과 Actions 배포 중복 확인 (미완)
 - Sync 설치본 영구 보관(Actions artifact 만료) (미완)
 - Dropbox 실제 계정 연결 (확인)
-- 원격 브랜치 35개 정리, workflow 트리거의 옛 브랜치명(`studio.yml`, `sync.yml`), `.gitignore`에 `/artifacts/` (미완)
+- 원격 브랜치 정리(main만 남김) — 삭제 명령은 사용자가 실행 (확인)
 
 ## 문서
 

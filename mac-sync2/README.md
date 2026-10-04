@@ -47,7 +47,7 @@ bash mac-sync2/test.command     # 로컬 Worker + 엔진 통합 검사 (macOS)
 bash mac-sync2/build.command    # 앱 빌드 (10.13 대상)
 ```
 
-GitHub Actions `Verify Mac Sync 2`는 `sync2` 브랜치의 `[verify-mac]` 커밋이나 수동 실행에서만 돈다. 최신 macOS에서 10.13 대상으로 빌드한 결과이며 교회 High Sierra 실기와는 구분한다.
+GitHub Actions `Verify Mac Sync 2`는 main의 `[verify-mac]` 커밋이나 수동 실행에서만 돈다. 최신 macOS에서 10.13 대상으로 빌드한 결과이며 교회 High Sierra 실기와는 구분한다.
 
 ## 범위 밖
 
