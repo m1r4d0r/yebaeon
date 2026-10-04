@@ -45,10 +45,10 @@ test('names, series and references follow bulletin conventions',()=>{
  assert.deepEqual(plain(P.splitName('라마바시무집사')),{name:'라마바',title:'시무집사'});assert.deepEqual(plain(P.splitName('차카타 강도사')),{name:'차카타',title:'강도사'});assert.equal(P.splitName('이름만'),null);
  assert.deepEqual(plain(P.reference('요13:36,37').labels),['요한복음 13:36-37']);assert.equal(P.reference('눅22:31,32').count,2);assert.deepEqual(plain(P.reference('막14:31,38-40').labels),['마가복음 14:31','마가복음 14:38-40']);assert.match(P.reference('없는책 1:1').error,/책 이름/);
  assert.equal(P.songQuery('찬송가 288'),'288');assert.equal(P.songQuery('나의 가는 길(영광 165)'),'나의 가는 길');
- const w=P.understand([{idx:0,cells:[{col:0,row:0,cols:1,rows:1,lines:['1부예배']},{col:1,row:0,cols:1,rows:1,lines:['2부예배']},{col:2,row:0,cols:1,rows:1,lines:['3부예배']},{col:0,row:1,cols:3,rows:1,lines:['축복의 선포']},{col:0,row:2,cols:3,rows:1,lines:['강한일선교사','청소년부 수련회']}]}]).weekday;
- assert.equal(w[0].minister,'강한일선교사');assert.equal(w[1].event,'청소년부 수련회');
- const f=P.understand([{idx:0,cells:[{col:0,row:0,cols:1,rows:1,lines:['1부예배']},{col:1,row:0,cols:1,rows:1,lines:['2부예배']},{col:2,row:0,cols:1,rows:1,lines:['3부예배']},{col:0,row:1,cols:3,rows:1,lines:['축복의 선포']},{col:0,row:2,cols:3,rows:1,lines:['담임목사','유력한 사람, 준수한 소년(사무엘상 9:1-27)']}]}]).weekday[1];
- assert.equal(f.series.value,'');assert.equal(f.title.value,'유력한 사람, 준수한 소년','a comma is a series break only after a number');
+ const w=P.understand([{idx:0,cells:[{col:0,row:0,cols:1,rows:1,lines:['1부예배']},{col:1,row:0,cols:1,rows:1,lines:['2부예배']},{col:2,row:0,cols:1,rows:1,lines:['3부예배']},{col:0,row:1,cols:3,rows:1,lines:['축복의 선포']},{col:0,row:2,cols:3,rows:1,lines:['하늘빛선교사','청소년부 수련회']}]}]).weekday;
+ assert.equal(w[0].minister,'하늘빛선교사');assert.equal(w[1].event,'청소년부 수련회');
+ const f=P.understand([{idx:0,cells:[{col:0,row:0,cols:1,rows:1,lines:['1부예배']},{col:1,row:0,cols:1,rows:1,lines:['2부예배']},{col:2,row:0,cols:1,rows:1,lines:['3부예배']},{col:0,row:1,cols:3,rows:1,lines:['축복의 선포']},{col:0,row:2,cols:3,rows:1,lines:['담임목사','빛난 길, 고요한 밤(사무엘상 9:1-27)']}]}]).weekday[1];
+ assert.equal(f.series.value,'');assert.equal(f.title.value,'빛난 길, 고요한 밤','a comma is a series break only after a number');
 });
 test('Bible accepts comma verses within a chapter and names the missing verse',()=>{
  const books=Array.from({length:66},(_,i)=>({name:i===42?'요한복음':'책'+i,chapters:[{number:13,verses:Array.from({length:38},(_,k)=>({number:k+1,text:'절'+(k+1)}))}]}));const bible={books};
