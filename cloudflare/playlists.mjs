@@ -1,6 +1,7 @@
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
 import { parsePlaylist, catalog, referencePath, sourceRoot, editPlaylist } from './playlist-format.mjs';
 import { catalogDocument } from './library-catalog.mjs';
+import { nodeLog } from './sync2.mjs';
 import {archiveList,protectManagedPlaylists,managePlaylist} from './playlist-management.mjs';
 const MAX = 5 * 1024 * 1024;
 const conflict = () => new HttpError(409, 'playlist_conflict', '재생목록이 먼저 변경됐습니다. 새로고침 후 다시 확인해 주세요.');
@@ -32,17 +33,20 @@ function nodeInsert(db,r,n,fileVersion,author,at,guard=false) {
 async function baseline(env,r,parsed) {
   const nodes=await nodeSnapshots(parsed),existing=(await env.DB.prepare('SELECT DISTINCT node_id FROM yebaeon_playlist_node_versions WHERE library_id=?').bind(r.id).all()).results;const missing=nodes.filter(n=>!existing.some(v=>v.node_id===n.id));if(missing.length)await env.DB.batch(missing.map(n=>nodeInsert(env.DB,r,n,r.current_version,r.updated_by,r.updated_at)));return nodes;
 }
-async function save(env, user, r, content,extra=()=>[]) {
+async function save(env, user, r, content,extra=()=>[],{removedAction='removed'}={}) {
   if (content.data.length > MAX) throw new HttpError(413, 'too_large', '재생목록은 5MB까지 저장할 수 있습니다.');
   if (content.hash === r.sha256) return { library: metadata(r), unchanged: true };
   const next = r.current_version + 1, writeId = crypto.randomUUID(), key = `playlists/${r.id}/${writeId}.pro6pl`, now = new Date().toISOString(), summary = JSON.stringify(catalog(content.parsed));
   await env.FILES.put(key, content.data, { httpMetadata: { contentType: 'application/xml' }, sha256: content.hash });
   const previous=await baseline(env,r,await load(env,r)),nodes=await nodeSnapshots(content.parsed);
-  const changes=nodes.filter(n=>previous.find(p=>p.id===n.id)?.sha256!==n.sha256);
+  const changes=nodes.filter(n=>previous.find(p=>p.id===n.id)?.sha256!==n.sha256),removed=previous.filter(p=>!nodes.some(n=>n.id===p.id));
   const results = await env.DB.batch([
     env.DB.prepare('UPDATE yebaeon_playlists SET current_version=?, updated_at=?, updated_by=?, sha256=?, size=?, write_id=?, catalog=? WHERE id=? AND current_version=?').bind(next, now, user.author, content.hash, content.data.length, writeId, summary, r.id, r.current_version),
     env.DB.prepare('INSERT INTO yebaeon_playlist_versions(library_id,version,object_key,sha256,size,author,created_at) SELECT id,?,?,?,?,?,? FROM yebaeon_playlists WHERE id=? AND write_id=?').bind(next,key,content.hash,content.data.length,user.author,now,r.id,writeId),
     ...changes.map(n=>nodeInsert(env.DB,{...r,write_id:writeId},n,next,user.author,now,true)),
+    // 변경 일지: 바뀐·새 예배와 빠진 예배만. 같은 batch라 저장이 실패하면 남지 않는다.
+    ...changes.map(n=>nodeLog(env.DB,{libraryId:r.id,writeId,nodeId:n.id,name:n.name,sha:n.sha256,action:previous.some(p=>p.id===n.id)?'updated':'created',author:user.author,now})),
+    ...removed.map(n=>nodeLog(env.DB,{libraryId:r.id,writeId,nodeId:n.id,name:n.name,sha:null,kind:'node-state',action:removedAction,author:user.author,now})),
     ...extra(writeId,now)
   ]);
   if (results[0].meta.changes !== 1) throw conflict();
@@ -67,7 +71,8 @@ export async function playlistsRoute(request, env, user, id, action) {
     try {
       await db.batch([
         db.prepare('INSERT INTO yebaeon_playlists(id,path,source_root,current_version,updated_at,updated_by,sha256,size,write_id,catalog) VALUES (?,?,?,1,?,?,?,?,?,?)').bind(libraryId,path,root,now,user.author,content.hash,content.data.length,writeId,summary),
-        db.prepare('INSERT INTO yebaeon_playlist_versions(library_id,version,object_key,sha256,size,author,created_at) VALUES (?,1,?,?,?,?,?)').bind(libraryId,key,content.hash,content.data.length,user.author,now)
+        db.prepare('INSERT INTO yebaeon_playlist_versions(library_id,version,object_key,sha256,size,author,created_at) VALUES (?,1,?,?,?,?,?)').bind(libraryId,key,content.hash,content.data.length,user.author,now),
+        ...(await nodeSnapshots(content.parsed)).map(n=>db.prepare("INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,name,author,at) VALUES ('node',?,'created',1,?,?,?,?)").bind(libraryId+':'+n.id,n.sha256,n.name,user.author,now))
       ]);
     } catch (error) {
       const winner = await db.prepare('SELECT * FROM yebaeon_playlists WHERE path=?').bind(path).first();
@@ -81,6 +86,15 @@ export async function playlistsRoute(request, env, user, id, action) {
     method(request,['GET']);
     const removals=(await db.prepare("SELECT node_id AS id,name,state,updated_at AS updatedAt FROM yebaeon_playlist_controls WHERE library_id=? AND state IN ('archived','removed') ORDER BY node_id").bind(id).all()).results;
     return json({library:metadata(r),removals,fingerprint:await sha256(JSON.stringify([r.sha256,removals]))});
+  }
+  if(action==='nodes'&&request.method==='PUT')return replaceNode(request,env,user,id);
+  if(action==='nodes'&&request.method==='GET'){
+    // 예배 노드 XML 한 개. version이 있으면 노드 이력 표에서, 없으면 최신 이력에서 준다(R2·전체 파일을 읽지 않는다).
+    const node=url.searchParams.get('node')||'',version=url.searchParams.get('version');
+    if(!node||node.length>160||(version!==null&&!/^[1-9][0-9]{0,8}$/.test(version)))throw new HttpError(400,'invalid_playlist','예배 번호를 확인해 주세요.');
+    const v=await db.prepare(`SELECT version,name,xml,sha256,author,created_at FROM yebaeon_playlist_node_versions WHERE library_id=? AND node_id=? ${version?'AND version=?':'ORDER BY version DESC LIMIT 1'}`).bind(id,node,...(version?[Number(version)]:[])).first();
+    if(!v)throw new HttpError(404,'not_found','예배 순서 이력이 없습니다.');
+    return json({node:{id:node,version:v.version,name:v.name,xml:v.xml,sha256:v.sha256,updatedBy:v.author,updatedAt:v.created_at}});
   }
   if(['nodes','archive','restore'].includes(action))return managePlaylist(request,env,user,r,action,{load,save,metadata});
   if (action === 'content') {
@@ -174,3 +188,28 @@ export async function playlistsRoute(request, env, user, id, action) {
   throw conflict();
 }
 
+
+// Sync 2 올리기: Mac의 예배(노드) 하나를 서버에 그대로 놓는다. 기준은 그 노드의 서버 sha뿐이다.
+// 다른 예배·파일 전체 버전은 기준으로 삼지 않으므로 웹에서 다른 예배를 고친 것과 부딪히지 않는다.
+async function replaceNode(request,env,user,id){
+  sameOrigin(request);
+  if(request.headers.get('X-YebaeOn-Sync')!=='2')throw new HttpError(426,'sync_upgrade_required','새 Sync에서만 예배 순서를 올릴 수 있습니다.');
+  const node=new URL(request.url).searchParams.get('node')||'';let body;
+  try{body=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(request,1024*1024)));}catch(error){if(error instanceof HttpError)throw error;throw new HttpError(400,'invalid_playlist','예배 순서 내용을 확인해 주세요.');}
+  if(!body||typeof body.xml!=='string'||!/^[0-9a-f]{64}$/.test(body.baseNodeHash||''))throw new HttpError(400,'invalid_playlist','예배 순서와 기준이 필요합니다.');
+  // 받은 조각이 정확히 이 예배 노드 하나인지 확인한다. 앞뒤에 다른 요소를 끼워 넣을 수 없다.
+  const wrapped=parsePlaylist(`<RVPlaylistDocument><RVPlaylistNode><array rvXMLIvarName="children">${body.xml}</array></RVPlaylistNode></RVPlaylistDocument>`),incoming=wrapped.playlists[0];
+  if(wrapped.playlists.length!==1||incoming.id!==node||wrapped.xml.slice(incoming.node.start,incoming.node.end)!==body.xml)throw new HttpError(400,'invalid_playlist','예배 하나만 올릴 수 있습니다.');
+  for(let attempt=0;attempt<5;attempt++){
+    const current=await row(env.DB,id),parsed=await load(env,current),selected=parsed.playlists.find(p=>p.id===node);
+    if(!selected)throw new HttpError(404,'not_found','서버에 없는 예배입니다. 웹에서 보관·삭제됐는지 확인해 주세요.');
+    const hash=await sha256(new TextEncoder().encode(parsed.xml.slice(selected.node.start,selected.node.end)));
+    if(hash!==body.baseNodeHash)throw new HttpError(409,'playlist_conflict','서버의 이 예배가 먼저 바뀌었습니다. 먼저 받은 뒤 다시 올려 주세요.',{'X-YebaeOn-Node-SHA256':hash});
+    if(parsed.playlists.some(p=>p.id!==node&&p.name.normalize('NFC')===incoming.name.normalize('NFC')))throw new HttpError(409,'playlist_name_exists','같은 이름의 예배가 서버에 있습니다.');
+    const xml=parsed.xml.slice(0,selected.node.start)+body.xml+parsed.xml.slice(selected.node.end),data=new TextEncoder().encode(xml);
+    try{const result=await save(env,user,current,{xml,data,parsed:parsePlaylist(xml),hash:await sha256(data)});
+      return json({...result,playlist:{id:node,sha256:await sha256(new TextEncoder().encode(body.xml))}});
+    }catch(error){if(error.code!=='playlist_conflict')throw error;}
+  }
+  throw conflict();
+}

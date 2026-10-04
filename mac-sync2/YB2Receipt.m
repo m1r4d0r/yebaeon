@@ -38,24 +38,48 @@ static NSString *Column(sqlite3_stmt *stmt, int index) {
              "CREATE TABLE IF NOT EXISTS docs(path TEXT PRIMARY KEY, version INTEGER NOT NULL, sha TEXT NOT NULL, size INTEGER NOT NULL, mtime INTEGER NOT NULL);"
              "CREATE TABLE IF NOT EXISTS nodes(key TEXT PRIMARY KEY, server_sha TEXT NOT NULL, fingerprint TEXT NOT NULL, name TEXT NOT NULL);"
              "CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);");
+    // 2차 열. 1차 영수증이 이미 있는 Mac에서는 열만 더한다(기존 줄은 그대로).
+    //   docs.neutral  — 쓴 바이트에서 사용일·사용 횟수를 뺀 sha. "사용 기록만 바뀜" 판정용
+    //   docs.replaced — 마지막 적용 때 덮여 백업으로 간 Mac 바이트의 sha. PP6가 옛 내용을 다시 썼는지 판정용
+    //   nodes.replaced — 같은 뜻의 노드 순서 지문
+    if (![self table:@"docs" has:@"neutral"]) Exec(db, "ALTER TABLE docs ADD COLUMN neutral TEXT");
+    if (![self table:@"docs" has:@"replaced"]) Exec(db, "ALTER TABLE docs ADD COLUMN replaced TEXT");
+    if (![self table:@"nodes" has:@"replaced"]) Exec(db, "ALTER TABLE nodes ADD COLUMN replaced TEXT");
     return self;
+}
+- (BOOL)table:(NSString *)table has:(NSString *)column {
+    sqlite3_stmt *stmt = Prepare(_db, [NSString stringWithFormat:@"PRAGMA table_info(%@)", table].UTF8String);
+    BOOL found = NO;
+    while (sqlite3_step(stmt) == SQLITE_ROW) if ([Column(stmt, 1) isEqual:column]) found = YES;
+    sqlite3_finalize(stmt);
+    return found;
 }
 - (void)close { if (_db) { sqlite3_close(_db); _db = NULL; } }
 - (void)dealloc { [self close]; }
 
 - (NSDictionary *)document:(NSString *)path {
-    sqlite3_stmt *stmt = Prepare(_db, "SELECT version, sha, size, mtime FROM docs WHERE path = ?");
+    sqlite3_stmt *stmt = Prepare(_db, "SELECT version, sha, size, mtime, neutral, replaced FROM docs WHERE path = ?");
     BindText(stmt, 1, path);
     NSDictionary *result = nil;
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        result = @{@"version": @(sqlite3_column_int64(stmt, 0)), @"sha": Column(stmt, 1) ?: @"", @"size": @(sqlite3_column_int64(stmt, 2)), @"mtime": @(sqlite3_column_int64(stmt, 3))};
+        NSMutableDictionary *row = [@{@"version": @(sqlite3_column_int64(stmt, 0)), @"sha": Column(stmt, 1) ?: @"", @"size": @(sqlite3_column_int64(stmt, 2)), @"mtime": @(sqlite3_column_int64(stmt, 3))} mutableCopy];
+        if (Column(stmt, 4)) row[@"neutral"] = Column(stmt, 4);
+        if (Column(stmt, 5)) row[@"replaced"] = Column(stmt, 5);
+        result = row;
     }
     sqlite3_finalize(stmt);
     return result;
 }
 - (void)rememberDocument:(NSString *)path version:(NSNumber *)version sha:(NSString *)sha size:(long long)size mtime:(long long)mtime {
-    sqlite3_stmt *stmt = Prepare(_db, "INSERT OR REPLACE INTO docs(path, version, sha, size, mtime) VALUES(?,?,?,?,?)");
+    [self rememberDocument:path version:version sha:sha size:size mtime:mtime neutral:nil replaced:nil];
+}
+// neutral이 nil이면: 같은 sha면 기존 값을 두고, sha가 바뀌면 비운다(옛 바이트의 값을 남기지 않는다).
+// replaced가 nil이면 기존 값을 그대로 둔다.
+- (void)rememberDocument:(NSString *)path version:(NSNumber *)version sha:(NSString *)sha size:(long long)size mtime:(long long)mtime neutral:(NSString *)neutral replaced:(NSString *)replaced {
+    sqlite3_stmt *stmt = Prepare(_db, "INSERT OR REPLACE INTO docs(path, version, sha, size, mtime, neutral, replaced) VALUES(?1,?2,?3,?4,?5,"
+                                      "COALESCE(?6, (SELECT neutral FROM docs WHERE path = ?1 AND sha = ?3)), COALESCE(?7, (SELECT replaced FROM docs WHERE path = ?1)))");
     BindText(stmt, 1, path); sqlite3_bind_int64(stmt, 2, version.longLongValue); BindText(stmt, 3, sha); sqlite3_bind_int64(stmt, 4, size); sqlite3_bind_int64(stmt, 5, mtime);
+    BindText(stmt, 6, neutral); BindText(stmt, 7, replaced);
     int rc = sqlite3_step(stmt); sqlite3_finalize(stmt);
     YBRequire(rc == SQLITE_DONE, @"문서 영수증을 기록하지 못했습니다.");
 }
@@ -64,16 +88,23 @@ static NSString *Column(sqlite3_stmt *stmt, int index) {
     int rc = sqlite3_step(stmt); sqlite3_finalize(stmt); YBRequire(rc == SQLITE_DONE, @"문서 영수증을 지우지 못했습니다.");
 }
 - (NSDictionary *)node:(NSString *)key {
-    sqlite3_stmt *stmt = Prepare(_db, "SELECT server_sha, fingerprint, name FROM nodes WHERE key = ?");
+    sqlite3_stmt *stmt = Prepare(_db, "SELECT server_sha, fingerprint, name, replaced FROM nodes WHERE key = ?");
     BindText(stmt, 1, key);
     NSDictionary *result = nil;
-    if (sqlite3_step(stmt) == SQLITE_ROW) result = @{@"serverSha": Column(stmt, 0) ?: @"", @"localFingerprint": Column(stmt, 1) ?: @"", @"name": Column(stmt, 2) ?: @""};
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        NSMutableDictionary *row = [@{@"serverSha": Column(stmt, 0) ?: @"", @"localFingerprint": Column(stmt, 1) ?: @"", @"name": Column(stmt, 2) ?: @""} mutableCopy];
+        if (Column(stmt, 3)) row[@"replaced"] = Column(stmt, 3);
+        result = row;
+    }
     sqlite3_finalize(stmt);
     return result;
 }
 - (void)rememberNode:(NSString *)key serverSha:(NSString *)sha fingerprint:(NSString *)fingerprint name:(NSString *)name {
-    sqlite3_stmt *stmt = Prepare(_db, "INSERT OR REPLACE INTO nodes(key, server_sha, fingerprint, name) VALUES(?,?,?,?)");
-    BindText(stmt, 1, key); BindText(stmt, 2, sha); BindText(stmt, 3, fingerprint); BindText(stmt, 4, name);
+    [self rememberNode:key serverSha:sha fingerprint:fingerprint name:name replaced:nil];
+}
+- (void)rememberNode:(NSString *)key serverSha:(NSString *)sha fingerprint:(NSString *)fingerprint name:(NSString *)name replaced:(NSString *)replaced {
+    sqlite3_stmt *stmt = Prepare(_db, "INSERT OR REPLACE INTO nodes(key, server_sha, fingerprint, name, replaced) VALUES(?1,?2,?3,?4,COALESCE(?5, (SELECT replaced FROM nodes WHERE key = ?1)))");
+    BindText(stmt, 1, key); BindText(stmt, 2, sha); BindText(stmt, 3, fingerprint); BindText(stmt, 4, name); BindText(stmt, 5, replaced);
     int rc = sqlite3_step(stmt); sqlite3_finalize(stmt);
     YBRequire(rc == SQLITE_DONE, @"재생목록 영수증을 기록하지 못했습니다.");
 }

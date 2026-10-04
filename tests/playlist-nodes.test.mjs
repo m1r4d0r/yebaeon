@@ -8,15 +8,16 @@ test('independent playlist CAS, scoped versions, restore and last observed sync 
  const bundle=await build({entryPoints:['cloudflare/worker.mjs'],bundle:true,write:false,format:'esm',platform:'browser'});
  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-09-28',bindings:{SITE_PASSWORD:'node-test'},d1Databases:['DB'],r2Buckets:['FILES'],cf:false}));t.after(()=>mf.dispose());
  const origin='https://example.test';let cookie='';const call=(path,method='GET',body,headers={})=>mf.dispatchFetch(origin+'/api'+path,{method,body,headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json',...headers}});
- const ok=async r=>{assert.equal(r.status,200,await r.clone().text());return r.json();};
+ // Read each body exactly once. clone() threw "Body has already been consumed" on a slow CI Mac and hid the real status.
+ const ok=async r=>{const text=await r.text();assert.equal(r.status,200,`${r.status} ${text}`);return JSON.parse(text);};
  const login=await call('/session','POST',JSON.stringify({name:'시험',password:'node-test'}));await ok(login);cookie=login.headers.get('Set-Cookie').split(';')[0];
  const registered=await call('/playlists?path=fixture.pro6pl','POST',xml);assert.equal(registered.status,201);const id=(await registered.json()).library.id;
  const plan=node=>call(`/playlists/${id}/plan?node=${node}`).then(ok);const a=await plan('A'),b=await plan('B');
  const patch=(node,p,items)=>call(`/playlists/${id}?node=${node}`,'PATCH',JSON.stringify({baseNodeHash:p.playlist.sha256,items}),{'If-Match':`"${p.library.version}"`});
- const results=await Promise.all([patch('A',a,[{id:'b'},{id:'a'}]),patch('B',b,[{id:'d'},{id:'c'}])]);for(const r of results)await ok(r);
+ await Promise.all([patch('A',a,[{id:'b'},{id:'a'}]).then(ok),patch('B',b,[{id:'d'},{id:'c'}]).then(ok)]);
  const aa=await plan('A'),bb=await plan('B');assert.deepEqual(aa.items.map(x=>x.id),['b','a']);assert.deepEqual(bb.items.map(x=>x.id),['d','c']);assert.equal(aa.playlist.version,2);assert.equal(bb.playlist.version,2);
  assert.equal((await patch('A',a,[{id:'a'}])).status,409);
- const race=await Promise.all([patch('A',aa,[{id:'a'}]),patch('A',aa,[{id:'b'}])]);assert.deepEqual(race.map(r=>r.status).sort(),[200,409]);
+ const race=await Promise.all([patch('A',aa,[{id:'a'}]),patch('A',aa,[{id:'b'}])].map(p=>p.then(async r=>{await r.text();return r.status;})));assert.deepEqual(race.sort(),[200,409]);
  const ah=await ok(await call(`/playlists/${id}/versions?node=A`)),bh=await ok(await call(`/playlists/${id}/versions?node=B`));assert.deepEqual(ah.versions.map(v=>v.version),[3,2,1]);assert.deepEqual(bh.versions.map(v=>v.version),[2,1]);
  const current=await plan('A');await ok(await call(`/playlists/${id}?node=A`,'PATCH',JSON.stringify({baseNodeHash:current.playlist.sha256,restoreVersion:1}),{'If-Match':`"${current.library.version}"`}));assert.deepEqual((await plan('A')).items.map(x=>x.id),['a','b']);assert.deepEqual((await plan('B')).items.map(x=>x.id),['d','c']);
  const exported=await(await call(`/playlists/${id}/content?node=B&nodeVersion=1`)).text();assert.ok(exported.includes('UUID="c"'));assert.equal((await plan('B')).playlist.version,2);

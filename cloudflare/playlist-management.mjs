@@ -95,6 +95,6 @@ export async function managePlaylist(request,env,user,r,action,helpers){
     xml=removePlaylist(parsed,nodeId);change={id:nodeId,name:selected.name,state:archive?'archived':'removed',snapshotKey:copy?.key};
     summary={archived:archive,removed:!archive,missing:copy?.manifest.missing||[],mediaVerified:false};
   }
-  const data=encoder.encode(xml),result=await helpers.save(env,user,r,{xml,data,parsed:parsePlaylist(xml),hash:await sha256(data)},(writeId,now)=>[controlStatement(env.DB,r,writeId,change,now,user.author)]);
+  const data=encoder.encode(xml),result=await helpers.save(env,user,r,{xml,data,parsed:parsePlaylist(xml),hash:await sha256(data)},(writeId,now)=>[controlStatement(env.DB,r,writeId,change,now,user.author)],{removedAction:change.state==='archived'?'archived':'removed'});
   return json({...result,playlist:{id:change.id},...summary},create?201:200);
 }

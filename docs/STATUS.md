@@ -2,7 +2,7 @@
 
 이 파일은 세션마다 **덮어써서** 갱신한다. 새 인계 파일을 만들지 않는다. 끝난 일은 [CHANGELOG](CHANGELOG.md), 남은 일은 [BACKLOG](BACKLOG.md)에 둔다.
 
-갱신: 2026-10-04 · 기준 main b73b642 · 작업 브랜치 `sync2`
+갱신: 2026-10-04 · main = sync2 = ad1f881 · 검사 수정 커밋 bdd0e64는 `claude/determined-goodall-c379kc`에만 있음
 
 ## 운영
 
@@ -19,15 +19,26 @@
 ## Sync 재설계 (`sync2` 브랜치)
 
 - 설계 문서는 claude.ai 프로젝트 「예배온-Sync-재설계안」(저장소에 넣지 않음). 핵심: 서버가 정본, 비교는 서버 번호 + Mac 영수증, 단위는 예배(노드), 원본 없는 참조는 적용을 막지 않음, 양쪽 수정은 서버 적용 + Mac 백업, 상주 모드.
-- 1차(받기 전용) 구현: `mac-sync2/`. 서버는 plan에 `applicable`·`missing` 추가, 머리글 없는 재생목록 전체 PUT 426 거절. Worker 검사 통과. **Mac 컴파일·통합 검사·실기 미실행** — `Verify Mac Sync 2` Actions 또는 교회 Mac `mac-sync2/build.command`.
+- 1차(받기 전용) 구현: `mac-sync2/`. 서버는 plan에 `applicable`·`missing` 추가, 머리글 없는 재생목록 전체 PUT 426 거절. 이 서버 변경은 main ad1f881로 **운영 배포됨**(Deploy run 37160263447 성공).
+- Mac 검사: Verify Mac Sync 2 run 37160685710(bdd0e64, 수동 실행) 성공 — Worker 65, 엔진 통합 33, Apple clang 10.13 대상 빌드. 설치본 artifact `YebaeOn-Sync-2.0.0`(ZIP SHA-256 `01c2bbdb…0652`, 11-02 만료). 최신 macOS CI 결과이며 High Sierra 실기는 아님.
+- 첫 실행 run 37160263776 실패 원인: `tests/playlist-nodes.test.mjs`의 `ok()`가 `Response.clone()`으로 본문을 읽다 'Body has already been consumed'로 실패(느린 CI Mac에서만, 로컬 재현 안 됨 — 원인은 추정). 본문을 즉시 한 번만 읽도록 고침.
+- 2차 서버(재설계안 7.1)는 작업 브랜치에 구현했다(배포·병합 전, 로컬 Worker 검사 69개 통과). `cloudflare/sync2.mjs`:
+  - `GET /api/sync/changes?since=&limit=` (limit=0은 head만), 문서·노드·보관 쓰기마다 `sync_log` 한 줄(write_id 가드)
+  - `POST/GET/DELETE /api/sync/devices`, `POST /api/sync/devices/:id/applied`, `Authorization: Bearer ybd_…`
+  - `POST /api/sync/manifest`(50개, 한 문장), `POST /api/sync/usage`(id, json_each 한 문장, MAX, `reported_used`)
+  - `POST/GET /api/sync/revisions`(교회 Mac 수정본, R2 `revisions/`), `GET/PUT /api/playlists/:id/nodes?node=`
+  - 요청 경로 스키마 확인을 표시 행 1개(`schema-ready-sync2-v1`)로 줄임. 첫 배포 첫 요청에 한 번만 전체 초기화·이전.
+- 교회 Mac 실기(10-04): Sync 2 1차로 서버 순서 내려받기 정상 적용. PP6는 `~/…` 경로를 연다. 송출하면 lastDateUsed를 갱신해 저장하고, 재생목록이 바뀌면 종료 때 다시 저장한다(사용자 확인).
+- Mac 2차(a732290, 사용자 진행 지시): 올리기, 사용일만 바뀜 판정, 양쪽 수정 시 서버 보관본, PP6 되돌림 감지, 받을 때 Mac 사용일 유지, 상주 모드(15분 일지·PP6 종료·잠자기 깸·메뉴 막대·로그인 시 실행), 장치 열쇠. 재설계안 11장 결정 1~4는 제안값으로 구현했다. Mac 검사: run 37163648715 실패(검사 기대값: 6번 시나리오도 보관본을 남김) → 318e83b → run 37163928226 성공(Worker 69, 엔진 통합, 10.13 대상 빌드). 설치본 artifact `YebaeOn-Sync-2.0.0`(ZIP SHA-256 `b9d56db5…7d5d`, 11-03 만료). 서버 2단계 배포 뒤에 교회 Mac에 설치한다.
+- 서버 2단계는 **배포 대기**: 교회 Mac 원본 업로드가 끝난 뒤 배포한다(사용자 지시). 배포 전에는 2차 앱이 쿠키·1시간 전체 비교로 동작한다.
 - 426 차단 때문에 0.6.6의 자동 전체 PUT 경로를 쓰는 옛 Mac 검사(`sync.yml`의 playlist 통합)는 실패한다. 0.6.6은 더 검사하지 않는다.
 - Sync 0.6.6의 알려진 결함(F01–F08, A1–A16)은 프로젝트 문서 「yebaeon-sync-audit-2026-10-03」「예배온-Sync-추가결함」에 있다. 0.6.6은 고치지 않고 Sync 2로 대체한다.
 
 ## 다음 세 가지
 
-1. `sync2` 브랜치 push → Actions `Verify Mac Sync 2` → 컴파일 오류 수정 → 설치본.
-2. 서버 변경(plan `applicable`, 426 차단) 배포. 그 뒤 교회 Mac에서 업로더로 원본 올리기.
-3. Sync 2로 1부·2부 받기 실기 확인. 그 다음 2차: 올리기(Mac 수정분·사용일), 이미지, 상주 모드.
+1. bdd0e64(검사 수정)를 `sync2`에 반영. 설치본으로 교회 Mac에서 1부·2부 받기 실기 확인.
+2. 교회 Mac에서 업로더로 남은 원본 올리기.
+3. 2차 제안서(서버 7.1 + 올리기·상주 모드) 작성 → 사용자 동의 후 구현.
 
 ## 주의
 
