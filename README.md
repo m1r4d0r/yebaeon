@@ -15,8 +15,6 @@
 | [web-editor/](web-editor/README.md) | Studio (정적 HTML·JS·CSS) |
 | [cloudflare/](cloudflare/README.md) | Worker, API, 스키마 |
 | [mac-sync2/](mac-sync2/README.md) | 예배온 Sync 2 (High Sierra 10.13, 기본 AppKit) |
-| [mac-sync/](mac-sync/README.md) | Sync 2가 빌드에 쓰는 엔진 소스 |
-| [mac-app/](mac-app/README.md) | Sync 0.6.6. 쓰지 않으며 삭제 예정 |
 | [church-resources/](church-resources/README.md) | 배포용 폰트·템플릿·개역개정·이미지 |
 | `scripts/`, `tests/` | 배포 빌드와 Worker·브라우저 검사 |
 | [docs/](docs/README.md) | 상태·규칙·설계·안내·보관 |

@@ -7,7 +7,7 @@ import { parsePlaylist, catalog, referencePath, editPlaylist } from '../cloudfla
 const cue = (id,name,path=name+'.pro6') => `<RVDocumentCue UUID="${id}" displayName="${name}" filePath="~/Documents/ProPresenter6/${path}" selectedArrangementID="" enabled="1"/>`;
 const xml = `<RVPlaylistDocument><RVPlaylistNode UUID="ROOT"><array rvXMLIvarName="children"><RVPlaylistNode UUID="A" displayName="주일"><array rvXMLIvarName="children">${cue('a','찬양')}${cue('b','말씀')}<RVHeaderCue UUID="header" displayName="기도"/></array><array rvXMLIvarName="metadata"><NSString>preserve</NSString></array></RVPlaylistNode><RVPlaylistNode UUID="B" displayName="수요"><array rvXMLIvarName="children">${cue('c','찬양')}</array></RVPlaylistNode></array></RVPlaylistNode><array rvXMLIvarName="deletions"/></RVPlaylistDocument>`;
 test('PP6 original structure, raw preservation, aliases and ambiguous input', async () => {
-  assert.equal(catalog(parsePlaylist(await readFile('mac-app/fixtures/dummy_old.xml','utf8'))).length,2);
+  assert.equal(catalog(parsePlaylist(await readFile('tests/fixtures/dummy_old.xml','utf8'))).length,2);
   const p=parsePlaylist(xml);assert.equal(p.playlists.length,2);assert.equal(p.playlists[0].items[2].kind,'header');
   const next=editPlaylist(p,'A',[{id:'b'},{id:'header'},{id:'a'}],new Map(),'~/Documents/ProPresenter6');
   assert.equal(next.slice(next.indexOf('<RVPlaylistNode UUID="B"')),xml.slice(xml.indexOf('<RVPlaylistNode UUID="B"')));

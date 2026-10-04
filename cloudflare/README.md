@@ -26,7 +26,7 @@ Cloudflare 대시보드에서 **Workers & Pages → yebaeon → Settings → Run
 - 로그아웃은 해당 세션을 폐기한다. `SITE_PASSWORD`를 새 값으로 변경하면 기존 쿠키의 서명이 맞지 않아 모두 다시 입장해야 한다.
 - 이름을 변경하면 이후 버전에만 새 이름이 기록된다. 이전 기록은 보존된다.
 - 같은 IP의 비밀번호 확인은 10분 구간당 8회로 제한한다. 성공하면 그 IP의 실패 기록을 비운다.
-- 교회 [Mac Sync](../mac-sync/README.md)도 같은 세션 API로 입장하며 세션을 키체인에 저장한다. 네이티브 송수신·백업·복원을 구현했고 High Sierra 실기 연결은 검증 대기다.
+- 교회 [Mac Sync 2](../mac-sync2/README.md)도 같은 세션 API로 입장하며 세션을 키체인에 저장한다. 네이티브 송수신·백업·복원을 구현했고 High Sierra 실기 연결은 검증 대기다.
 
 ## 문서와 버전
 

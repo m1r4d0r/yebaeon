@@ -10,7 +10,7 @@
 - 받을 예배가 가리키는 이름 겹침(영수증이 본 적 없는 같은 경로, 다른 내용)은 [적용] 때 Mac 파일에 번호(`이름 2`)를 붙여 서버에 올리고 원래 이름에는 서버 것을 받는다. 사용일만 다르면 겹침이 아니다.
 - 정리 창(메뉴 `정리…`): 확인 필요, Mac에서 지움([서버 휴지통으로]), 서버에서 보관됨, 같은 이름 다른 내용([차이 보기] [서버 것으로] [Mac 것 올리기] [번호 붙여 둘 다 두기]), 외부 참조(목록만), 이미지 보충([이미지 받기]), 번호 붙임 기록, [전체 확인 지금], [마지막 적용 되돌리기](한 단계).
 - 전체 확인: 시작 때 지난 확인에서 7일 지났으면 한 번. 서버 요청 없이 디스크·장부 사본·영수증만 본다. 외부 참조는 지난 점검 뒤 수정시각이 바뀐 문서만 읽는다.
-- 이 폴더만으로 빌드된다(`mac-app/`·`mac-sync/`에 의존하지 않음). 기반 `YBCore`(검증·안전 파일 접근·서버 연결), 재생목록 `YBPlaylistIO`·`YBPlaylistFormat`, 차이 창 `YBDocumentComparison`·`YBAppUI`·`PP6Core`, 아이콘 `assets/SyncIcon-1024.png`.
+- 이 폴더만으로 빌드된다. 기반 `YBCore`(검증·안전 파일 접근·서버 연결), 재생목록 `YBPlaylistIO`·`YBPlaylistFormat`, 차이 창 `YBDocumentComparison`·`YBAppUI`·`PP6Core`, 아이콘 `assets/SyncIcon-1024.png`.
 
 ## 2차 규칙 (재설계안 5.1·6.2·6.3·7.3)
 
@@ -36,11 +36,13 @@
 | 파일 | 역할 |
 |---|---|
 | `YB2Receipt.*` | 영수증(SQLite). High Sierra의 SQLite 3.19에 맞춰 UPSERT를 쓰지 않는다. 2차 열(`neutral`, `replaced`)은 ALTER로 더한다 |
-| `YB2Server.*` | 장치 열쇠(키체인)와 Bearer 머리글. 0.6.6과 공유하는 `mac-sync/YBServer`는 고치지 않는다 |
+| `YB2Server.*` | 장치 열쇠(키체인)와 Bearer 머리글. |
 | `YB2Engine.*` | 비교·적용·중단 복구·올리기·변경 일지 확인·적용 보고 |
 | `YB2App.m` | 창 하나 + 메뉴 막대 상주 |
 | `YB2Test.m`, `test-server2.mjs` | 로컬 Worker를 띄워 실제 API로 돌리는 통합 검사 |
-| `build.command`, `test.command` | 빌드·검사. 기존 `mac-sync/YBSync.m`, `YBServer.m`, `mac-app/YBPlaylistIO.m`, `YBPlaylistFormat.m`을 재사용한다 |
+| `YBCore.*`, `YBPlaylistIO.*`, `YBPlaylistFormat.*` | 검증·안전 파일 접근·서버 연결, 재생목록 읽기·노드 교체 |
+| `YBDocumentComparison.*`, `YBAppUI.*`, `PP6Core.*` | 정리 창의 차이 창 |
+| `build.command`, `test.command` | 빌드·검사 |
 
 프로필: `~/Library/Application Support/YebaeOn Sync 2/<id>/` 아래 `receipt.sqlite`, `backups/<적용회차>/`, `stage/`, `apply-journal.json`. 백업은 최근 10회만 남긴다. 입장 정보는 기존 Sync와 같은 키체인 항목을 쓴다.
 

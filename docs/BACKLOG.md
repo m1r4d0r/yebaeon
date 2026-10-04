@@ -45,7 +45,7 @@
 ## 운영·결정
 
 - **private 전환**: Sync 2 검사가 끝나면 전환한다(사용자 결정 10-04). `church-resources/`(폰트·템플릿·개역개정·이미지)는 빌드 입력이므로 그대로 둔다. 전환 뒤에는 Mac 검사 workflow의 public 조건을 다시 본다 (보류)
-- **`mac-app/`·`mac-sync/` 삭제**: Sync 2가 자리 잡은 뒤. Sync 2가 쓰던 파일은 `mac-sync2/`로 옮겨 이제 의존하지 않는다(10-04). 그 때문에 0.6.6(`mac-app/`)은 더 빌드되지 않는다. `mac-sync/test-server.mjs`, `cloudflare/inventory.mjs`·`sync-observations.mjs`도 같이 정리 (보류)
+- 0.6.6 잔여 정리: `cloudflare/inventory.mjs`·`sync-observations.mjs`, 버전별 미디어 참조 (보류, 승인 후)
 - 운영 D1 실측 (미완). 자동 검사가 운영 DB를 치지 않도록 운영 바인딩을 검사 환경에서 제외 (미완)
 - Cloudflare Git 연결과 Actions 배포 중복 확인 (미완)
 - Sync 설치본 영구 보관(Actions artifact 만료) (미완)
