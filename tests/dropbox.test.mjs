@@ -12,3 +12,10 @@ test('Dropbox account root lists, paginates and downloads nested files without l
  const call=(action,query='',e=env)=>dropboxRoute(new Request('https://example.test/api/dropbox/'+action+query),e,action);
  const result=await(await call('list')).json();assert.deepEqual(result.entries.map(e=>e.path),['HANWOORI','Other/other.hwp']);await call('list','?cursor='+encodeURIComponent(result.next));await assert.rejects(()=>call('list','?cursor='+encodeURIComponent(result.next),{...env,DROPBOX_ROOT:'/교회'}),/새로/);await call('list','?path=HANWOORI');assert.deepEqual(paths,['','/HANWOORI']);assert.equal(await(await call('file','?path='+encodeURIComponent('HANWOORI/06주보/a.hwp'))).text(),'HWP');await assert.rejects(()=>call('file'),/파일/);
 });
+
+test('Dropbox download refuses files over the requested size before downloading',async t=>{const old=globalThis.fetch;t.after(()=>globalThis.fetch=old);const env={SITE_PASSWORD:'test-password',DROPBOX_ROOT:'/교회',DROPBOX_APP_KEY:'key',DROPBOX_APP_SECRET:'secret',DROPBOX_REFRESH_TOKEN:'size-test'};let downloads=0;
+ globalThis.fetch=async url=>{if(url.endsWith('/oauth2/token'))return Response.json({access_token:'hidden',expires_in:3600});if(url.endsWith('/get_metadata'))return Response.json({'.tag':'file',name:'big.pptx',path_lower:'/교회/big.pptx',size:50*1048576});downloads++;return new Response('PPTX');};
+ const call=query=>dropboxRoute(new Request('https://example.test/api/dropbox/file'+query),env,'file');
+ await assert.rejects(()=>call('?path=big.pptx&max='+40*1048576),/40MB 이하/);assert.equal(downloads,0);
+ assert.equal(await(await call('?path=big.pptx')).text(),'PPTX','no cap keeps the plain download');
+});

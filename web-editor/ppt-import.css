@@ -18,7 +18,7 @@
 .ppt-mode-options label:has(input:checked){background:#edf1ff;border-color:#aab8e8}
 .ppt-controls input[type=number]{width:64px}
 .ppt-name-controls label{flex:1}
-.ppt-controls input[type=text],#pptName{min-width:0;width:100%;max-width:100%;padding:7px;flex:1}
+.ppt-controls input[type=text],#pptName,#pdfTarget{min-width:0;width:100%;max-width:100%;padding:7px;flex:1}
 .ppt-controls span{font-size:12px;color:#657187}
 .ppt-controls input[type=file]{max-width:100%;width:260px;font-size:12px}
 .ppt-dialog input[type=color]{height:32px;width:44px;padding:2px}
@@ -42,10 +42,29 @@
 #pptRecoveryName{min-width:0;flex:1;width:120px}
 .ppt-checks{display:flex;flex-direction:column;gap:6px;margin-right:auto;min-width:0}
 .ppt-checks label{font-size:12px}
-.ppt-dialog.ppt-has-recovery>footer{display:none}
+.ppt-dialog.ppt-has-recovery>#pptFooter{display:none}
 #pptOpen{white-space:nowrap}
+/* 세 가지 가져오기 탭. 주보 창의 탭 모양을 그대로 쓴다. */
+.ppt-tabs{overflow-x:auto;scrollbar-width:none}
+.ppt-tabs::-webkit-scrollbar{display:none}
+.ppt-tabs button{flex:none;white-space:nowrap}
+.ppt-kind-help{margin:0 0 10px;font-size:12px;line-height:1.5;color:#657187}
+.ppt-dropbox-open{margin-top:10px}
+.dropbox-picker{margin:10px 0;padding:10px 12px;border:1px solid var(--line,#dce2ed);border-radius:8px;background:#f6f8fb;max-height:min(360px,45dvh);overflow:auto;overscroll-behavior:contain}
+.dropbox-picker-path{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.dropbox-picker .dropbox-row:last-child{border-bottom:0}
+.dropbox-picker-size{flex:none;font-size:11px;color:#657187}
+.dropbox-picker-more{display:block;margin:10px auto 0}
+.ppt-card-label{display:block;font-size:12px;margin-bottom:7px}
+.ppt-pdf-thumb{display:block;width:100%;height:auto;background:#000;object-fit:contain}
+#pdfLargeImage img{display:block;width:100%;height:auto;background:#000}
+#pdfTargetBox label{white-space:nowrap}
 @media(max-width:700px){.ppt-slides{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){
+ .ppt-tabs button{flex:1 0 auto;padding:5px 10px}
+ .dropbox-picker{padding:8px}
+ .dropbox-picker .dropbox-toolbar{flex-wrap:wrap}
+ .dropbox-picker-path{flex-basis:100%;order:-1}
  .ppt-drop{padding:12px 8px}
  .ppt-drop strong{font-size:13px}
  .ppt-dialog fieldset{padding:8px 10px}

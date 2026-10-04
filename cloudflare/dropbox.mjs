@@ -22,6 +22,8 @@ export async function dropboxRoute(request,env,action){method(request,['GET']);i
   return json({entries,next:result.has_more?await seal(env,result.cursor,path):null});
  }
  if(action==='file'){if(!relative)throw new HttpError(400,'dropbox_file','파일을 선택하세요.');const metadata=await rpc(env,'files/get_metadata',{path});if(metadata['.tag']!=='file'||!metadata.path_lower?.startsWith(env.DROPBOX_ROOT==='/'?'/':env.DROPBOX_ROOT.toLowerCase()+'/'))throw new HttpError(403,'dropbox_scope','허용된 폴더의 파일이 아닙니다.');
+  // 가져오기 창은 받을 수 있는 크기를 함께 보낸다. 넘으면 받지 않는다.
+  const max=Number(url.searchParams.get('max')||0);if(max>0&&(metadata.size||0)>max)throw new HttpError(413,'dropbox_too_large',`${Math.floor(max/1048576)}MB 이하 파일만 가져올 수 있습니다.`);
   const argument=JSON.stringify({path}).replace(/[\u007f-\uffff]/g,c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'));
   const r=await fetch('https://content.dropboxapi.com/2/files/download',{method:'POST',headers:{Authorization:'Bearer '+await access(env),'Dropbox-API-Arg':argument}});if(!r.ok)throw new HttpError(502,'dropbox_download','파일을 받지 못했습니다.');
   return new Response(r.body,{headers:{'Content-Type':'application/octet-stream','Content-Disposition':"attachment; filename*=UTF-8''"+encodeURIComponent(metadata.name),'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"}});

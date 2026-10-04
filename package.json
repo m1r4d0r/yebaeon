@@ -24,6 +24,7 @@
     "fast-xml-parser": "5.11.2",
     "fflate": "0.8.2",
     "html-to-image": "1.11.13",
+    "pdfjs-dist": "6.4.299",
     "ppt-codec": "2.2.23"
   }
 }
