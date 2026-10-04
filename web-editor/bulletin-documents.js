@@ -53,7 +53,7 @@
  // Sermon order: title → passage → [title → point → quotes]×N → title. Existing slides of each kind are the formats.
  async function sermon(xml,name,data,materials){
   const model=P.parse(xml,name),slides=P.slides(model),title=slides[0],points=slides.filter(isPoint),{proto,fromTemplate}=await scriptureProto(model,materials),notes=[],list=[];
-  const addTitle=()=>{const s=clone(model,title);fillTitle(s,data);list.push(s);};
+  const addTitle=()=>{if(!P.textElements(title).length){list.push(madeTitle(model,proto,fromTemplate,data));return;}const s=clone(model,title);fillTitle(s,data);list.push(s);};
   addTitle();if(data.passage)list.push(...await verseSlides(model,proto,data.passage,materials,fromTemplate));
   const most=Math.max(0,...data.groups.map(g=>g.points.length));
   if(most&&!points.length)notes.push('대지 서식 슬라이드가 없어 대지를 만들지 못했습니다.');
@@ -61,7 +61,13 @@
   for(const g of data.groups)for(const [i,p] of g.points.entries()){if(!points.length)break;addTitle();const s=clone(model,points[Math.min(i,points.length-1)]);fillPoint(s,g.question,p.template,p.fills);list.push(s);for(const q of p.quotes)list.push(...await verseSlides(model,proto,q,materials,fromTemplate));}
   if(data.groups.some(g=>g.points.length)&&points.length)addTitle();
   replaceSlides(model,list);return {xml:P.serialize(model),count:list.length,notes};}
- async function titlePassage(xml,name,data,materials){const model=P.parse(xml,name),title=P.slides(model)[0],{proto,fromTemplate}=await scriptureProto(model,materials),s=clone(model,title);fillTitle(s,data);
+ // 우리가 만드는 제목 장: 말씀 서식 슬라이드를 그대로 빌려 본문 글상자에 ‘시리즈·빈 줄·제목’, 장절 글상자에 ‘(장절)’을 넣는다.
+ function madeTitle(model,proto,fromTemplate,{series,title,ref}){const slide=clone(model,proto);if(fromTemplate){P.ivar(slide,'array','cues')?.replaceChildren();P.ivar(slide,'RVMediaCue','backgroundMediaCue')?.remove();for(const a of ['notes','chordChartPath'])slide.setAttribute(a,'');}
+  const boxes=P.textElements(slide);if(boxes.length<2)throw Error('말씀 서식 슬라이드에 본문·장절 글상자가 필요합니다.');const {empty}=lineStyles(boxes[0]),big={...empty,size:Math.round((empty.size||60)*1.35),bold:true},small={...empty,size:Math.round((empty.size||60)*0.8)};
+  setLines(boxes[0],series?[{text:series,style:small},{text:'',style:small},{text:title,style:big}]:[{text:title,style:big}]);P.setText(boxes[1],ref?`(${ref})`:'');boxes.slice(2).forEach(b=>P.setText(b,''));slide.setAttribute('label',title.split('\n')[0]);return slide;}
+ // 문서 전체를 [제목 → 말씀]으로 다시 만든다. 주중 말씀 문서(made)는 앞뒤에 표지·그림 장이 얼마든지 붙을 수 있어 제목 장을 찾지 않고 우리가 만드는 제목 장을 쓴다.
+ // 그 밖에는 첫 장을 제목 서식으로 쓰고, 첫 장에 글상자가 없을 때만 만든다.
+ async function titlePassage(xml,name,data,materials,{made=false}={}){const model=P.parse(xml,name),first=P.slides(model)[0],{proto,fromTemplate}=await scriptureProto(model,materials);let s;if(made||!P.textElements(first).length)s=madeTitle(model,proto,fromTemplate,data);else{s=clone(model,first);fillTitle(s,data);}
   const list=[s,...(data.passage?await verseSlides(model,proto,data.passage,materials,fromTemplate):[])];replaceSlides(model,list);return {xml:P.serialize(model),count:list.length,notes:[]};}
  function prayer(xml,name,person){
   const model=P.parse(xml,name),re=new RegExp(`^([가-힣]{2,4})(\\s*)(${TITLES})$`);let hits=0;

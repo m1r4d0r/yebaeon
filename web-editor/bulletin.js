@@ -153,12 +153,12 @@
    const waiting=work.songs[i].map(get).filter(s=>!s.skip&&s.value&&!s.choice).length;if(waiting)lines.push(['wait',`찬양 ${waiting}곡은 고르지 않아 넣지 않음`+(r.removed.length?'':' · 찬양 영역 그대로')]);
    for(const w of r.warnings)lines.push(['wait',w]);
    ops.push({key:'svc'+i,label:t.name,sub:'재생목록',kind:'playlist',service:i,target:t.key,lines:lines.length?lines:[['','바뀌는 것 없음']],skip:!r.changed});
-   const name=names(p).find(n=>PL.PRAYER.test(n));const item=p.items.find(x=>base(x.name||x.document?.name)===name);const person=BP.splitName(people[i]);
-   if(people[i]&&!ops.some(o=>o.doc===item?.documentId))ops.push({key:'prayer'+i,label:name||SVC[i]+' 기도',sub:'문서',kind:'prayer',doc:item?.documentId,person,lines:item?.documentId?[[person?'add':'bad',person?`이름 ${person.name} · 직함 ${person.title}`:'이름과 직함을 나누지 못했습니다']]:[['bad','순서에서 기도 문서를 찾지 못했습니다.']]});}
+   const at=names(p).findIndex(n=>PL.PRAYER.test(n)),name=at>=0?names(p)[at]:'',item=at>=0?p.items[at]:null;const person=BP.splitName(people[i]);
+   if(people[i]&&!(item?.documentId&&ops.some(o=>o.doc===item.documentId)))ops.push({key:'prayer'+i,label:name||SVC[i]+' 기도',sub:'문서',kind:'prayer',doc:item?.documentId,person,lines:item?.documentId?[[person?'add':'bad',person?`이름 ${person.name} · 직함 ${person.title}`:'이름과 직함을 나누지 못했습니다']]:[['bad','순서에서 기도 문서를 찾지 못했습니다.']]});}
   const M=work.main,md=sermonData(M),mainDoc=await docFromPlaylist(n=>/^2부/.test(n.replace(/\s/g,'')),M.doc);
   ops.push({key:'sermon',label:M.doc,sub:'문서',kind:'sermon',doc:mainDoc?.id,data:md,lines:mainDoc?[['add',summary(md)]]:[['bad',M.doc+' 문서를 찾지 못했습니다.']]});
   for(const E of work.extra){const doc=await extraDoc(E),d=simpleData(E);ops.push({key:'extra'+E.services.join(''),label:E.doc,sub:'문서',kind:'simple',doc:doc?.id,data:d,lines:doc?[['add',summary(d)]]:[['bad',E.doc+' 문서를 찾지 못했습니다. 이름을 확인하세요.']]});}
-  for(const W of work.weekday){if(!v(W.title))continue;const doc=await docFromPlaylist(n=>n.replace(/\s/g,'')===W.day,W.doc),d=simpleData(W);ops.push({key:'wk'+W.day,label:W.doc,sub:'문서',kind:'simple',doc:doc?.id,data:d,lines:doc?[['add',summary(d)]]:[['bad',W.doc+' 문서를 찾지 못했습니다.']]});}
+  for(const W of work.weekday){if(!v(W.title))continue;const doc=await docFromPlaylist(n=>n.replace(/\s/g,'')===W.day,W.doc),d=simpleData(W);ops.push({key:'wk'+W.day,label:W.doc,sub:'문서',kind:'simple',weekday:true,doc:doc?.id,data:d,lines:doc?[['add',summary(d)]]:[['bad',W.doc+' 문서를 찾지 못했습니다.']]});}
   return ops;}
  function summary(d){const verses=value=>{const r=BP.reference(value);return r.error?0:r.count;};const points=d.groups.reduce((a,g)=>a+g.points.length,0),quotes=d.groups.reduce((a,g)=>a+g.points.reduce((b,p)=>b+p.quotes.reduce((c,q)=>c+verses(q),0),0),0);
   return `제목 “${d.title}” · 본문 ${verses(d.passage)}절`+(points?` · 대지 ${points} · 인용구 ${quotes}절`:'');}
@@ -186,7 +186,7 @@
   const [library,node]=o.target.split('/');
   return {text:`순서 ${items.length}개`,preview:{kind:'playlist',rows:r.rows.map(x=>({name:x.name,changed:x.action!=='keep'}))},
    async write(){await(await C.api(`/playlists/${library}?`+new URLSearchParams({node,includeIndexed:'1'}),{method:'PATCH',headers:{'Content-Type':'application/json','If-Match':`"${p.library.version}"`},body:JSON.stringify({items,baseNodeHash:p.playlist.sha256})})).json();plans.delete(o.target);return `순서 ${items.length}개 저장`;}};}
- function stageOp(o,need){if(o.kind==='prayer')return rewrite(o.doc,(xml,name)=>D.prayer(xml,name,o.person));if(o.kind==='sermon')return rewrite(o.doc,async(xml,name)=>D.sermon(xml,name,o.data,await need()));if(o.kind==='simple')return rewrite(o.doc,async(xml,name)=>D.titlePassage(xml,name,o.data,await need()));return applyPlaylist(o);}
+ function stageOp(o,need){if(o.kind==='prayer')return rewrite(o.doc,(xml,name)=>D.prayer(xml,name,o.person));if(o.kind==='sermon')return rewrite(o.doc,async(xml,name)=>D.sermon(xml,name,o.data,await need()));if(o.kind==='simple')return rewrite(o.doc,async(xml,name)=>D.titlePassage(xml,name,o.data,await need(),{made:!!o.weekday}));return applyPlaylist(o);}
  async function todoOps(){const ops=await reviewOps;const todo=ops.filter(o=>work.include[o.key]&&!work.results?.some(r=>r.key===o.key&&r.ok));if(!todo.length)throw Error('적용할 항목이 없습니다.');return [...todo.filter(o=>o.kind!=='playlist'),...todo.filter(o=>o.kind==='playlist')];}
  async function apply(){if(L.state().dirty)throw Error('Studio에서 열린 순서의 변경사항을 먼저 저장하세요.');const todo=await todoOps();
   let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const next=new Map();
