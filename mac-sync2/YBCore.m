@@ -176,8 +176,31 @@ static NSString *Query(NSString *value) {
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completion { completion(nil); }
 - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error { self.error=error; dispatch_semaphore_signal(self.done); }
 @end
+// 요청마다 새 연결을 맺지 않도록 서버마다 세션 하나를 쓰고(연결 유지), 응답은 작업 번호로 각 YBTransfer에 나눠 준다.
+@interface YBSessionRouter : NSObject <NSURLSessionDataDelegate, NSURLSessionTaskDelegate>
+@property(nonatomic,strong) NSMutableDictionary *transfers;
+@end
+@implementation YBSessionRouter
+- (instancetype)init { if((self=[super init])) self.transfers=[NSMutableDictionary dictionary]; return self; }
+- (void)add:(YBTransfer *)transfer task:(NSURLSessionTask *)task { @synchronized(self) { self.transfers[@(task.taskIdentifier)]=transfer; } }
+- (YBTransfer *)transferFor:(NSURLSessionTask *)task { @synchronized(self) { return self.transfers[@(task.taskIdentifier)]; } }
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completion {
+    YBTransfer *transfer=[self transferFor:task]; if(!transfer) { completion(NSURLSessionResponseCancel); return; }
+    [transfer URLSession:session dataTask:task didReceiveResponse:response completionHandler:completion];
+}
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)task didReceiveData:(NSData *)data { [[self transferFor:task] URLSession:session dataTask:task didReceiveData:data]; }
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task willPerformHTTPRedirection:(NSHTTPURLResponse *)response newRequest:(NSURLRequest *)request completionHandler:(void (^)(NSURLRequest *))completion { completion(nil); }
+- (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error {
+    YBTransfer *transfer=[self transferFor:task];
+    @synchronized(self) { [self.transfers removeObjectForKey:@(task.taskIdentifier)]; }
+    [transfer URLSession:session task:task didCompleteWithError:error];
+}
+@end
+
 @interface YBServer ()
 @property(nonatomic,readwrite) NSString *origin;
+@property(nonatomic,strong) NSURLSession *session;
+@property(nonatomic,strong) YBSessionRouter *router;
 @end
 @implementation YBServer
 - (instancetype)initWithOrigin:(NSString *)origin allowLocalTestServer:(BOOL)allow {
@@ -204,13 +227,22 @@ static NSString *Query(NSString *value) {
     if(self.cookie)[request setValue:self.cookie forHTTPHeaderField:@"Cookie"];
     if(![method isEqual:@"GET"]) [request setValue:self.origin forHTTPHeaderField:@"Origin"];
     for(NSString *key in headers)[request setValue:headers[key] forHTTPHeaderField:key];
-    NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;
-    configuration.HTTPShouldSetCookies=NO; configuration.HTTPCookieStorage=nil; configuration.URLCache=nil; configuration.timeoutIntervalForResource=timeout;
-    YBTransfer *transfer=[YBTransfer new]; NSOperationQueue *queue=[NSOperationQueue new]; queue.maxConcurrentOperationCount=1;
-    NSURLSession *session=[NSURLSession sessionWithConfiguration:configuration delegate:transfer delegateQueue:queue];
-    NSURLSessionDataTask *task=[session dataTaskWithRequest:request]; [task resume];
+    NSURLSession *session=nil;
+    @synchronized(self) {
+        if(!self.session) {
+            NSURLSessionConfiguration *configuration=NSURLSessionConfiguration.ephemeralSessionConfiguration;
+            configuration.HTTPShouldSetCookies=NO; configuration.HTTPCookieStorage=nil; configuration.URLCache=nil;
+            configuration.timeoutIntervalForResource=600; configuration.HTTPMaximumConnectionsPerHost=4;
+            NSOperationQueue *queue=[NSOperationQueue new]; queue.maxConcurrentOperationCount=4;
+            self.router=[YBSessionRouter new];
+            self.session=[NSURLSession sessionWithConfiguration:configuration delegate:self.router delegateQueue:queue];
+        }
+        session=self.session;
+    }
+    YBTransfer *transfer=[YBTransfer new];
+    NSURLSessionDataTask *task=[session dataTaskWithRequest:request]; [self.router add:transfer task:task]; [task resume];
     BOOL timedOut=dispatch_semaphore_wait(transfer.done,dispatch_time(DISPATCH_TIME_NOW,(int64_t)((timeout+5)*NSEC_PER_SEC)))!=0;
-    if(timedOut)[task cancel]; [session invalidateAndCancel];
+    if(timedOut)[task cancel];
     YBRequire(!timedOut,@"서버 응답 시간이 초과됐습니다. 다시 비교한 후 시도해 주세요.");
     YBRequire(!transfer.rejected,@"서버 응답이 너무 크거나 올바르지 않습니다.");
     YBRequire(!transfer.error,@"서버에 연결하지 못했습니다. 인터넷과 서버 주소를 확인해 주세요.");

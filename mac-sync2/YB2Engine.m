@@ -95,6 +95,24 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     return nil;
 }
 
+// 4개씩 동시에 돌린다. 각 항목의 예외는 그 항목의 결과(NSException)로 돌려준다. 영수증 쓰기는 부르는 쪽에서 모아서 한다.
+static NSArray *Parallel(NSArray *items, id (^work)(id item)) {
+    NSMutableArray *results = [NSMutableArray arrayWithCapacity:items.count];
+    for (NSUInteger i = 0; i < items.count; i++) [results addObject:NSNull.null];
+    dispatch_semaphore_t slots = dispatch_semaphore_create(4); dispatch_group_t group = dispatch_group_create();
+    dispatch_queue_t queue = dispatch_get_global_queue(QOS_CLASS_UTILITY, 0);
+    [items enumerateObjectsUsingBlock:^(id item, NSUInteger index, BOOL *stop) {
+        dispatch_semaphore_wait(slots, DISPATCH_TIME_FOREVER);
+        dispatch_group_async(group, queue, ^{
+            id result = nil;
+            @try { result = work(item); } @catch (NSException *e) { result = e; }
+            @synchronized(results) { results[index] = result ?: NSNull.null; }
+            dispatch_semaphore_signal(slots);
+        });
+    }];
+    dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+    return results;
+}
 - (instancetype)initWithServer:(YBServer *)server root:(NSString *)root playlist:(NSURL *)playlist profile:(NSString *)profile {
     if (!(self = [super init])) return nil;
     _server = server; _root = root.stringByStandardizingPath.stringByResolvingSymlinksInPath; _playlistURL = playlist; _profile = profile.stringByStandardizingPath.stringByResolvingSymlinksInPath;
@@ -216,7 +234,19 @@ static BOOL ImageExists(NSString *path) {
 
 #pragma mark - 비교
 
+// 번호 붙임을 되돌린 뒤 원래 이름에 `이름 2`의 영수증이 남은 경우를 고친다(10-04 실기). 한 번만 돈다.
+- (void)repairUndoneNumbering {
+    if ([self.receipt value:@"repairNumbered1"].length) return;
+    [self.receipt transaction:^{
+        for (NSDictionary *item in [self numberedLog]) {
+            NSDictionary *known = [self.receipt document:item[@"path"]], *copy = [self.receipt ledger:item[@"target"]];
+            if (known && copy && [known[@"sha"] isEqual:copy[@"sha"]] && ![self diskPath:item[@"target"]]) [self.receipt forgetDocument:item[@"path"]];
+        }
+        [self.receipt setValue:@"1" forKey:@"repairNumbered1"];
+    }];
+}
 - (NSArray *)compare {
+    [self repairUndoneNumbering];
     [self report:@"서버 재생목록 확인 중"];
     self.library = [self findLibrary];
     NSString *sourceRoot = [self.library[@"sourceRoot"] isKindOfClass:NSString.class] ? self.library[@"sourceRoot"] : @"~/Documents/ProPresenter6";
@@ -721,10 +751,11 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     return !date || -date.timeIntervalSinceNow > 7 * 24 * 3600;
 }
 // Mac 디스크와 장부 사본·영수증을 맞춰 본다. 서버 요청 없음(D1 0). Mac 파일을 바꾸지 않는다.
-- (NSDictionary *)fullCheck {
+// 디스크·장부 사본·영수증을 읽기만 한다(영수증에 쓰지 않음). 데일리 창 작업과 함께 돌 수 있다. 저장은 saveFullCheck:로.
+- (NSDictionary *)scanFullCheck {
     YBRequire([self.receipt value:@"ledgerSeq"].length > 0, @"서버 장부 사본이 아직 없습니다. 서버 확인 뒤 다시 해 주세요.");
-    [self report:@"전체 확인 · Mac 문서 폴더"];
-    NSMutableArray *macDeleted = [NSMutableArray array], *collisions = [NSMutableArray array], *external = [NSMutableArray array], *imageFill = [NSMutableArray array];
+    [self report:@"전체 확인 · Mac 문서 폴더 읽는 중"];
+    NSMutableArray *macDeleted = [NSMutableArray array], *collisions = [NSMutableArray array], *external = [NSMutableArray array], *imageFill = [NSMutableArray array], *remember = [NSMutableArray array];
     NSMutableSet *disk = [NSMutableSet set];
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.root error:NULL])
         if (![name hasPrefix:@"."] && [name.pathExtension.lowercaseString isEqual:@"pro6"]) [disk addObject:name.precomposedStringWithCanonicalMapping];
@@ -736,24 +767,38 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
         NSDictionary *entry = [self.receipt ledger:path];
         if ([entry[@"state"] isEqual:@"active"]) [macDeleted addObject:@{@"path": path, @"id": entry[@"id"]}];
     }
-    // 같은 이름: 장부에 있고 영수증은 본 적 없는 Mac 파일. 내용이 같으면 영수증에 적어 두고(처음 대조), 다르면 목록.
-    for (NSString *path in [disk.allObjects sortedArrayUsingSelector:@selector(compare:)]) {
-        if ([self.receipt document:path]) continue;
-        NSDictionary *entry = [self.receipt ledger:path];
-        if (![entry[@"state"] isEqual:@"active"]) continue;
-        NSString *hash = [self localHash:path];
+    // 같은 이름: 장부에 있고 영수증은 본 적 없는 Mac 파일(처음 대조). 바이트가 같으면 영수증에 적고,
+    // 다르면 서버 바이트를 받아 사용일을 뺀 내용을 비교한다. 같으면 적고, 다를 때만 목록에 올린다.
+    NSArray *unknown = [[disk.allObjects sortedArrayUsingSelector:@selector(compare:)] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSString *path, NSDictionary *b) {
+        return ![self.receipt document:path] && [[self.receipt ledger:path][@"state"] isEqual:@"active"]; }]];
+    NSMutableArray *differs = [NSMutableArray array]; NSUInteger index = 0;
+    for (NSString *path in unknown) {
+        if (++index % 50 == 0) [self report:[NSString stringWithFormat:@"전체 확인 · 처음 대조 %lu/%lu", (unsigned long)index, (unsigned long)unknown.count]];
+        NSDictionary *entry = [self.receipt ledger:path]; NSData *bytes = YBReadSafeFile(self.root, path, NULL); if (!bytes) continue;
         long long size = 0, mtime = 0; [self statPath:path size:&size mtime:&mtime];
-        if ([hash isEqual:entry[@"sha"]]) [self.receipt rememberDocument:path version:entry[@"version"] sha:hash size:size mtime:mtime neutral:NeutralHash(YBReadSafeFile(self.root, path, NULL)) replaced:nil];
-        else if (hash) [collisions addObject:@{@"path": path, @"id": entry[@"id"]}];
+        NSString *hash = YBHash(bytes);
+        NSDictionary *record = @{@"path": path, @"id": entry[@"id"], @"version": entry[@"version"], @"sha": hash, @"size": @(size), @"mtime": @(mtime), @"neutral": NeutralHash(bytes)};
+        if ([hash isEqual:entry[@"sha"]]) [remember addObject:record]; else [differs addObject:record];
+    }
+    __block NSUInteger done = 0;
+    NSArray *compared = Parallel(differs, ^id(NSDictionary *record) {
+        NSDictionary *doc = [self serverDocument:record[@"id"]];
+        NSString *serverNeutral = NeutralHash([self.server download:doc]);
+        @synchronized(self) { done++; [self report:[NSString stringWithFormat:@"전체 확인 · 서버와 내용 대조 %lu/%lu", (unsigned long)done, (unsigned long)differs.count]]; }
+        return [serverNeutral isEqual:record[@"neutral"]] ? doc : @NO;
+    });
+    for (NSUInteger i = 0; i < differs.count; i++) {
+        id result = compared[i]; NSDictionary *record = differs[i];
+        if ([result isKindOfClass:NSDictionary.class]) { NSMutableDictionary *same = [record mutableCopy]; same[@"version"] = result[@"version"]; [remember addObject:same]; }   // 사용일만 다름
+        else [collisions addObject:@{@"path": record[@"path"], @"id": record[@"id"]}];
     }
     // 외부 참조: 지난 점검 뒤 수정시각이 바뀐 문서만 읽는다.
-    [self report:@"전체 확인 · 외부 참조"];
     long long since = [self.receipt value:@"externalCheckAt"].longLongValue, newest = since;
-    NSMutableArray *previous = [NSMutableArray array];
-    for (NSDictionary *item in [self lastFullCheck][@"external"] ?: @[]) if ([disk containsObject:item[@"path"]]) [previous addObject:item];
     NSMutableDictionary *externalByPath = [NSMutableDictionary dictionary];
-    for (NSDictionary *item in previous) externalByPath[item[@"path"]] = item;
+    for (NSDictionary *item in [self lastFullCheck][@"external"] ?: @[]) if ([disk containsObject:item[@"path"]]) externalByPath[item[@"path"]] = item;
+    index = 0;
     for (NSString *path in disk) {
+        if (++index % 100 == 0) [self report:[NSString stringWithFormat:@"전체 확인 · 외부 참조 %lu/%lu", (unsigned long)index, (unsigned long)disk.count]];
         long long mtime = 0; if (![self statPath:path size:NULL mtime:&mtime] || mtime <= since) continue;
         newest = MAX(newest, mtime);
         NSArray *refs = ExternalReferences(YBReadSafeFile(self.root, path, NULL), self.root);
@@ -768,15 +813,22 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
         if (imageFill.count >= 1000) break;
     }
     NSString *at = [[NSISO8601DateFormatter new] stringFromDate:NSDate.date];
-    NSDictionary *result = @{@"at": at, @"macDeleted": macDeleted, @"collisions": collisions, @"external": external, @"imageFill": imageFill};
+    return @{@"result": @{@"at": at, @"macDeleted": macDeleted, @"collisions": collisions, @"external": external, @"imageFill": imageFill}, @"remember": remember, @"newest": @(newest)};
+}
+// 전체 확인 결과와 처음 대조로 같다고 본 문서의 영수증을 한 번에 적는다. 그 사이 영수증이 생긴 문서는 건드리지 않는다.
+- (NSDictionary *)saveFullCheck:(NSDictionary *)scan {
+    NSDictionary *result = scan[@"result"];
     [self.receipt transaction:^{
+        for (NSDictionary *r in scan[@"remember"]) if (![self.receipt document:r[@"path"]])
+            [self.receipt rememberDocument:r[@"path"] version:r[@"version"] sha:r[@"sha"] size:[r[@"size"] longLongValue] mtime:[r[@"mtime"] longLongValue] neutral:r[@"neutral"] replaced:nil];
         [self.receipt setValue:[[NSString alloc] initWithData:JSONData(result) encoding:NSUTF8StringEncoding] forKey:@"fullCheck"];
-        [self.receipt setValue:at forKey:@"fullCheckAt"];
-        [self.receipt setValue:[NSString stringWithFormat:@"%lld", newest] forKey:@"externalCheckAt"];
+        [self.receipt setValue:result[@"at"] forKey:@"fullCheckAt"];
+        [self.receipt setValue:[scan[@"newest"] stringValue] forKey:@"externalCheckAt"];
     }];
-    [self report:@"전체 확인 완료"];
+    [self report:[NSString stringWithFormat:@"전체 확인 완료 · 처음 대조로 같음 %lu · 확인 필요 %lu", (unsigned long)[scan[@"remember"] count], (unsigned long)[result[@"collisions"] count] + [result[@"macDeleted"] count]]];
     return result;
 }
+- (NSDictionary *)fullCheck { return [self saveFullCheck:[self scanFullCheck]]; }
 - (void)dropFromFullCheck:(NSString *)list path:(NSString *)path {
     NSMutableDictionary *saved = [[self lastFullCheck] mutableCopy]; if (!saved) return;
     saved[list] = [saved[list] filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"path != %@", path]];
@@ -890,6 +942,7 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     NSDictionary *entry = [self.receipt ledger:path]; YBRequire([entry[@"id"] length] > 0, @"서버 장부에 없는 문서입니다.");
     return [self.server download:[self serverDocument:entry[@"id"]]];
 }
+- (BOOL)hasLocalDocument:(NSString *)path { return [self diskPath:path] != nil; }
 - (NSString *)webLink:(NSString *)path {
     NSDictionary *entry = [self.receipt ledger:path];
     return [entry[@"id"] length] ? [NSString stringWithFormat:@"%@/?doc=%@", self.server.origin, entry[@"id"]] : nil;
@@ -958,7 +1011,9 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
         NSString *to = [self diskPath:move[@"to"]];
         if (!to || [self diskPath:move[@"from"]]) { [skipped addObject:[move[@"to"] stringByAppendingString:@"(이름 되돌리기 불가)"]]; continue; }
         YBRequire(renamex_np(to.fileSystemRepresentation, [self.root stringByAppendingPathComponent:move[@"from"]].fileSystemRepresentation, RENAME_EXCL) == 0, [NSString stringWithFormat:@"이름을 되돌리지 못했습니다: %@", move[@"to"]]);
-        if ([self.receipt document:move[@"to"]]) [self.receipt moveDocument:move[@"to"] to:move[@"from"]];
+        // 번호 붙인 사본의 영수증은 서버의 다른 문서(`이름 2`) 것이라 옮기지 않고 지운다. 원래 이름은 "이력 없음"으로 돌아간다.
+        if ([move[@"numbered"] boolValue]) [self.receipt forgetDocument:move[@"to"]];
+        else if ([self.receipt document:move[@"to"]]) [self.receipt moveDocument:move[@"to"] to:move[@"from"]];
         [restored addObject:move[@"from"]];
     }
     for (NSDictionary *item in undo[@"trash"]) {
@@ -1098,25 +1153,50 @@ static NSArray *MediaPaths(NSData *document) {
     }
     return paths.array;
 }
-- (NSUInteger)uploadMediaFor:(NSData *)document {
-    NSMutableArray *items = [NSMutableArray array];
-    for (NSString *path in MediaPaths(document)) {
+- (NSUInteger)uploadMediaFor:(NSData *)document { return [[self uploadMediaForDocuments:document ? @[document] : @[]][@"registered"] unsignedIntegerValue]; }
+// 여러 문서의 이미지를 한꺼번에: Mac 안에서 목록·sha를 먼저 만들고, 서버에 있는지는 100개씩 묻고, 없는 것만 4개씩 올리고, 경로표는 200개씩 등록한다.
+// 반환: {uploaded, registered, skipped}
+- (NSDictionary *)uploadMediaForDocuments:(NSArray *)documents {
+    NSMutableOrderedSet *paths = [NSMutableOrderedSet orderedSet];
+    for (NSData *document in documents) [paths addObjectsFromArray:MediaPaths(document)];
+    NSMutableArray *items = [NSMutableArray array]; NSMutableDictionary *files = [NSMutableDictionary dictionary]; NSUInteger skipped = 0, index = 0;
+    for (NSString *path in paths) {
+        index++;
+        if (index % 20 == 0) [self report:[NSString stringWithFormat:@"이미지 확인 %lu/%lu", (unsigned long)index, (unsigned long)paths.count]];
         NSString *disk = nil;
         for (NSString *candidate in @[path, path.decomposedStringWithCanonicalMapping]) if ([NSFileManager.defaultManager fileExistsAtPath:candidate]) { disk = candidate; break; }
         if (!disk) continue;   // Mac에도 없는 이미지는 건너뛴다(외부 참조 점검이 보여 준다)
         NSData *bytes = [NSData dataWithContentsOfFile:disk options:NSDataReadingMappedIfSafe error:NULL];
         if (!bytes.length || bytes.length > 32 * 1024 * 1024) continue;
         NSString *hash = YBHash(bytes);
-        if ([[self.receipt mediaSha:path] isEqual:hash]) continue;
-        if (![self.server mediaContentExists:hash size:bytes.length]) { [self report:[@"이미지 올리는 중 · " stringByAppendingString:path.lastPathComponent]]; [self.server uploadMedia:bytes sha256:hash]; }
+        if ([[self.receipt mediaSha:path] isEqual:hash]) { skipped++; continue; }   // 서버 경로표와 같다
         [items addObject:@{@"path": path, @"sha256": hash, @"size": @(bytes.length)}];
+        files[hash] = disk;
     }
-    for (NSUInteger offset = 0; offset < items.count; offset += 200) {
-        NSArray *chunk = [items subarrayWithRange:NSMakeRange(offset, MIN(200, items.count - offset))];
+    NSArray *hashes = files.allKeys; NSMutableSet *known = [NSMutableSet set];
+    for (NSUInteger offset = 0; offset < hashes.count; offset += 100)
+        for (NSDictionary *asset in [self.server mediaAssets:[hashes subarrayWithRange:NSMakeRange(offset, MIN(100, hashes.count - offset))]]) if (asset[@"sha256"]) [known addObject:asset[@"sha256"]];
+    NSMutableArray *missing = [NSMutableArray array];
+    for (NSString *hash in hashes) if (![known containsObject:hash]) [missing addObject:hash];
+    __block NSUInteger done = 0;
+    NSArray *results = Parallel(missing, ^id(NSString *hash) {
+        NSData *bytes = [NSData dataWithContentsOfFile:files[hash] options:NSDataReadingMappedIfSafe error:NULL];
+        YBRequire([YBHash(bytes) isEqual:hash], @"이미지가 올리는 중에 바뀌었습니다.");
+        [self.server uploadMedia:bytes sha256:hash];
+        @synchronized(self) { done++; [self report:[NSString stringWithFormat:@"이미지 올리는 중 %lu/%lu", (unsigned long)done, (unsigned long)missing.count]]; }
+        return @YES;
+    });
+    NSMutableSet *failedHashes = [NSMutableSet set];
+    for (NSUInteger i = 0; i < results.count; i++) if ([results[i] isKindOfClass:NSException.class]) [failedHashes addObject:missing[i]];
+    NSArray *ready = [items filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSDictionary *item, NSDictionary *bindings) { return ![failedHashes containsObject:item[@"sha256"]]; }]];
+    for (NSUInteger offset = 0; offset < ready.count; offset += 200) {
+        NSArray *chunk = [ready subarrayWithRange:NSMakeRange(offset, MIN(200, ready.count - offset))];
+        [self report:[NSString stringWithFormat:@"이미지 경로 등록 %lu/%lu", (unsigned long)MIN(offset + 200, ready.count), (unsigned long)ready.count]];
         [self.server request:@"/api/media/paths" method:@"PUT" body:JSONData(@{@"items": chunk}) headers:JSONHeaders()];
         [self.receipt transaction:^{ for (NSDictionary *item in chunk) [self.receipt setMedia:item[@"path"] sha:item[@"sha256"]]; }];
     }
-    return items.count;
+    YBRequire(failedHashes.count == 0, [NSString stringWithFormat:@"이미지 %lu개를 올리지 못했습니다. 다음 올리기 때 다시 시도합니다.", (unsigned long)failedHashes.count]);
+    return @{@"uploaded": @(missing.count), @"registered": @(ready.count), @"skipped": @(skipped)};
 }
 - (void)addCollisions:(NSArray *)paths {
     if (!paths.count) return;
@@ -1127,31 +1207,42 @@ static NSArray *MediaPaths(NSData *document) {
     [self.receipt setValue:[[NSString alloc] initWithData:JSONData(saved) encoding:NSUTF8StringEncoding] forKey:@"fullCheck"];
 }
 - (NSDictionary *)uploadNew {
-    NSMutableArray *created = [NSMutableArray array], *collisions = [NSMutableArray array]; NSMutableDictionary *failed = [NSMutableDictionary dictionary]; NSUInteger media = 0;
+    NSMutableArray *created = [NSMutableArray array], *collisions = [NSMutableArray array]; NSMutableDictionary *failed = [NSMutableDictionary dictionary];
     if (![self.receipt value:@"ledgerSeq"].length) return @{@"created": created, @"collisions": collisions, @"media": @0, @"failed": failed};   // 장부 사본이 없으면 새 문서를 가릴 수 없다
-    // Mac 문서 폴더는 평평하다. 맨 위의 .pro6만 본다.
+    // 1. Mac 안에서 올릴 문서를 먼저 모은다. Mac 문서 폴더는 평평하다. 맨 위의 .pro6만 본다.
+    [self report:@"새 문서 찾는 중"];
+    NSMutableArray *candidates = [NSMutableArray array];
     for (NSString *name in [[NSFileManager.defaultManager contentsOfDirectoryAtPath:self.root error:NULL] sortedArrayUsingSelector:@selector(compare:)]) {
         if ([name hasPrefix:@"."] || ![name.pathExtension.lowercaseString isEqual:@"pro6"]) continue;
         NSString *path = name.precomposedStringWithCanonicalMapping;
         if ([self.receipt ledger:path] || [self.receipt document:path]) continue;   // 서버에 있었던 경로(휴지통·이름 바뀜 포함)는 새 문서가 아니다
-        @try {
-            NSData *bytes = YBReadSafeFile(self.root, path, NULL);
-            if (!bytes) continue;
-            [self report:[@"새 문서 올리는 중 · " stringByAppendingString:path]];
-            NSDictionary *saved = nil; BOOL exists = NO;
-            @try { saved = [self.server upload:bytes path:path previous:nil]; }
-            @catch (NSException *e) { if ([e.reason hasPrefix:@"HTTP 409"]) exists = YES; else @throw; }
-            if (exists) { [collisions addObject:path]; continue; }   // 서버에 같은 이름이 있다(이름 겹침 → 정리 창)
-            long long size = 0, mtime = 0; [self statPath:path size:&size mtime:&mtime];
-            [self.receipt transaction:^{
-                [self.receipt rememberDocument:path version:saved[@"version"] sha:saved[@"sha256"] size:size mtime:mtime neutral:NeutralHash(bytes) replaced:nil];
-                [self.receipt setLedger:path id:saved[@"id"] version:saved[@"version"] sha:saved[@"sha256"] state:@"active"];
-            }];
-            [created addObject:path];
-            @try { media += [self uploadMediaFor:bytes]; } @catch (NSException *e) { failed[[path stringByAppendingString:@" 이미지"]] = e.reason ?: @"이미지 올리기 실패"; }
-        } @catch (NSException *e) { failed[path] = e.reason ?: @"올리기 실패"; }
+        NSData *bytes = YBReadSafeFile(self.root, path, NULL);
+        if (bytes) [candidates addObject:@{@"path": path, @"bytes": bytes}];
     }
-    // 같은 이름이라 올리지 못한 것은 정리 창 "같은 이름, 다른 내용"에 쌓는다.
+    // 2. 문서는 문서끼리 4개씩
+    __block NSUInteger done = 0;
+    NSArray *results = Parallel(candidates, ^id(NSDictionary *item) {
+        id result = nil;
+        @try { result = [self.server upload:item[@"bytes"] path:item[@"path"] previous:nil]; }
+        @catch (NSException *e) { result = [e.reason hasPrefix:@"HTTP 409"] ? @"exists" : e; }
+        @synchronized(self) { done++; [self report:[NSString stringWithFormat:@"새 문서 올리는 중 %lu/%lu", (unsigned long)done, (unsigned long)candidates.count]]; }
+        return result;
+    });
+    NSMutableArray *uploadedBytes = [NSMutableArray array];
+    [self.receipt transaction:^{
+        for (NSUInteger i = 0; i < candidates.count; i++) {
+            NSString *path = candidates[i][@"path"]; id result = results[i];
+            if ([result isEqual:@"exists"]) { [collisions addObject:path]; continue; }   // 서버에 같은 이름이 있다(이름 겹침 → 정리 창)
+            if ([result isKindOfClass:NSException.class]) { failed[path] = [result reason] ?: @"올리기 실패"; continue; }
+            NSDictionary *saved = result; long long size = 0, mtime = 0; [self statPath:path size:&size mtime:&mtime];
+            [self.receipt rememberDocument:path version:saved[@"version"] sha:saved[@"sha256"] size:size mtime:mtime neutral:NeutralHash(candidates[i][@"bytes"]) replaced:nil];
+            [self.receipt setLedger:path id:saved[@"id"] version:saved[@"version"] sha:saved[@"sha256"] state:@"active"];
+            [created addObject:path]; [uploadedBytes addObject:candidates[i][@"bytes"]];
+        }
+    }];
+    // 3. 이미지는 이미지끼리
+    NSUInteger media = 0;
+    @try { media = [[self uploadMediaForDocuments:uploadedBytes][@"uploaded"] unsignedIntegerValue]; } @catch (NSException *e) { failed[@"이미지"] = e.reason ?: @"이미지 올리기 실패"; }
     [self addCollisions:collisions];
     return @{@"created": created, @"collisions": collisions, @"media": @(media), @"failed": failed};
 }
@@ -1162,7 +1253,7 @@ static NSArray *MediaPaths(NSData *document) {
     YBRequire(self.library != nil, @"먼저 비교해 주세요.");
     NSMutableArray *uploaded = [NSMutableArray array]; NSMutableDictionary *failed = [NSMutableDictionary dictionary];
     NSMutableDictionary *usage = [NSMutableDictionary dictionary];   // 경로 → 항목. 여러 예배가 같은 문서를 써도 한 번만
-    NSMutableSet *sent = [NSMutableSet set];
+    NSMutableSet *sent = [NSMutableSet set]; NSMutableArray *sentBytes = [NSMutableArray array];
     for (NSDictionary *row in rows) {
         NSString *name = row[@"name"]; NSDictionary *plan = row[@"plan"]; BOOL any = NO;
         for (NSDictionary *entry in row[@"usageOnly"]) usage[entry[@"path"]] = entry;
@@ -1177,8 +1268,7 @@ static NSArray *MediaPaths(NSData *document) {
                 NSDictionary *saved = [self.server upload:bytes path:path previous:doc];
                 long long size = 0, mtime = 0; [self statPath:path size:&size mtime:&mtime];
                 [self.receipt rememberDocument:path version:saved[@"version"] sha:saved[@"sha256"] size:size mtime:mtime neutral:NeutralHash(bytes) replaced:nil];
-                [sent addObject:path]; any = YES;
-                @try { [self uploadMediaFor:bytes]; } @catch (NSException *e) { failed[[path stringByAppendingString:@" 이미지"]] = e.reason ?: @"이미지 올리기 실패"; }
+                [sent addObject:path]; any = YES; [sentBytes addObject:bytes];
             }
             // Mac에서만 바꾼 순서: 이 예배 노드 하나만 교체한다. 기준은 영수증의 서버 노드 sha(= 지금 서버 노드 sha)다.
             if ([row[@"macOnlyOrder"] boolValue]) {
@@ -1203,6 +1293,8 @@ static NSArray *MediaPaths(NSData *document) {
             if (any) [uploaded addObject:name];
         } @catch (NSException *e) { failed[name] = e.reason ?: @"올리기 실패"; }
     }
+    // 올린 문서들의 이미지는 한꺼번에
+    @try { [self uploadMediaForDocuments:sentBytes]; } @catch (NSException *e) { failed[@"이미지"] = e.reason ?: @"이미지 올리기 실패"; }
     // 사용일: 200개씩 한 번. 성공한 것만 영수증을 지금 파일로 바꾼다. 실패하면 다음 비교에서 다시 보낸다.
     NSArray *entries = usage.allValues; NSUInteger reported = 0;
     NSRegularExpression *date = [NSRegularExpression regularExpressionWithPattern:@"^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$" options:0 error:NULL];

@@ -64,9 +64,14 @@
 - (NSDictionary *)uploadNew;
 // 문서 바이트가 가리키는 이미지 중 허용 폴더 안의 것을 서버에 올리고 경로표에 등록한다. 반환: 올리거나 등록한 수
 - (NSUInteger)uploadMediaFor:(NSData *)document;
+// 여러 문서의 이미지를 한꺼번에(서버 확인 100개씩, 올리기 4개씩, 경로 등록 200개씩). 반환: {uploaded, registered, skipped}
+- (NSDictionary *)uploadMediaForDocuments:(NSArray *)documents;
 // 전체 확인(7일 규칙). Mac 디스크와 장부 사본·영수증만 본다(서버 요청 없음). Mac 파일을 바꾸지 않는다.
 // 반환·저장: {at, macDeleted:[{path,id}], collisions:[{path,id}], external:[{path,references}], imageFill:[{path,sha}]}
 - (NSDictionary *)fullCheck;
+// 나눠 부르기: scan은 읽기만(다른 작업과 함께 돌 수 있음), save는 영수증 쓰기(작업 큐에서)
+- (NSDictionary *)scanFullCheck;
+- (NSDictionary *)saveFullCheck:(NSDictionary *)scan;
 - (NSDictionary *)lastFullCheck;
 - (BOOL)fullCheckDue;
 // 정리 창 버튼. 모두 사용자가 누를 때만 돈다.
@@ -76,7 +81,8 @@
 - (NSString *)keepBothNumbered:(NSString *)path; // 같은 이름 다른 내용: Mac 파일에 번호를 붙여 둘 다 둔다. 반환: 새 경로
 - (NSArray *)numberedLog;                        // 번호 붙인 기록 [{path, target, at}]
 - (void)fetchImage:(NSDictionary *)item;         // 이미지 보충 {path, sha}
-- (NSString *)webLink:(NSString *)path;          // Studio에서 그 문서 열기
+- (NSString *)webLink:(NSString *)path;
+- (BOOL)hasLocalDocument:(NSString *)path;       // 문서 폴더에 그 파일이 있나(NFC·NFD 모두)          // Studio에서 그 문서 열기
 - (NSData *)serverBytes:(NSString *)path;        // 차이 창용 서버 바이트
 // 마지막 적용 기록({id, at, applied:[…]}) 또는 nil. 되돌리면 그 다음 것이 아니라 nil이 된다(한 단계만).
 - (NSDictionary *)lastApply;
