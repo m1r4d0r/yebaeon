@@ -2,7 +2,7 @@
 
 이 파일은 세션마다 **덮어써서** 갱신한다. 새 인계 파일을 만들지 않는다. 끝난 일은 [CHANGELOG](CHANGELOG.md), 남은 일은 [BACKLOG](BACKLOG.md)에 둔다.
 
-갱신: 2026-10-04 저녁 · main c417ecc(웹 가져온 이미지 YebaeOn/ 경로·Sync 2 이미지 받기, 사용자 승인) · Deploy run 37184399304 성공
+갱신: 2026-10-04 밤 · main 27d65f8(PPT 창 3종·드롭박스·말씀 PDF, 사용자 승인) · Deploy run 37196820175 성공
 
 ## 운영
 
