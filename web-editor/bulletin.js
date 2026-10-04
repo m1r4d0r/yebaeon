@@ -91,7 +91,7 @@
  /* ---------- work ---------- */
  function activate(id){if(ui.active===id)return;const typing=document.activeElement?.id==='bulletin-'+id;ui.active=id;ui.fresh=true;ui.openLine=null;render();if(typing){const box=document.getElementById('bulletin-'+id);box?.focus();box?.setSelectionRange?.(box.value.length,box.value.length);}}
  function slotRow(id,extra){const s=get(id),row=el('div','bulletin-slot'+(ui.active===id?' active':'')+(s.skip?' skipped':'')+(s.locked?' locked':''));
-  const multi=s.label==='제목',lab=el('label',null,s.label),inp=el(multi?'textarea':'input',s.sug?'sug':'');if(multi){inp.rows=Math.min(4,Math.max(2,s.value.split('\n').length));inp.title='Enter로 줄을 바꿀 수 있습니다';}inp.id='bulletin-'+id;lab.htmlFor=inp.id;const song=s.kind==='song'&&!s.locked;inp.value=song?(s.query??BP.songQuery(s.value)):s.value;inp.disabled=s.locked;inp.placeholder=s.locked?'':song?'찬양 이름·가사로 찾기':'주보에서 골라 채우기';if(song)inp.setAttribute('aria-label',s.label+' 찬양 검색어');
+  const multi=['제목','대지 질문','대지 문장'].includes(s.label),lab=el('label',null,s.label),inp=el(multi?'textarea':'input',s.sug?'sug':'');if(multi){inp.rows=Math.min(4,Math.max(2,s.value.split('\n').length));inp.title='Enter로 줄을 바꿀 수 있습니다';}inp.id='bulletin-'+id;lab.htmlFor=inp.id;const song=s.kind==='song'&&!s.locked;inp.value=song?(s.query??BP.songQuery(s.value)):s.value;inp.disabled=s.locked;inp.placeholder=s.locked?'':song?'찬양 이름·가사로 찾기':'주보에서 골라 채우기';if(song)inp.setAttribute('aria-label',s.label+' 찬양 검색어');
   inp.oninput=()=>{s.sug=false;inp.className='';if(song){s.query=inp.value;if(!s.src.length)s.value=inp.value;return;}s.value=inp.value;};inp.onchange=()=>{save();if(!song)render();};
   const acts=el('div','acts'),src=el('button','src','주보');src.onclick=e=>{e.stopPropagation();activate(id);ui.sheet=true;sheet();};const skip=el('button','skip',s.skip?'넘김':'넘어가기');skip.disabled=s.locked;skip.onclick=e=>{e.stopPropagation();s.skip=!s.skip;save();render();};acts.append(src,skip);
   const meta=el('div','meta');if(!s.locked)meta.append(el('span',null,s.src.length?'주보에서 가져옴':'주보 힌트 없음'));if(s.note)meta.append(el('span',null,s.note));
@@ -174,19 +174,19 @@
  // 적용은 두 단계다. ‘적용’은 바뀐 문서와 순서를 이 창에서만 만들어 보여 주고, ‘서버에 저장’을 눌러야 서버에 쓴다.
  // 저장할 때는 서버의 최신 버전을 다시 읽어 같은 변경을 만든다(같은 문서를 여러 항목이 고칠 수 있다).
  let staged=null;
- async function rewrite(id,transform){if(C.pendingDocuments([id]).length)throw Error('이 문서에 저장하지 않은 변경이 있습니다. 먼저 저장하세요.');
+ async function rewrite(id,transform,layout='side'){if(C.pendingDocuments([id]).length)throw Error('이 문서에 저장하지 않은 변경이 있습니다. 먼저 저장하세요.');
   const doc=(await(await C.api('/documents/'+id)).json()).document,data=await(await C.api(`/documents/${id}/content?version=${doc.version}`)).arrayBuffer();
   const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),n=>n.toString(16).padStart(2,'0')).join('');if(hash!==doc.sha256)throw Error('문서 원본 확인에 실패했습니다.');
-  const r=await transform(new TextDecoder('utf-8',{fatal:true}).decode(data),doc.name);
-  return {text:r.notes.length?r.notes.join(' · '):'바뀐 슬라이드 확인',preview:{kind:'document',xml:r.xml,name:doc.name},
+  const before=new TextDecoder('utf-8',{fatal:true}).decode(data),r=await transform(before,doc.name);
+  return {text:r.notes.length?r.notes.join(' · '):'바뀐 슬라이드 확인',preview:{kind:'document',before,xml:r.xml,name:doc.name,layout},
    async write(){const saved=await(await C.api('/documents/'+id,{method:'PUT',headers:{'Content-Type':'application/xml; charset=utf-8','If-Match':`"${doc.version}"`},body:r.xml})).json();return (saved.unchanged?'이미 같은 내용':'버전 '+saved.document.version+' 저장')+(r.notes.length?' · '+r.notes.join(' · '):'');}};}
  async function applyPlaylist(o){const p=await plan(o.target,true);if(!p.playlist.editable)throw Error('이 순서는 편집할 수 없습니다.');const i=o.service,pick=id=>{const s=get(id);return s.skip||s.locked?null:{choice:s.choice};};
   const r=PL.songPlan(names(p),i,{songs:work.songs[i].map(pick).filter(Boolean),after:pick(work.after[i]),offering:pick(work.offer[i]),sermon:await sermonTarget(i)});if(!r.changed)return {text:'바뀌는 것 없음',write:async()=>'바뀌는 것 없음'};
   const items=r.rows.map(x=>x.action==='keep'?{id:p.items[x.index].id,...p.items[x.index].documentId?{documentId:p.items[x.index].documentId}:{}}:{documentId:x.document.id});
   const [library,node]=o.target.split('/');
-  return {text:`순서 ${items.length}개`,preview:{kind:'playlist',rows:r.rows.map(x=>({name:x.name,changed:x.action!=='keep'}))},
+  return {text:`순서 ${items.length}개`,preview:{kind:'playlist',before:names(p).map((name,index)=>({name,removed:r.removed.some(x=>x.index===index),replaced:r.rows.some(x=>x.action==='replace'&&x.index===index)})),rows:r.rows.map(x=>({name:x.name,changed:x.action!=='keep'}))},
    async write(){await(await C.api(`/playlists/${library}?`+new URLSearchParams({node,includeIndexed:'1'}),{method:'PATCH',headers:{'Content-Type':'application/json','If-Match':`"${p.library.version}"`},body:JSON.stringify({items,baseNodeHash:p.playlist.sha256})})).json();plans.delete(o.target);return `순서 ${items.length}개 저장`;}};}
- function stageOp(o,need){if(o.kind==='prayer')return rewrite(o.doc,(xml,name)=>D.prayer(xml,name,o.person));if(o.kind==='sermon')return rewrite(o.doc,async(xml,name)=>D.sermon(xml,name,o.data,await need()));if(o.kind==='simple')return rewrite(o.doc,async(xml,name)=>D.titlePassage(xml,name,o.data,await need(),{made:!!o.weekday}));return applyPlaylist(o);}
+ function stageOp(o,need){if(o.kind==='prayer')return rewrite(o.doc,(xml,name)=>D.prayer(xml,name,o.person));if(o.kind==='sermon')return rewrite(o.doc,async(xml,name)=>D.sermon(xml,name,o.data,await need()),'stack');if(o.kind==='simple')return rewrite(o.doc,async(xml,name)=>D.titlePassage(xml,name,o.data,await need(),{made:!!o.weekday}));return applyPlaylist(o);}
  async function todoOps(){const ops=await reviewOps;const todo=ops.filter(o=>work.include[o.key]&&!work.results?.some(r=>r.key===o.key&&r.ok));if(!todo.length)throw Error('적용할 항목이 없습니다.');return [...todo.filter(o=>o.kind!=='playlist'),...todo.filter(o=>o.kind==='playlist')];}
  async function apply(){if(L.state().dirty)throw Error('Studio에서 열린 순서의 변경사항을 먼저 저장하세요.');const todo=await todoOps();
   let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const next=new Map();
@@ -199,8 +199,14 @@
    try{if(r.op.kind==='playlist')plans.delete(r.op.target);const fresh=await stageOp(r.op,need);results.push({key:r.key,label:r.label,ok:true,text:await fresh.write()});}catch(e){results.push({key:r.key,label:r.label,ok:false,text:e.message});}}
   staged=null;work.results=results;save();const open=L.selectedPlaylist();if(open&&!L.state().dirty&&results.some(r=>r.ok)){const [library,node]=open.key.split('/');await L.openNode(library,node);}
   message(results.every(r=>r.ok)?'모두 서버에 저장했습니다. 열려 있던 문서는 다시 열어 확인하세요.':'일부 항목을 저장하지 못했습니다. 결과를 확인하세요.');render();}
- function preview(r){const box=el('div','bulletin-preview');if(r.preview?.kind==='document'){const model=PP6.parse(r.preview.xml,r.preview.name),slides=PP6.slides(model);for(const slide of slides.slice(0,8)){const c=document.createElement('canvas');c.width=192;c.height=Math.round(192*model.height/model.width);box.append(c);PP6Render.draw(c,model,slide,new Map()).catch(()=>{});}if(slides.length>8)box.append(el('small',null,`외 ${slides.length-8}장`));}
-  else if(r.preview?.kind==='playlist'){const ol=el('ol','bulletin-order');for(const row of r.preview.rows)ol.append(el('li',row.changed?'changed':'',row.name));box.append(ol);}return box;}
+ // 바뀌기 전과 뒤를 실제 모양으로 보여 준다. 설교처럼 긴 문서는 위(전)·아래(후) 두 줄을 가로로 넘기고, 나머지는 나란히 둔다.
+ function thumbs(xml,name){const model=PP6.parse(xml,name),strip=el('div','bulletin-thumbs');for(const slide of PP6.slides(model)){const c=document.createElement('canvas');c.width=192;c.height=Math.round(192*model.height/model.width);strip.append(c);PP6Render.draw(c,model,slide,new Map()).catch(()=>{});}if(!strip.children.length)strip.append(el('small',null,'슬라이드 없음'));return strip;}
+ function side(title,body){const box=el('div','bulletin-compare-side');box.append(el('strong',null,title),body);return box;}
+ function order(rows,after){const list=el('ol','bulletin-order-pane');rows.forEach((row,i)=>{const li=el('li',after?(row.changed?'added':''):(row.removed?'removed':row.replaced?'replaced':''));li.append(el('span','n',String(i+1)),el('span','dot'),el('span','nm',row.name));list.append(li);});return list;}
+ function preview(r){const p=r.preview,box=el('div','bulletin-compare'+(p?.layout==='stack'?' stack':''));if(!p)return box;
+  if(p.kind==='document'){const count=xml=>PP6.slides(PP6.parse(xml,p.name)).length;box.append(side(`변경 전 · ${count(p.before)}장`,thumbs(p.before,p.name)),side(`변경 후 · ${count(p.xml)}장`,thumbs(p.xml,p.name)));}
+  else if(p.kind==='playlist')box.append(side('변경 전',order(p.before,false)),side('변경 후',order(p.rows,true)));
+  return box;}
  /* ---------- shell ---------- */
  function steps(){const nav=$('bulletinSteps');nav.replaceChildren();if(!work)return;for(const [id,name] of STEPS){const b=el('button');b.setAttribute('role','tab');b.setAttribute('aria-selected',String(work.step===id));b.append(name);
   if(id!=='review'){const left=Object.values(work.slots).filter(s=>s.step===id&&!s.locked&&!s.skip&&(s.kind==='song'?s.value&&!s.choice:!s.value.trim())).length;b.append(el('span','n'+(left?' left':''),left?String(left):'✓'));}
