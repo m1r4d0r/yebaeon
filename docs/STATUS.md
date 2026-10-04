@@ -44,6 +44,13 @@
 - 배포: Deploy YebaeOn run 37180787650 성공(사용자 승인). 첫 요청에서 `schema-ready-sync3-v1` 이전이 한 번 돈다(운영 확인은 아직). main Mac 검사 run 37180787646 성공(엔진 131, 10.13 빌드, ZIP SHA-256 `1c05e4b0…0329`, 11-03 만료) — 교회 Mac에 설치할 설치본.
 - 검사: 로컬 Worker 74개, 브라우저 7종(새 `library-bins.cjs` 포함) 통과. Verify Mac Sync 2 수동 실행(작업 브랜치 b619edd, `mac-sync2/` 단독 빌드) run 37179918980 성공 — 엔진 통합 131개, Apple clang 10.13 대상 빌드(차이 창 포함), 설치본 artifact `YebaeOn-Sync-2.0.0`(ZIP SHA-256 `8d4a34c2…7f51`, 11-03 만료). 최신 macOS CI 결과이며 High Sierra 실기는 아님. 그전 실패 3회는 검사가 찾은 결함(Mac에서 지운 예배를 빈 순서 수정으로 판정, 같은 초 여러 적용 때 되돌릴 대상 오인)이었고 고쳤다.
 
+## 웹 가져온 이미지 → 교회 Mac (브랜치 `claude/lucid-volta-76cfb4`, 병합 전)
+
+- 서버: `POST /api/media/paths`가 `YebaeOn/<문서이름>-<n>.png` 경로를 정해 경로표·일지에 넣는다. 문서 저장은 `YebaeOn/` 경로를 경로표 sha로 이어 참조를 남긴다.
+- Studio: PPT 가져오기·악보 배경 바꾸기가 가짜 경로 대신 그 file URL을 문서에 적는다.
+- Sync 2: 활성 예배 문서가 가리키는 이미지 중 경로표에 있고 Mac에 없는 것을 상주 비교가 찾아 "받을 것"으로 보이고, [적용] 때 받는 문서의 이미지와 함께 서버에서 받아 둔다(폴더 없으면 만듦). 이미지 실패는 문서 적용을 막지 않는다.
+- 검사: 로컬 Worker(새 검사 포함), PPT 브라우저 검사. Mac 통합 검사 25번(가져온 이미지 받기·없어진 이미지 다시 받기)은 Mac CI 실행 전이다.
+
 ## 다음 세 가지
 
 1. Worker 비밀값 `ADMIN_PASSWORD` 설정(대시보드 Settings → Variables and Secrets, 종류 Secret, 길이 제한 없음). 그 전까지 휴지통 비우기·카테고리 설정 변경은 503. Studio에서 보관·휴지통·이름 바꾸기 동작 확인.

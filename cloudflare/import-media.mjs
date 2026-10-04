@@ -1,19 +1,28 @@
 import {XMLParser} from 'fast-xml-parser';
 import {HttpError} from './http.mjs';
+import {MEDIA_ROOT,mediaPathKey} from './ledger.mjs';
 const prefix='file:///YebaeOn-Media/';
+const importFolder=MEDIA_ROOT+'YebaeOn/';
+const importPathText=/Renewed(?:%20| )Vision(?:%20| )Media\/YebaeOn\//;
 const parser=new XMLParser({ignoreAttributes:false,preserveOrder:true,attributeNamePrefix:'',parseTagValue:false,processEntities:true});
-// Only our content-addressed imports opt in. Ordinary Mac documents retain
-// their existing explicit media-registration protocol and query cost.
+// Studio 가져오기 이미지만 대상이다. `YebaeOn/` 실제 경로는 경로표의 sha로, 옛 `file:///YebaeOn-Media/<sha>.png`는 이름의 sha로 연결한다.
+// 다른 Mac 문서는 조회가 늘지 않는다. 경로표에 없는 `YebaeOn/` 경로는 막지 않고 건너뛴다(Mac이 올린 문서).
 export async function importedMedia(db,bytes){
- const xml=new TextDecoder().decode(bytes);if(!xml.includes(prefix))return [];
- const refs=[];let slide=0;
+ const xml=new TextDecoder().decode(bytes);if(!xml.includes(prefix)&&!importPathText.test(xml))return [];
+ const refs=[],byPath=[];let slide=0;
  function walk(nodes){for(const n of nodes){const tag=Object.keys(n).find(k=>k!==':@');if(tag==='RVDisplaySlide')slide++;
   if(['RVImageElement','RVVideoElement'].includes(tag)){
    const source=n[':@']?.source||'';
-   if(source.startsWith(prefix)){const m=/^file:\/\/\/YebaeOn-Media\/([a-f0-9]{64})\.png$/.exec(source);if(!m||slide<1)throw new HttpError(422,'invalid_import_media','가져온 이미지 경로가 올바르지 않습니다.');refs.push({id:'import-'+refs.length,sha256:m[1],source,slide});}
+   if(source.startsWith(prefix)){const m=/^file:\/\/\/YebaeOn-Media\/([a-f0-9]{64})\.png$/.exec(source);if(!m||slide<1)throw new HttpError(422,'invalid_import_media','가져온 이미지 경로가 올바르지 않습니다.');refs.push({sha256:m[1],source,slide});}
+   else if(slide>=1){const path=mediaPathKey(source);if(path?.startsWith(importFolder))byPath.push({path,source,slide});}
   }if(Array.isArray(n[tag]))walk(n[tag]);
  }}walk(parser.parse(xml));
- if(refs.length>900)throw new HttpError(413,'too_many_import_images','문서 이미지가 너무 많습니다. 문서를 나누어 주세요.');
+ if(refs.length+byPath.length>900)throw new HttpError(413,'too_many_import_images','문서 이미지가 너무 많습니다. 문서를 나누어 주세요.');
+ if(byPath.length){
+  const known=new Map((await db.prepare("SELECT path,sha256 FROM yebaeon_media_paths WHERE path IN (SELECT value FROM json_each(?)) AND state='active'").bind(JSON.stringify([...new Set(byPath.map(r=>r.path))])).all()).results.map(r=>[r.path,r.sha256]));
+  for(const r of byPath)if(known.has(r.path))refs.push({sha256:known.get(r.path),source:r.source,slide:r.slide});
+ }
+ refs.forEach((r,i)=>r.id='import-'+i);
  const hashes=[...new Set(refs.map(r=>r.sha256))];
  for(let i=0;i<hashes.length;i+=80){const part=hashes.slice(i,i+80),rows=(await db.prepare(`SELECT sha256 FROM yebaeon_media_assets WHERE sha256 IN (${part.map(()=>'?').join(',')})`).bind(...part).all()).results;if(rows.length!==part.length)throw new HttpError(409,'import_image_missing','이미지 업로드가 완료되지 않았습니다. 다시 시도해 주세요.');}
  return refs;

@@ -376,6 +376,34 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check(ServerDoc(@"봉헌 2.pro6") != nil && [[[engine numberedLog] valueForKey:@"target"] containsObject:@"봉헌 2.pro6"], @"numbered copy uploaded and logged");
         Check([[engine uploadNew][@"created"] count] == 0, @"numbered copy is not uploaded twice");
 
+        // 25. 웹에서 가져온 이미지: 서버가 `YebaeOn/<문서이름>-<n>.png` 경로를 정하고, 그 문서를 쓰는 예배를 [적용]하면 Mac에 없는 이미지를 받는다.
+        //     이미지만 없어진 예배도 비교에서 받을 것으로 보이고 [적용] 때 다시 받는다. 폴더가 없으면 만든다.
+        NSMutableData *slideImage = [NSMutableData dataWithBytes:png length:sizeof png]; [slideImage appendData:[NSUUID.UUID.UUIDString dataUsingEncoding:NSUTF8StringEncoding]];
+        NSString *slideSha = YBHash(slideImage);
+        [web uploadMedia:slideImage sha256:slideSha];
+        NSDictionary *placed = [web request:@"/api/media/paths" method:@"POST" body:[NSJSONSerialization dataWithJSONObject:@{@"name": @"웹 말씀", @"items": @[@{@"sha256": slideSha}]} options:0 error:NULL] headers:@{@"Content-Type": @"application/json"}];
+        NSString *slidePath = [placed[@"paths"] firstObject][@"path"];
+        Check([slidePath hasPrefix:@"/Users/Shared/Renewed Vision Media/YebaeOn/웹 말씀-"] && [slidePath hasSuffix:@".png"], [NSString stringWithFormat:@"import path allocated: %@", placed]);
+        [NSFileManager.defaultManager removeItemAtPath:slidePath error:NULL];
+        NSString *slideURL = [@"file://" stringByAppendingString:[slidePath stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]];
+        [web upload:Doc([NSString stringWithFormat:@"<RVDisplaySlide><RVImageElement source=\"%@\"/></RVDisplaySlide>", slideURL]) path:@"웹 말씀.pro6" previous:nil];
+        n2Plan = [web request:[NSString stringWithFormat:@"/api/playlists/%@/plan?node=N2", libraryID] method:@"GET" body:nil headers:nil];
+        n2XML = n2Plan[@"playlist"][@"xml"]; close = [n2XML rangeOfString:@"</RVPlaylistNode>" options:NSBackwardsSearch];
+        NSString *withSermon = [n2XML stringByReplacingCharactersInRange:NSMakeRange(close.location, 0) withString:Cue(@"C-W3", @"웹 말씀", docs)];
+        [web request:[NSString stringWithFormat:@"/api/playlists/%@/nodes?node=N2", libraryID] method:@"PUT" body:[NSJSONSerialization dataWithJSONObject:@{@"xml": withSermon, @"baseNodeHash": n2Plan[@"playlist"][@"sha256"]} options:0 error:NULL] headers:@{@"Content-Type": @"application/json", @"X-YebaeOn-Sync": @"2"}];
+        rows = Sync(); n2 = RowNamed(rows, @"수요 저녁");
+        Check([n2[@"status"] isEqual:@"receive"], [NSString stringWithFormat:@"service with a web-imported document waits: %@", n2[@"status"]]);
+        result = [engine apply:@[n2]];
+        Check([result[@"failed"] count] == 0 && [result[@"images"] integerValue] == 1 && [[NSData dataWithContentsOfFile:slidePath] isEqual:slideImage], [NSString stringWithFormat:@"image received with the document: %@", result]);
+        Check([RowNamed(Sync(), @"수요 저녁")[@"status"] isEqual:@"same"], @"same after receiving the image");
+        Check([NSFileManager.defaultManager removeItemAtPath:slidePath error:NULL], @"mac loses the image");
+        rows = Sync(); n2 = RowNamed(rows, @"수요 저녁");
+        Check([n2[@"status"] isEqual:@"receive"] && [n2[@"imagesOnly"] boolValue] && [[n2[@"images"] valueForKey:@"path"] isEqual:@[slidePath]], [NSString stringWithFormat:@"missing image detected: %@ %@", n2[@"status"], n2[@"images"]]);
+        result = [engine apply:@[n2]];
+        Check([result[@"images"] integerValue] == 1 && [[NSData dataWithContentsOfFile:slidePath] isEqual:slideImage], [NSString stringWithFormat:@"missing image restored on apply: %@", result]);
+        Check([RowNamed(Sync(), @"수요 저녁")[@"status"] isEqual:@"same"], @"same after restoring the image");
+        [NSFileManager.defaultManager removeItemAtPath:slidePath error:NULL];
+
         // 7. PP6가 켜져 있으면 적용하지 않는다.
         engine.presenterRunning = ^BOOL { return YES; };
         BOOL refused = NO; @try { [engine apply:@[n1]]; } @catch (NSException *e) { refused = [e.reason containsString:@"ProPresenter"]; }

@@ -64,3 +64,38 @@ test('content-addressed image upload, retry, reference registration, download an
   assert.equal(await db.prepare('SELECT id FROM yebaeon_documents WHERE path=?').bind('missing-import.pro6').first(),null,'missing assets cannot commit a document');
 
 });
+
+test('import images get church Mac paths under YebaeOn/ and link to the document',{timeout:90000},async t=>{
+  const bundled=await build({entryPoints:['cloudflare/worker.mjs'],bundle:true,write:false,format:'esm',platform:'browser'});
+  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:bundled.outputFiles[0].text,compatibilityDate:'2026-09-28',bindings:{SITE_PASSWORD:'media-test'},d1Databases:['DB'],r2Buckets:['FILES'],cf:false}));
+  t.after(()=>mf.dispose());
+  const origin='https://example.test';let cookie='';
+  const call=(path,method='GET',body,extra={})=>mf.dispatchFetch(origin+'/api'+path,{method,body,headers:{Cookie:cookie,...method==='GET'?{}:{Origin:origin},...extra}});
+  const ok=async(response,status=200)=>{const text=await response.text();assert.equal(response.status,status,text);return JSON.parse(text);};
+  const login=await call('/session','POST',JSON.stringify({name:'시험',password:'media-test'}),{'Content-Type':'application/json'});
+  await ok(login);cookie=login.headers.get('Set-Cookie').split(';')[0];
+  const images=[0,1,2].map(n=>Buffer.concat([png,Buffer.from('slide-'+n)])),hashes=images.map(hash);
+  for(const [i,b] of images.entries())await ok(await call('/media/'+hashes[i]+'/content','PUT',b,{'Content-Type':'application/octet-stream','X-Yebaeon-SHA256':hashes[i]}),201);
+  const place=(name,list)=>call('/media/paths','POST',JSON.stringify({name,items:list.map(sha256=>({sha256}))}),{'Content-Type':'application/json'});
+  const root='/Users/Shared/Renewed Vision Media/YebaeOn/';
+  const first=(await ok(await place('주일예배말씀 ppt',hashes.slice(0,2)))).paths;
+  assert.deepEqual(first.map(p=>p.path),[root+'주일예배말씀 ppt-1.png',root+'주일예배말씀 ppt-2.png']);
+  assert.equal(first[0].size,images[0].length);
+  assert.deepEqual((await ok(await place('주일예배말씀 ppt',[hashes[1],hashes[0]]))).paths.map(p=>p.path),[root+'주일예배말씀 ppt-2.png',root+'주일예배말씀 ppt-1.png'],'same image keeps its path');
+  assert.equal((await ok(await place('주일예배말씀 ppt',[hashes[2]]))).paths[0].path,root+'주일예배말씀 ppt-3.png','next week continues the numbers');
+  assert.equal((await ok(await place('다른 문서',[hashes[0]]))).paths[0].path,root+'주일예배말씀 ppt-1.png','an image already on the Mac is not copied again');
+  const db=await mf.getD1Database('DB');
+  assert.equal((await db.prepare("SELECT count(*) AS n FROM yebaeon_sync_log WHERE kind='media' AND action='created'").first()).n,3,'each new path is logged once for the Mac ledger');
+  const extra=Buffer.concat([png,Buffer.from('odd name')]);await ok(await call('/media/'+hash(extra)+'/content','PUT',extra,{'Content-Type':'application/octet-stream','X-Yebaeon-SHA256':hash(extra)}),201);
+  assert.equal((await ok(await place('a/b:c\u0001'+'가'.repeat(80),[hash(extra)]))).paths[0].path,root+'a-b-c-'+'가'.repeat(54)+'-1.png','folder and control characters removed, name cut to 60');
+  assert.equal((await place('없음',['e'.repeat(64)])).status,409,'paths only for uploaded images');
+  assert.equal((await place('잘못',['x'])).status,400);
+  // The document points at the real Mac path; the server links it to the image through the path table.
+  const url=p=>'file://'+p.split('/').map(encodeURIComponent).join('/');
+  const xml=sources=>`<RVPresentationDocument width="1920" height="1080" category="특별순서"><array rvXMLIvarName="groups"><RVSlideGrouping><array rvXMLIvarName="slides">${sources.map((s,i)=>`<RVDisplaySlide label="${i+1}"><array rvXMLIvarName="displayElements"><RVImageElement source="${s}"/></array></RVDisplaySlide>`).join('')}</array></RVSlideGrouping></array></RVPresentationDocument>`;
+  const doc=(await ok(await call('/documents?path='+encodeURIComponent('주일예배말씀 ppt.pro6'),'POST',xml(first.map(p=>url(p.path))),{'Content-Type':'application/xml'}),201)).document;
+  const refs=(await ok(await call('/media/references?documentId='+doc.id+'&version=1'))).references;
+  assert.deepEqual(refs.map(r=>[r.slide,r.sha256]),[[1,hashes[0]],[2,hashes[1]]]);
+  const loose=(await ok(await call('/documents?path=mac.pro6','POST',xml([url(root+'모르는 그림.png')]),{'Content-Type':'application/xml'}),201)).document;
+  assert.equal((await ok(await call('/media/references?documentId='+loose.id+'&version=1'))).references.length,0,'unknown YebaeOn paths do not block a Mac document');
+});

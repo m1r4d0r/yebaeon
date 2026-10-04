@@ -15,7 +15,12 @@
 @property(nonatomic) NSDictionary *library;             // 서버 재생목록 파일 메타데이터
 @property(nonatomic) NSSet *knownDocumentIDs;           // 마지막 비교의 예배들이 쓰는 서버 문서 id(변경 일지 거르기용)
 @property(nonatomic) NSString *sourceRoot;              // 서버 재생목록이 아는 문서 폴더 표기(~/… 또는 /Users/…)
+@property(nonatomic) NSMutableDictionary *imageCache;   // 문서 sha → 그 문서가 가리키는 허용 폴더 이미지 경로
+@property(nonatomic) NSSet *knownImagePaths;            // 마지막 비교의 예배 문서들이 가리키는 이미지 경로(변경 일지 거르기용)
 @end
+
+static NSArray *MediaPaths(NSData *document);
+static BOOL AllowedMedia(NSString *path);
 
 @implementation YB2Engine
 
@@ -127,6 +132,18 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     }
     return nil;
 }
+// 이미지가 Mac에 있는가(NFC·NFD 두 이름).
+static BOOL ImageExists(NSString *path) {
+    return [NSFileManager.defaultManager fileExistsAtPath:path] || [NSFileManager.defaultManager fileExistsAtPath:path.decomposedStringWithCanonicalMapping];
+}
+// 문서가 가리키는 이미지 경로. 같은 바이트는 다시 훑지 않는다.
+- (NSArray *)imagePathsIn:(NSData *)document hash:(NSString *)hash {
+    if (!self.imageCache) self.imageCache = [NSMutableDictionary dictionary];
+    NSArray *paths = hash ? self.imageCache[hash] : nil;
+    if (!paths) { paths = MediaPaths(document); if (hash) self.imageCache[hash] = paths; }
+    return paths;
+}
+
 // 서버가 알던 내용 그대로인가: 서버 sha와 같거나, 영수증대로(받은 뒤 Mac에서 고치지 않음)다.
 - (BOOL)unchangedSinceServer:(NSString *)path sha:(NSString *)sha {
     NSString *hash = [self localHash:path];
@@ -210,7 +227,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     for (NSDictionary *node in YBPlaylistNodes(local)) localNodes[node[@"id"]] = node;
 
     [self.receipt setValue:self.library[@"id"] forKey:@"libraryID"];
-    NSMutableSet *documentIDs = [NSMutableSet set];
+    NSMutableSet *documentIDs = [NSMutableSet set], *imagePaths = [NSMutableSet set];
     NSMutableArray *rows = [NSMutableArray array];
     NSArray *serverNodes = [self.library[@"playlists"] isKindOfClass:NSArray.class] ? self.library[@"playlists"] : @[];
     NSUInteger index = 0;
@@ -254,7 +271,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
 
             NSMutableArray *documents = [NSMutableArray array], *macChanged = [NSMutableArray array], *macOnly = [NSMutableArray array], *usageOnly = [NSMutableArray array], *reverted = [NSMutableArray array];
             NSMutableDictionary *reasons = [NSMutableDictionary dictionary];
-            NSMutableArray *macDeletedDocs = [NSMutableArray array];
+            NSMutableArray *macDeletedDocs = [NSMutableArray array], *keptDocs = [NSMutableArray array];
             for (NSDictionary *doc in plan[@"documents"]) {
                 [documentIDs addObject:doc[@"id"]];
                 NSString *path = doc[@"path"], *localHash = [self localHash:path];
@@ -292,6 +309,21 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
                 // 영수증이 없거나 영수증과 다른 바이트: 서버 것을 적용하되 Mac 것은 서버 보관본(+ Mac 백업)으로 남긴다.
                 if (localHash && (!knownDoc || macEdited)) { [macChanged addObject:path]; reasons[path] = macEdited ? @"both-changed" : @"technical"; }
             }
+            // 적용 뒤에도 Mac 파일 그대로인 문서가 가리키는 이미지 중, 서버 경로표에 있는데 Mac에 없는 것. 받을 문서의 이미지는 [적용] 때 받은 바이트로 본다.
+            NSMutableArray *images = [NSMutableArray array]; NSMutableSet *rowImages = [NSMutableSet set];
+            NSSet *receiving = [NSSet setWithArray:[documents valueForKey:@"path"]];
+            for (NSDictionary *doc in plan[@"documents"]) if (![receiving containsObject:doc[@"path"]]) [keptDocs addObject:doc[@"path"]];
+            for (NSString *path in keptDocs) {
+                NSString *hash = [self localHash:path]; if (!hash) continue;
+                NSArray *paths = self.imageCache[hash] ?: [self imagePathsIn:YBReadSafeFile(self.root, path, NULL) hash:hash];
+                [imagePaths addObjectsFromArray:paths];
+                for (NSString *image in paths) {
+                    NSString *sha = [self.receipt mediaSha:image];
+                    if (!sha || [rowImages containsObject:image] || ImageExists(image)) continue;
+                    [rowImages addObject:image]; [images addObject:@{@"path": image, @"sha": sha}];
+                }
+            }
+            row[@"images"] = images;
             BOOL macOnlyOrder = NO;
             if (orderChanged && macOrderChanged && [known[@"serverSha"] isEqual:plan[@"playlist"][@"sha256"]]) { orderChanged = NO; macOnlyOrder = YES; }   // 순서를 Mac에서만 바꿈: 올리기
             if (macRenamed && !orderChanged) macOnlyOrder = YES;   // 이름만 Mac에서 바꿈: 노드 교체로 올린다
@@ -308,6 +340,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
             row[@"documents"] = documents; row[@"macChangedDocuments"] = macChanged;
             row[@"missingServer"] = @(missingServer); row[@"missingLocal"] = missingLocal;
             if (orderChanged || documents.count) row[@"status"] = @"receive";
+            else if (images.count) { row[@"status"] = @"receive"; row[@"imagesOnly"] = @YES; }
             else if (macOnlyOrder || macOnly.count || usageOnly.count) row[@"status"] = @"mac";
             else {
                 row[@"status"] = @"same";
@@ -376,7 +409,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     if (renames.count || trashes.count || holds.count)
         [rows addObject:@{@"key": @"doc-actions", @"nodeID": @"", @"name": @"문서 정리(서버)", @"status": renames.count || trashes.count ? @"actions" : @"hold",
                           @"reason": holds.count ? [NSString stringWithFormat:@"확인 필요 %lu", (unsigned long)holds.count] : @"", @"renames": renames, @"trashes": trashes, @"actionHolds": holds}];
-    self.knownDocumentIDs = documentIDs;
+    self.knownDocumentIDs = documentIDs; self.knownImagePaths = imagePaths;
     [self report:@"비교 완료"];
     return rows;
 }
@@ -407,7 +440,9 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     NSData *after = before;
     NSMutableArray *moves = [NSMutableArray array], *trashFiles = [NSMutableArray array], *pendingDone = [NSMutableArray array];
     NSMutableSet *numberedPaths = [NSMutableSet set]; NSMutableDictionary *prefetched = [NSMutableDictionary dictionary];
+    NSMutableDictionary *wantedImages = [NSMutableDictionary dictionary];   // 경로 → 서버 경로표 sha(모르면 NSNull)
     for (NSDictionary *row in rows) {
+        for (NSDictionary *image in [row[@"images"] isKindOfClass:NSArray.class] ? row[@"images"] : @[]) if (image[@"path"]) wantedImages[image[@"path"]] = image[@"sha"] ?: NSNull.null;
         // 서버 휴지통에 넣은 예배: 이 노드만 뺀다. 다른 노드 바이트는 그대로다.
         if ([row[@"status"] isEqual:@"trash"]) {
             @try {
@@ -486,6 +521,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
                 YBWriteSafeFile(stageRoot, staged, data, 0600, nil);
                 NSDictionary *record = @{@"path": path, @"staged": staged, @"sha": doc[@"sha256"], @"version": doc[@"version"]};
                 [rowDocs addObject:record]; rowSeen[path] = record;
+                for (NSString *image in [self imagePathsIn:data hash:doc[@"sha256"]]) if (!wantedImages[image] && !ImageExists(image)) wantedImages[image] = [self.receipt mediaSha:image] ?: NSNull.null;
             }
             if ([row[@"orderChanged"] boolValue]) rowAfter = YBPlaylistReplacing(rowAfter, row[@"nodeID"], YBPlaylistLocalXML(plan, self.root));
             [stagedDocs addObjectsFromArray:rowDocs]; [seenPaths addEntriesFromDictionary:rowSeen]; after = rowAfter;
@@ -498,7 +534,10 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
             failed[name] = e.reason ?: @"준비 실패";
         }
     }
-    if (!stagedDocs.count && [after isEqual:before] && !nodeRecords.count && !moves.count && !trashFiles.count) { [NSFileManager.defaultManager removeItemAtPath:stageRoot error:NULL]; return @{@"applied": @[], @"failed": failed, @"backup": @"", @"revisions": @(revisions), @"revisionFailed": revisionFailed}; }
+    // 이미지: 서버 경로표에 있고 Mac에 없는 것만 받아 둔다. 이미지 때문에 문서·순서 적용을 막지 않는다(sync.md 5.4).
+    NSMutableArray *stagedImages = [NSMutableArray array], *imageFailed = [NSMutableArray array];
+    [self stageImages:wantedImages into:stageRoot staged:stagedImages failed:imageFailed];
+    if (!stagedDocs.count && [after isEqual:before] && !nodeRecords.count && !moves.count && !trashFiles.count && !stagedImages.count) { [NSFileManager.defaultManager removeItemAtPath:stageRoot error:NULL]; return @{@"applied": @[], @"failed": failed, @"backup": @"", @"revisions": @(revisions), @"revisionFailed": revisionFailed, @"images": @0, @"imageFailed": imageFailed}; }
 
     NSString *afterStaged = nil;
     if (![after isEqual:before]) { afterStaged = @"after.pro6pl"; YBWriteSafeFile(stageRoot, afterStaged, after, 0600, nil); }
@@ -509,13 +548,63 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     NSDictionary *journal = @{@"id": applyID, @"status": @"prepared", @"root": self.root, @"playlist": self.playlistURL.path,
                               @"receiptBefore": @{@"documents": beforeDocs, @"nodes": beforeNodes},
                               @"beforeSha": YBHash(before), @"afterSha": YBHash(after), @"afterStaged": afterStaged ?: @"",
-                              @"documents": stagedDocs, @"nodes": nodeRecords, @"applied": applied,
+                              @"documents": stagedDocs, @"images": stagedImages, @"nodes": nodeRecords, @"applied": applied,
                               @"moves": moves, @"trash": trashFiles, @"pendingDone": pendingDone};
     [self writeJournal:journal];
     // 이 시점부터는 중단되어도 다음 실행이 같은 내용으로 끝까지 마무리한다.
     [self performJournal:journal stageRoot:stageRoot backupRoot:backupRoot];
     [self pruneBackupsKeeping:10];
-    return @{@"applied": applied, @"failed": failed, @"backup": backupRoot, @"revisions": @(revisions), @"revisionFailed": revisionFailed};
+    return @{@"applied": applied, @"failed": failed, @"backup": backupRoot, @"revisions": @(revisions), @"revisionFailed": revisionFailed, @"images": @(stagedImages.count), @"imageFailed": imageFailed};
+}
+// 받을 이미지를 준비 폴더에 둔다. 영수증 경로표 사본에 없는 경로는 서버 경로표에 50개씩 묻는다(새로 가져온 이미지).
+// 경로표에도 없으면 받지 않는다(Mac에만 있던 이미지이거나 이미 깨진 참조).
+- (void)stageImages:(NSDictionary *)wanted into:(NSString *)stageRoot staged:(NSMutableArray *)staged failed:(NSMutableArray *)failed {
+    NSMutableDictionary *known = [NSMutableDictionary dictionary]; NSMutableArray *ask = [NSMutableArray array];
+    for (NSString *path in wanted) { if (!AllowedMedia(path) || ImageExists(path)) continue; if ([wanted[path] isKindOfClass:NSString.class]) known[path] = wanted[path]; else [ask addObject:path]; }
+    [ask sortUsingSelector:@selector(compare:)];
+    for (NSUInteger offset = 0; offset < ask.count; offset += 50) {
+        NSArray *chunk = [ask subarrayWithRange:NSMakeRange(offset, MIN(50, ask.count - offset))];
+        NSMutableArray *query = [NSMutableArray array];
+        for (NSString *path in chunk) [query addObject:[@"path=" stringByAppendingString:Query(path)]];
+        @try {
+            NSDictionary *result = [self.server request:[@"/api/media/paths?" stringByAppendingString:[query componentsJoinedByString:@"&"]] method:@"GET" body:nil headers:Headers()];
+            for (NSDictionary *item in [result[@"paths"] isKindOfClass:NSArray.class] ? result[@"paths"] : @[])
+                if ([item[@"state"] isEqual:@"active"] && [item[@"path"] isKindOfClass:NSString.class] && [item[@"sha256"] isKindOfClass:NSString.class]) {
+                    known[item[@"path"]] = item[@"sha256"];
+                    [self.receipt setMedia:item[@"path"] sha:item[@"sha256"]];
+                }
+        } @catch (NSException *e) { [failed addObject:[NSString stringWithFormat:@"이미지 경로 확인: %@", e.reason]]; }
+    }
+    for (NSString *path in [known.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+        @try {
+            [self report:[@"이미지 받는 중 · " stringByAppendingString:path.lastPathComponent]];
+            NSDictionary *asset = [self.server mediaAssets:@[known[path]]].firstObject;
+            YBRequire([asset[@"size"] isKindOfClass:NSNumber.class], @"서버에 이미지 원본이 없습니다.");
+            NSData *data = [self.server downloadMedia:known[path] size:[asset[@"size"] unsignedLongLongValue]];
+            YBRequire([YBHash(data) isEqual:known[path]], @"받은 이미지가 다릅니다.");
+            NSString *name = [NSString stringWithFormat:@"image-%lu", (unsigned long)staged.count];
+            YBWriteSafeFile(stageRoot, name, data, 0600, nil);
+            [staged addObject:@{@"path": path, @"staged": name, @"sha": known[path]}];
+        } @catch (NSException *e) { [failed addObject:[NSString stringWithFormat:@"%@: %@", path.lastPathComponent, e.reason]]; }
+    }
+}
+// 준비한 이미지를 제자리에 둔다. 폴더가 없으면 만들고(`YebaeOn/` 포함), 이미 있으면 건드리지 않는다. 임시 이름으로 쓴 뒤 바꾼다.
+- (NSUInteger)placeImages:(NSArray *)images stageRoot:(NSString *)stageRoot {
+    NSUInteger placed = 0;
+    for (NSDictionary *image in images) {
+        NSString *path = image[@"path"];
+        if (!AllowedMedia(path) || ImageExists(path)) continue;
+        NSData *data = YBReadSafeFile(stageRoot, image[@"staged"], NULL);
+        if (!data || ![YBHash(data) isEqual:image[@"sha"]]) continue;   // 준비본이 없으면 다음 비교에서 다시 받는다
+        [self report:[@"이미지 두는 중 · " stringByAppendingString:path.lastPathComponent]];
+        [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:NULL];
+        NSString *temporary = [path.stringByDeletingLastPathComponent stringByAppendingPathComponent:[NSString stringWithFormat:@".yebaeon-%@.tmp", NSUUID.UUID.UUIDString]];
+        if (![data writeToFile:temporary options:NSDataWritingWithoutOverwriting error:NULL]) continue;
+        chmod(temporary.fileSystemRepresentation, 0644);
+        if (renamex_np(temporary.fileSystemRepresentation, path.fileSystemRepresentation, RENAME_EXCL) == 0) placed++;
+        else [NSFileManager.defaultManager removeItemAtPath:temporary error:NULL];
+    }
+    return placed;
 }
 
 // 준비된 내용을 운영 파일에 넣는다. 같은 내용으로 몇 번을 실행해도 결과가 같다.
@@ -550,6 +639,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
         if (current && !YBReadSafeFile(docsBackup, path, NULL)) YBWriteSafeFile(docsBackup, path, current, 0600, nil);
         YBWriteSafeFile(self.root, path, output, current ? mode : 0644, ^{ YBRequire(!self.presenterRunning(), @"ProPresenter가 실행됐습니다. 적용을 중단했습니다."); });
     }
+    [self placeImages:journal[@"images"] stageRoot:stageRoot];
     NSString *playlistBackup = nil;
     if ([journal[@"afterStaged"] length]) {
         NSData *after = YBReadSafeFile(stageRoot, journal[@"afterStaged"], NULL);
@@ -1175,7 +1265,9 @@ static NSArray *MediaPaths(NSData *document) {
                 if ([@[@"trashed", @"untrashed", @"renamed"] containsObject:action]) relevant = YES;   // [적용]을 기다릴 동작
                 else if (!self.knownDocumentIDs || [self.knownDocumentIDs containsObject:entity]) relevant = YES;
             }
-            else if ([kind isEqual:@"media"]) {}   // 이미지 경로표는 장부 사본에만 반영한다
+            else if ([kind isEqual:@"media"]) {   // 활성 예배 문서가 가리키는 이미지가 경로표에 생기거나 바뀌면 다시 비교한다
+                if (!self.knownImagePaths || [self.knownImagePaths containsObject:entity]) relevant = YES;
+            }
             else relevant = YES;   // 모르는 종류는 비교해서 확인한다
         }
         since = [result[@"next"] longLongValue];
@@ -1195,7 +1287,7 @@ static NSArray *MediaPaths(NSData *document) {
         if ([@[@"same", @"archived", @"actions"] containsObject:row[@"status"] ?: @""] || ![row[@"nodeID"] length] || [row[@"macDeleted"] boolValue] || pending.count >= 200) continue;
         NSMutableDictionary *item = [@{@"kind": @"node", @"entity": [NSString stringWithFormat:@"%@:%@", self.library[@"id"], row[@"nodeID"]]} mutableCopy];
         NSString *status = row[@"status"];
-        NSString *reason = [status isEqual:@"hold"] ? row[@"reason"] : [status isEqual:@"mac"] || [status isEqual:@"macNew"] ? @"Mac 수정 올리기 대기" : [status isEqual:@"trash"] ? @"Mac에서 빼기 대기" : @"적용 대기";
+        NSString *reason = [status isEqual:@"hold"] ? row[@"reason"] : [status isEqual:@"mac"] || [status isEqual:@"macNew"] ? @"Mac 수정 올리기 대기" : [status isEqual:@"trash"] ? @"Mac에서 빼기 대기" : [row[@"imagesOnly"] boolValue] ? @"이미지 받기 대기" : @"적용 대기";
         if (reason.length) item[@"reason"] = reason.length > 200 ? [reason substringToIndex:200] : reason;
         [pending addObject:item];
     }

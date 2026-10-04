@@ -254,7 +254,7 @@ static BOOL IsPresenter(NSRunningApplication *app) {
 
 // [적용]으로 고를 수 있는 줄. Mac 파일을 바꾸는 줄(받기·빼기·문서 정리)은 PP6가 꺼져 있어야 한다.
 static BOOL Checkable(NSDictionary *row) { return [@[@"receive", @"mac", @"trash", @"actions", @"macNew"] containsObject:row[@"status"] ?: @""]; }
-static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"actions"] containsObject:row[@"status"] ?: @""]; }
+static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"actions"] containsObject:row[@"status"] ?: @""] || [row[@"images"] count]; }
 
 - (void)setBusy:(BOOL)busy {
     _busy = busy;
@@ -332,6 +332,8 @@ static NSString *Summary(NSDictionary *result) {
     if ([upload[@"usage"] integerValue]) [text appendFormat:@"사용일 보고: 문서 %@개\n", upload[@"usage"]];
     for (NSString *name in upload[@"failed"]) [text appendFormat:@"올리기 실패 · %@: %@\n", name, upload[@"failed"][name]];
     if ([apply[@"applied"] count]) [text appendFormat:@"적용함: %@\n", [apply[@"applied"] componentsJoinedByString:@", "]];
+    if ([apply[@"images"] integerValue]) [text appendFormat:@"이미지 받음: %@개\n", apply[@"images"]];
+    for (NSString *line in apply[@"imageFailed"]) [text appendFormat:@"이미지 받기 실패(문서는 적용함) · %@\n", line];
     for (NSString *name in apply[@"failed"]) [text appendFormat:@"적용 실패 · %@: %@\n", name, apply[@"failed"][name]];
     if ([apply[@"revisions"] integerValue]) [text appendFormat:@"Mac 수정본 %@개는 서버에 보관했습니다(웹에서 비교).\n", apply[@"revisions"]];
     for (NSString *line in apply[@"revisionFailed"]) [text appendFormat:@"보관본 올리기 실패(Mac 백업에는 있음) · %@\n", line];
@@ -634,7 +636,8 @@ static NSString *StatusText(NSDictionary *row) {
         if ([row[@"macOnlyOrder"] boolValue] && ![row[@"macRenamed"] boolValue]) [up addObject:@"순서"];
         if ([row[@"macOnlyDocuments"] count]) [up addObject:[NSString stringWithFormat:@"문서 %lu", (unsigned long)[row[@"macOnlyDocuments"] count]]];
         if ([row[@"usageOnly"] count]) [up addObject:[NSString stringWithFormat:@"사용일 %lu", (unsigned long)[row[@"usageOnly"] count]]];
-        return [@"Mac에서 바뀜 · 올리기: " stringByAppendingString:[up componentsJoinedByString:@" · "]];
+        NSString *text = [@"Mac에서 바뀜 · 올리기: " stringByAppendingString:[up componentsJoinedByString:@" · "]];
+        return [row[@"images"] count] ? [text stringByAppendingFormat:@" · 이미지 %lu개 받기", (unsigned long)[row[@"images"] count]] : text;
     }
     NSMutableArray *parts = [NSMutableArray array];
     if ([row[@"macDeleted"] boolValue]) [parts addObject:@"Mac에서 삭제한 재생목록 · 체크하면 다시 받음"];
@@ -649,6 +652,7 @@ static NSString *StatusText(NSDictionary *row) {
     if (backup) [parts addObject:[NSString stringWithFormat:@"Mac 수정본 %lu은 서버에 보관", (unsigned long)backup]];
     if (missingServer) [parts addObject:[NSString stringWithFormat:@"원본 없음 %lu (Mac 파일 그대로)", (unsigned long)missingServer]];
     if (missingLocal) [parts addObject:[NSString stringWithFormat:@"Mac에도 없음 %lu", (unsigned long)missingLocal]];
+    if ([row[@"images"] count]) [parts addObject:[NSString stringWithFormat:@"이미지 %lu개 받기", (unsigned long)[row[@"images"] count]]];
     return [parts componentsJoinedByString:@" · "];
 }
 - (id)tableView:(NSTableView *)table objectValueForTableColumn:(NSTableColumn *)column row:(NSInteger)index {

@@ -13,8 +13,45 @@ export function mediaPathKey(value) {
   if (/[\x00-\x1f\x7f]/.test(path) || path.split('/').some(p => p === '..' || p === '.')) return null;
   return MEDIA_FOLDERS.some(folder => path.startsWith(MEDIA_ROOT + folder) && path.length > (MEDIA_ROOT + folder).length) ? path : null;
 }
+// Studio에서 가져온 이미지의 파일 이름 앞부분. 문서 이름에서 폴더 구분·제어 문자를 빼고 60자로 자른다(Mac 파일 이름 255바이트 한도).
+export function importStem(name) {
+  const stem = [...String(name || '').normalize('NFC').replace(/\.pro6$/i, '').replace(/[\x00-\x1f\x7f/\\:]/g, '-').replace(/\s+/g, ' ').trim()].slice(0, 60).join('').trim().replace(/^\.+/, '');
+  return stem || 'image';
+}
+const IMPORT_FOLDER = MEDIA_ROOT + 'YebaeOn/';
+// POST: Studio 가져오기의 이미지마다 `YebaeOn/<문서이름>-<n>.png` 경로를 정해 경로표에 넣는다(sync.md 5.4).
+// 같은 sha가 이미 `YebaeOn/`에 있으면 그 경로를 그대로 쓴다. 번호는 같은 이름의 가장 큰 번호 다음부터다. 기존 경로는 바꾸지 않는다.
+async function allocateImportPaths(request, db, user) {
+  sameOrigin(request);
+  const body = await bodyJSON(request, 64 * 1024), hashes = Array.isArray(body?.items) ? [...new Set(body.items.map(i => i?.sha256))] : [];
+  if (!hashes.length || hashes.length > 200 || hashes.some(h => !SHA.test(h || ''))) throw new HttpError(400, 'invalid_media_paths', '이미지 sha256은 200개씩 보내 주세요.');
+  const stem = importStem(body.name), input = JSON.stringify(hashes);
+  const sizes = new Map((await db.prepare('SELECT sha256,size FROM yebaeon_media_assets WHERE sha256 IN (SELECT value FROM json_each(?))').bind(input).all()).results.map(r => [r.sha256, r.size]));
+  if (sizes.size !== hashes.length) throw new HttpError(409, 'import_image_missing', '이미지 업로드가 완료되지 않았습니다. 다시 시도해 주세요.');
+  const own = IMPORT_FOLDER + stem + '-', found = new Map();
+  for (const r of (await db.prepare("SELECT path,sha256 FROM yebaeon_media_paths WHERE sha256 IN (SELECT value FROM json_each(?)) AND state='active' AND substr(path,1,?)=? ORDER BY path").bind(input, IMPORT_FOLDER.length, IMPORT_FOLDER).all()).results)
+    if (!found.has(r.sha256) || (r.path.startsWith(own) && !found.get(r.sha256).startsWith(own))) found.set(r.sha256, r.path);
+  const fresh = hashes.filter(h => !found.has(h));
+  if (fresh.length) {
+    const numbered = new RegExp('^' + own.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([1-9][0-9]{0,5})\\.png$');
+    let last = 0;
+    for (const r of (await db.prepare('SELECT path FROM yebaeon_media_paths WHERE path>=? AND path<?').bind(own, own + '\uffff').all()).results) { const m = numbered.exec(r.path); if (m) last = Math.max(last, Number(m[1])); }
+    const items = fresh.map((sha256, i) => ({ path: `${own}${last + i + 1}.png`, sha256, size: sizes.get(sha256) }));
+    const now = new Date().toISOString(), rows = JSON.stringify(items);
+    const newOnly = `FROM (SELECT json_extract(j.value,'$.path') AS path, json_extract(j.value,'$.sha256') AS sha256, json_extract(j.value,'$.size') AS size FROM json_each(?) j) i WHERE NOT EXISTS (SELECT 1 FROM yebaeon_media_paths m WHERE m.path=i.path)`;
+    const [, written] = await db.batch([
+      db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) SELECT 'media',i.path,'created',i.sha256,i.size,i.path,?,? ${newOnly}`).bind(user.author, now, rows),
+      db.prepare(`INSERT INTO yebaeon_media_paths(path,sha256,size,state,updated_at,updated_by) SELECT i.path,i.sha256,i.size,'active',?,? ${newOnly}`).bind(now, user.author, rows)
+    ]);
+    // 같은 이름으로 동시에 가져오면 번호가 겹칠 수 있다. 그때는 아무것도 덮지 않고 다시 시도하게 한다.
+    if ((written.meta.changes || 0) !== items.length) throw new HttpError(409, 'media_path_busy', '이미지 이름을 정하는 중 겹쳤습니다. 다시 시도해 주세요.');
+    for (const item of items) found.set(item.sha256, item.path);
+  }
+  return json({ paths: hashes.map(sha256 => ({ sha256, path: found.get(sha256), size: sizes.get(sha256) })) });
+}
 export async function mediaPathsRoute(request, env, user) {
-  method(request, ['GET', 'PUT']);
+  method(request, ['GET', 'PUT', 'POST']);
+  if (request.method === 'POST') return allocateImportPaths(request, env.DB, user);
   const db = env.DB;
   if (request.method === 'GET') {
     // ?path= (여러 번, 최대 50): Studio가 문서의 이미지 경로로 sha를 찾는다. 경로마다 1행.
