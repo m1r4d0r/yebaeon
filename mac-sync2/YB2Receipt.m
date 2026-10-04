@@ -45,6 +45,10 @@ static NSString *Column(sqlite3_stmt *stmt, int index) {
     if (![self table:@"docs" has:@"neutral"]) Exec(db, "ALTER TABLE docs ADD COLUMN neutral TEXT");
     if (![self table:@"docs" has:@"replaced"]) Exec(db, "ALTER TABLE docs ADD COLUMN replaced TEXT");
     if (![self table:@"nodes" has:@"replaced"]) Exec(db, "ALTER TABLE nodes ADD COLUMN replaced TEXT");
+    // 3차 표. ledger — 서버 문서 장부 사본, media — 서버 이미지 경로표 사본, pending — [적용]을 기다리는 서버 동작
+    Exec(db, "CREATE TABLE IF NOT EXISTS ledger(path TEXT PRIMARY KEY, id TEXT NOT NULL, version INTEGER NOT NULL, sha TEXT NOT NULL, state TEXT NOT NULL);"
+             "CREATE TABLE IF NOT EXISTS media(path TEXT PRIMARY KEY, sha TEXT NOT NULL);"
+             "CREATE TABLE IF NOT EXISTS pending(kind TEXT NOT NULL, entity TEXT NOT NULL, action TEXT NOT NULL, path TEXT NOT NULL, previous TEXT, sha TEXT, version INTEGER, PRIMARY KEY(kind, entity, action));");
     return self;
 }
 - (BOOL)table:(NSString *)table has:(NSString *)column {
@@ -87,6 +91,63 @@ static NSString *Column(sqlite3_stmt *stmt, int index) {
     sqlite3_stmt *stmt = Prepare(_db, "DELETE FROM docs WHERE path = ?"); BindText(stmt, 1, path);
     int rc = sqlite3_step(stmt); sqlite3_finalize(stmt); YBRequire(rc == SQLITE_DONE, @"문서 영수증을 지우지 못했습니다.");
 }
+- (void)moveDocument:(NSString *)path to:(NSString *)target {
+    sqlite3_stmt *stmt = Prepare(_db, "UPDATE OR REPLACE docs SET path = ?2 WHERE path = ?1"); BindText(stmt, 1, path); BindText(stmt, 2, target);
+    int rc = sqlite3_step(stmt); sqlite3_finalize(stmt); YBRequire(rc == SQLITE_DONE, @"문서 영수증을 옮기지 못했습니다.");
+}
+- (void)forgetNode:(NSString *)key {
+    sqlite3_stmt *stmt = Prepare(_db, "DELETE FROM nodes WHERE key = ?"); BindText(stmt, 1, key);
+    int rc = sqlite3_step(stmt); sqlite3_finalize(stmt); YBRequire(rc == SQLITE_DONE, @"재생목록 영수증을 지우지 못했습니다.");
+}
+
+- (NSDictionary *)ledger:(NSString *)path {
+    sqlite3_stmt *stmt = Prepare(_db, "SELECT id, version, sha, state FROM ledger WHERE path = ?"); BindText(stmt, 1, path);
+    NSDictionary *result = nil;
+    if (sqlite3_step(stmt) == SQLITE_ROW) result = @{@"id": Column(stmt, 0) ?: @"", @"version": @(sqlite3_column_int64(stmt, 1)), @"sha": Column(stmt, 2) ?: @"", @"state": Column(stmt, 3) ?: @""};
+    sqlite3_finalize(stmt); return result;
+}
+- (void)setLedger:(NSString *)path id:(NSString *)identifier version:(NSNumber *)version sha:(NSString *)sha state:(NSString *)state {
+    sqlite3_stmt *stmt = Prepare(_db, "INSERT OR REPLACE INTO ledger(path, id, version, sha, state) VALUES(?,?,?,?,?)");
+    BindText(stmt, 1, path); BindText(stmt, 2, identifier ?: @""); sqlite3_bind_int64(stmt, 3, version.longLongValue); BindText(stmt, 4, sha ?: @""); BindText(stmt, 5, state ?: @"active");
+    int rc = sqlite3_step(stmt); sqlite3_finalize(stmt); YBRequire(rc == SQLITE_DONE, @"장부 사본을 기록하지 못했습니다.");
+}
+- (NSUInteger)ledgerCount {
+    sqlite3_stmt *stmt = Prepare(_db, "SELECT COUNT(*) FROM ledger");
+    NSUInteger count = sqlite3_step(stmt) == SQLITE_ROW ? (NSUInteger)sqlite3_column_int64(stmt, 0) : 0;
+    sqlite3_finalize(stmt); return count;
+}
+- (NSString *)mediaSha:(NSString *)path {
+    sqlite3_stmt *stmt = Prepare(_db, "SELECT sha FROM media WHERE path = ?"); BindText(stmt, 1, path);
+    NSString *result = sqlite3_step(stmt) == SQLITE_ROW ? Column(stmt, 0) : nil;
+    sqlite3_finalize(stmt); return result;
+}
+- (void)setMedia:(NSString *)path sha:(NSString *)sha {
+    sqlite3_stmt *stmt = Prepare(_db, "INSERT OR REPLACE INTO media(path, sha) VALUES(?,?)"); BindText(stmt, 1, path); BindText(stmt, 2, sha);
+    int rc = sqlite3_step(stmt); sqlite3_finalize(stmt); YBRequire(rc == SQLITE_DONE, @"이미지 경로 사본을 기록하지 못했습니다.");
+}
+- (NSArray *)pending {
+    sqlite3_stmt *stmt = Prepare(_db, "SELECT kind, entity, action, path, previous, sha, version FROM pending ORDER BY rowid");
+    NSMutableArray *items = [NSMutableArray array];
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        NSMutableDictionary *item = [@{@"kind": Column(stmt, 0) ?: @"", @"entity": Column(stmt, 1) ?: @"", @"action": Column(stmt, 2) ?: @"", @"path": Column(stmt, 3) ?: @""} mutableCopy];
+        if (Column(stmt, 4)) item[@"previous"] = Column(stmt, 4);
+        if (Column(stmt, 5)) item[@"sha"] = Column(stmt, 5);
+        if (sqlite3_column_type(stmt, 6) != SQLITE_NULL) item[@"version"] = @(sqlite3_column_int64(stmt, 6));
+        [items addObject:item];
+    }
+    sqlite3_finalize(stmt); return items;
+}
+- (void)addPending:(NSDictionary *)item {
+    sqlite3_stmt *stmt = Prepare(_db, "INSERT OR REPLACE INTO pending(kind, entity, action, path, previous, sha, version) VALUES(?,?,?,?,?,?,?)");
+    BindText(stmt, 1, item[@"kind"]); BindText(stmt, 2, item[@"entity"]); BindText(stmt, 3, item[@"action"]); BindText(stmt, 4, item[@"path"] ?: @""); BindText(stmt, 5, item[@"previous"]); BindText(stmt, 6, item[@"sha"]);
+    if ([item[@"version"] isKindOfClass:NSNumber.class]) sqlite3_bind_int64(stmt, 7, [item[@"version"] longLongValue]); else sqlite3_bind_null(stmt, 7);
+    int rc = sqlite3_step(stmt); sqlite3_finalize(stmt); YBRequire(rc == SQLITE_DONE, @"대기 동작을 기록하지 못했습니다.");
+}
+- (void)removePending:(NSString *)kind entity:(NSString *)entity action:(NSString *)action {
+    sqlite3_stmt *stmt = Prepare(_db, "DELETE FROM pending WHERE kind = ? AND entity = ? AND action = ?"); BindText(stmt, 1, kind); BindText(stmt, 2, entity); BindText(stmt, 3, action);
+    int rc = sqlite3_step(stmt); sqlite3_finalize(stmt); YBRequire(rc == SQLITE_DONE, @"대기 동작을 지우지 못했습니다.");
+}
+
 - (NSDictionary *)node:(NSString *)key {
     sqlite3_stmt *stmt = Prepare(_db, "SELECT server_sha, fingerprint, name, replaced FROM nodes WHERE key = ?");
     BindText(stmt, 1, key);

@@ -3,6 +3,7 @@
 #import "../mac-app/YBPlaylistFormat.h"
 #import "../mac-app/YBPlaylistIO.h"
 #import <sys/stat.h>
+#import <stdio.h>
 
 @interface YB2Engine ()
 @property(nonatomic, readwrite) YBServer *server;
@@ -13,6 +14,7 @@
 @property(nonatomic, readwrite) NSString *comparedPlaylistHash;
 @property(nonatomic) NSDictionary *library;             // 서버 재생목록 파일 메타데이터
 @property(nonatomic) NSSet *knownDocumentIDs;           // 마지막 비교의 예배들이 쓰는 서버 문서 id(변경 일지 거르기용)
+@property(nonatomic) NSString *sourceRoot;              // 서버 재생목록이 아는 문서 폴더 표기(~/… 또는 /Users/…)
 @end
 
 @implementation YB2Engine
@@ -94,6 +96,11 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     [NSFileManager.defaultManager createDirectoryAtPath:_profile withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:NULL];
     _receipt = [[YB2Receipt alloc] initWithPath:[profile stringByAppendingPathComponent:@"receipt.sqlite"]];
     _presenterRunning = ^BOOL { return YBPresenterRunning(); };
+    _trashItem = ^NSString *(NSString *absolute) {
+        NSURL *result = nil;
+        if (![NSFileManager.defaultManager trashItemAtURL:[NSURL fileURLWithPath:absolute] resultingItemURL:&result error:NULL]) return nil;
+        return result.path ?: @"";
+    };
     return self;
 }
 - (void)report:(NSString *)message { if (self.progress) self.progress(message); }
@@ -111,6 +118,22 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
         }
     }
     return NO;
+}
+// 디스크의 실제 절대경로(NFC·NFD 중 있는 쪽). 없으면 nil.
+- (NSString *)diskPath:(NSString *)path {
+    for (NSString *candidate in @[path.precomposedStringWithCanonicalMapping, path.decomposedStringWithCanonicalMapping]) {
+        struct stat st; NSString *absolute = [self.root stringByAppendingPathComponent:candidate];
+        if (lstat(absolute.fileSystemRepresentation, &st) == 0 && S_ISREG(st.st_mode)) return absolute;
+    }
+    return nil;
+}
+// 서버가 알던 내용 그대로인가: 서버 sha와 같거나, 영수증대로(받은 뒤 Mac에서 고치지 않음)다.
+- (BOOL)unchangedSinceServer:(NSString *)path sha:(NSString *)sha {
+    NSString *hash = [self localHash:path];
+    if (!hash) return NO;
+    if ([hash isEqual:sha]) return YES;
+    NSDictionary *known = [self.receipt document:path];
+    return known && [known[@"sha"] isEqual:hash];
 }
 // 영수증의 크기·수정시각과 같으면 해시를 다시 계산하지 않는다.
 - (NSString *)localHash:(NSString *)path {
@@ -180,6 +203,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     [self report:@"서버 재생목록 확인 중"];
     self.library = [self findLibrary];
     NSString *sourceRoot = [self.library[@"sourceRoot"] isKindOfClass:NSString.class] ? self.library[@"sourceRoot"] : @"~/Documents/ProPresenter6";
+    self.sourceRoot = sourceRoot;
     NSData *local = YBReadPlaylist(self.playlistURL);
     self.comparedPlaylistHash = YBHash(local);
     NSMutableDictionary *localNodes = [NSMutableDictionary dictionary];
@@ -214,16 +238,27 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
             // PP6가 마지막 적용 때 덮인 옛 순서를 다시 썼다: Mac 수정이 아니다. 올리지 않고 서버 순서를 다시 적용한다.
             BOOL revertedOrder = macOrderChanged && [known[@"replaced"] isEqual:localFP];
             if (revertedOrder) macOrderChanged = NO;
+            // Mac에 없는 서버 예배: 영수증이 본 적 있으면 Mac에서 지운 것(되살리지 않음 · 기본 체크 꺼짐), 아니면 서버에 새로 생긴 것.
+            if (!localNode) { row[@"serverNew"] = @(known == nil); row[@"macDeleted"] = @(known != nil); }
+            // 예배 이름. 순서 지문에는 이름이 없으므로 따로 본다. 서버가 바뀌었으면 서버 이름을 받고, Mac에서만 바꿨으면 올린다.
+            BOOL macRenamed = NO;
+            if (localNode && ![localNode[@"name"] isEqual:name]) {
+                BOOL serverMoved = !known || ![known[@"serverSha"] isEqual:plan[@"playlist"][@"sha256"]];
+                if (!serverMoved && ![known[@"name"] isEqual:localNode[@"name"]]) { macRenamed = YES; row[@"localName"] = localNode[@"name"]; }
+                else { orderChanged = YES; row[@"renamedFrom"] = localNode[@"name"]; }
+            }
             row[@"localFingerprint"] = localFP; row[@"serverFingerprint"] = serverFP;
             if (localNode[@"raw"]) row[@"localXML"] = localNode[@"raw"];
             if (known[@"serverSha"]) row[@"knownServerSha"] = known[@"serverSha"];
 
             NSMutableArray *documents = [NSMutableArray array], *macChanged = [NSMutableArray array], *macOnly = [NSMutableArray array], *usageOnly = [NSMutableArray array], *reverted = [NSMutableArray array];
             NSMutableDictionary *reasons = [NSMutableDictionary dictionary];
+            NSMutableArray *macDeletedDocs = [NSMutableArray array];
             for (NSDictionary *doc in plan[@"documents"]) {
                 [documentIDs addObject:doc[@"id"]];
                 NSString *path = doc[@"path"], *localHash = [self localHash:path];
                 NSDictionary *knownDoc = [self.receipt document:path];
+                if (!localHash && knownDoc) [macDeletedDocs addObject:path];   // 받은 적 있는데 지금 없음: Mac에서 지움. 적용하면 다시 받는다
                 long long size = 0, mtime = 0; [self statPath:path size:&size mtime:&mtime];
                 if (localHash && [localHash isEqual:doc[@"sha256"]]) {
                     BOOL unchanged = knownDoc && [knownDoc[@"version"] isEqual:doc[@"version"]] && [knownDoc[@"sha"] isEqual:localHash] && [knownDoc[@"size"] longLongValue] == size && [knownDoc[@"mtime"] longLongValue] == mtime;
@@ -258,6 +293,8 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
             }
             BOOL macOnlyOrder = NO;
             if (orderChanged && macOrderChanged && [known[@"serverSha"] isEqual:plan[@"playlist"][@"sha256"]]) { orderChanged = NO; macOnlyOrder = YES; }   // 순서를 Mac에서만 바꿈: 올리기
+            if (macRenamed && !orderChanged) macOnlyOrder = YES;   // 이름만 Mac에서 바꿈: 노드 교체로 올린다
+            row[@"macRenamed"] = @(macRenamed); row[@"macDeletedDocuments"] = macDeletedDocs;
             row[@"orderChanged"] = @(orderChanged); row[@"macOrderChanged"] = @(macOrderChanged); row[@"macOnlyOrder"] = @(macOnlyOrder); row[@"macOnlyDocuments"] = macOnly;
             row[@"usageOnly"] = usageOnly; row[@"revertedDocuments"] = reverted; row[@"revertedOrder"] = @(revertedOrder && orderChanged); row[@"macChangedReasons"] = reasons;
             NSMutableArray *missingLocal = [NSMutableArray array]; NSUInteger missingServer = 0;
@@ -280,6 +317,64 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
         }
         [rows addObject:row];
     }
+    // Mac에만 있는 예배: 서버 휴지통(→ 적용 때 뺌) · 보관(표시만) · 비움(표시만) · 새로 만듦(→ 서버에 없을 때만 추가).
+    NSSet *serverIDs = [NSSet setWithArray:[serverNodes valueForKey:@"id"]];
+    NSMutableArray *extra = [NSMutableArray array];
+    for (NSDictionary *node in YBPlaylistNodes(local)) if (![serverIDs containsObject:node[@"id"]]) [extra addObject:node];
+    NSMutableDictionary *states = [NSMutableDictionary dictionary];
+    if (extra.count) {
+        @try {
+            NSDictionary *structure = [self.server request:[NSString stringWithFormat:@"/api/playlists/%@/structure", Query(self.library[@"id"])] method:@"GET" body:nil headers:Headers()];
+            for (NSDictionary *item in structure[@"removals"]) if ([item[@"id"] isKindOfClass:NSString.class]) states[item[@"id"]] = item[@"state"] ?: @"";
+        } @catch (NSException *e) { states = nil; }
+    }
+    NSMutableSet *activeReferences = [NSMutableSet set];   // 이 적용 뒤에도 Mac에 남는 예배가 가리키는 문서
+    for (NSDictionary *node in YBPlaylistNodes(local)) {
+        if (![serverIDs containsObject:node[@"id"]] && [states[node[@"id"]] isEqual:@"trashed"]) continue;
+        for (NSDictionary *cue in node[@"items"]) {
+            NSString *reference = YBPlaylistReference(cue[@"attrs"][@"filePath"], sourceRoot) ?: YBPlaylistReference(cue[@"attrs"][@"filePath"], self.root);
+            if (reference) [activeReferences addObject:reference];
+        }
+    }
+    for (NSDictionary *node in extra) {
+        NSString *nodeID = node[@"id"], *key = [NSString stringWithFormat:@"%@/%@", self.library[@"id"], nodeID];
+        NSString *localFP = [self localFingerprint:node sourceRoot:sourceRoot];
+        NSDictionary *known = [self.receipt node:key];
+        NSMutableDictionary *row = [@{@"key": key, @"nodeID": nodeID, @"name": node[@"name"] ?: nodeID, @"localXML": node[@"raw"] ?: @"", @"localFingerprint": localFP} mutableCopy];
+        NSString *state = states[nodeID];
+        if (!states) { row[@"status"] = @"hold"; row[@"reason"] = @"서버의 예배 상태를 읽지 못함"; }
+        else if ([state isEqual:@"trashed"]) {
+            // Mac에서 그 뒤 순서를 고쳤으면 빼지 않는다(정리 창에서 고른다).
+            if (!known || [known[@"localFingerprint"] isEqual:localFP]) row[@"status"] = @"trash";
+            else { row[@"status"] = @"hold"; row[@"reason"] = @"서버 휴지통에 있음 · Mac에서 고침(정리 창)"; }
+        }
+        else if ([state isEqual:@"archived"]) { row[@"status"] = @"archived"; row[@"reason"] = @"서버에서 보관됨"; }
+        else if (state) { row[@"status"] = @"archived"; row[@"reason"] = @"서버 휴지통을 비움 · Mac에만 남음"; }
+        else if (known) { row[@"status"] = @"archived"; row[@"reason"] = @"서버에 없음"; }
+        else row[@"status"] = @"macNew";
+        [rows addObject:row];
+    }
+    // 서버 일지의 문서 이름 바꾸기·휴지통. 서버가 알던 내용 그대로인 파일만 대상이다. 다르면 두고 정리 창으로.
+    NSMutableArray *renames = [NSMutableArray array], *trashes = [NSMutableArray array], *holds = [NSMutableArray array];
+    for (NSDictionary *item in [self.receipt pending]) {
+        if (![item[@"kind"] isEqual:@"doc"]) continue;
+        NSString *action = item[@"action"], *path = item[@"path"];
+        if ([action isEqual:@"renamed"]) {
+            NSString *from = item[@"previous"]; BOOL old = [self diskPath:from] != nil, now = [self diskPath:path] != nil;
+            if (!old) { [self.receipt removePending:@"doc" entity:item[@"entity"] action:action]; continue; }   // 이미 바뀜 또는 Mac에 없음
+            if (now) [holds addObject:@{@"path": from, @"reason": [NSString stringWithFormat:@"새 이름 ‘%@’의 파일이 이미 있음", path]}];
+            else if (![self unchangedSinceServer:from sha:item[@"sha"]]) [holds addObject:@{@"path": from, @"reason": @"이름이 바뀐 문서 · Mac에서 고침"}];
+            else [renames addObject:@{@"id": item[@"entity"], @"from": from, @"to": path}];
+        } else if ([action isEqual:@"trashed"]) {
+            if (![self diskPath:path]) { [self.receipt removePending:@"doc" entity:item[@"entity"] action:action]; continue; }
+            if ([activeReferences containsObject:path]) [holds addObject:@{@"path": path, @"reason": @"서버 휴지통에 있음 · Mac 예배가 아직 씀"}];
+            else if (![self unchangedSinceServer:path sha:item[@"sha"]]) [holds addObject:@{@"path": path, @"reason": @"서버 휴지통에 있음 · Mac에서 고침"}];
+            else [trashes addObject:@{@"id": item[@"entity"], @"path": path}];
+        }
+    }
+    if (renames.count || trashes.count || holds.count)
+        [rows addObject:@{@"key": @"doc-actions", @"nodeID": @"", @"name": @"문서 정리(서버)", @"status": renames.count || trashes.count ? @"actions" : @"hold",
+                          @"reason": holds.count ? [NSString stringWithFormat:@"확인 필요 %lu", (unsigned long)holds.count] : @"", @"renames": renames, @"trashes": trashes, @"actionHolds": holds}];
     self.knownDocumentIDs = documentIDs;
     [self report:@"비교 완료"];
     return rows;
@@ -309,7 +404,33 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     NSMutableDictionary *failed = [NSMutableDictionary dictionary], *seenPaths = [NSMutableDictionary dictionary];
     NSUInteger revisions = 0;
     NSData *after = before;
+    NSMutableArray *moves = [NSMutableArray array], *trashFiles = [NSMutableArray array], *pendingDone = [NSMutableArray array];
     for (NSDictionary *row in rows) {
+        // 서버 휴지통에 넣은 예배: 이 노드만 뺀다. 다른 노드 바이트는 그대로다.
+        if ([row[@"status"] isEqual:@"trash"]) {
+            @try {
+                after = YBPlaylistRemoving(after, row[@"nodeID"]);
+                [nodeRecords addObject:@{@"key": row[@"key"], @"name": row[@"name"], @"forget": @(YES)}];
+                [applied addObject:row[@"name"]];
+            } @catch (NSException *e) { failed[row[@"name"]] = e.reason ?: @"예배 빼기 실패"; }
+            continue;
+        }
+        if ([row[@"status"] isEqual:@"actions"]) {
+            for (NSDictionary *rename in row[@"renames"]) {
+                @try {
+                    after = [self rewriteReferences:after from:rename[@"from"] to:rename[@"to"]];
+                    [moves addObject:@{@"from": rename[@"from"], @"to": rename[@"to"]}];
+                    [pendingDone addObject:@{@"entity": rename[@"id"], @"action": @"renamed"}];
+                    [applied addObject:[NSString stringWithFormat:@"이름 바꾸기 %@ → %@", rename[@"from"], rename[@"to"]]];
+                } @catch (NSException *e) { failed[rename[@"from"]] = e.reason ?: @"이름 바꾸기 실패"; }
+            }
+            for (NSDictionary *trash in row[@"trashes"]) {
+                [trashFiles addObject:trash[@"path"]];
+                [pendingDone addObject:@{@"entity": trash[@"id"], @"action": @"trashed"}];
+                [applied addObject:[@"휴지통으로 " stringByAppendingString:trash[@"path"]]];
+            }
+            continue;
+        }
         if (![row[@"status"] isEqual:@"receive"]) continue;
         NSDictionary *plan = row[@"plan"]; NSString *name = row[@"name"];
         // 예배 하나의 준비가 중간에 실패하면 그 예배의 것은 하나도 journal에 넣지 않는다.
@@ -355,13 +476,14 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
             failed[name] = e.reason ?: @"준비 실패";
         }
     }
-    if (!stagedDocs.count && [after isEqual:before] && !nodeRecords.count) { [NSFileManager.defaultManager removeItemAtPath:stageRoot error:NULL]; return @{@"applied": @[], @"failed": failed, @"backup": @"", @"revisions": @(revisions), @"revisionFailed": revisionFailed}; }
+    if (!stagedDocs.count && [after isEqual:before] && !nodeRecords.count && !moves.count && !trashFiles.count) { [NSFileManager.defaultManager removeItemAtPath:stageRoot error:NULL]; return @{@"applied": @[], @"failed": failed, @"backup": @"", @"revisions": @(revisions), @"revisionFailed": revisionFailed}; }
 
     NSString *afterStaged = nil;
     if (![after isEqual:before]) { afterStaged = @"after.pro6pl"; YBWriteSafeFile(stageRoot, afterStaged, after, 0600, nil); }
     NSDictionary *journal = @{@"id": applyID, @"status": @"prepared", @"root": self.root, @"playlist": self.playlistURL.path,
                               @"beforeSha": YBHash(before), @"afterSha": YBHash(after), @"afterStaged": afterStaged ?: @"",
-                              @"documents": stagedDocs, @"nodes": nodeRecords, @"applied": applied};
+                              @"documents": stagedDocs, @"nodes": nodeRecords, @"applied": applied,
+                              @"moves": moves, @"trash": trashFiles, @"pendingDone": pendingDone};
     [self writeJournal:journal];
     // 이 시점부터는 중단되어도 다음 실행이 같은 내용으로 끝까지 마무리한다.
     [self performJournal:journal stageRoot:stageRoot backupRoot:backupRoot];
@@ -375,6 +497,16 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     NSString *docsBackup = [backupRoot stringByAppendingPathComponent:@"documents"];
     YBRequire([NSFileManager.defaultManager createDirectoryAtPath:docsBackup withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:NULL], @"백업 폴더를 만들지 못했습니다.");
     NSMutableDictionary *written = [NSMutableDictionary dictionary];   // 경로 → {sha, neutral, replaced?}: 실제로 디스크에 둔 바이트 기준
+    // 이름 바꾸기. 옛 이름만 있으면 옮기고, 새 이름만 있으면 이미 끝난 것이다(중단 뒤 다시 돌아도 같다).
+    for (NSDictionary *move in journal[@"moves"]) {
+        NSString *from = [self diskPath:move[@"from"]], *to = [self diskPath:move[@"to"]];
+        if (!from) continue;
+        YBRequire(!to, [NSString stringWithFormat:@"새 이름의 파일이 이미 있습니다: %@", move[@"to"]]);
+        YBRequire(!self.presenterRunning(), @"ProPresenter가 실행됐습니다. 적용을 중단했습니다.");
+        [self report:[NSString stringWithFormat:@"이름 바꾸기 · %@", move[@"to"]]];
+        NSString *target = [self.root stringByAppendingPathComponent:move[@"to"]];
+        YBRequire(renamex_np(from.fileSystemRepresentation, target.fileSystemRepresentation, RENAME_EXCL) == 0, [NSString stringWithFormat:@"이름을 바꾸지 못했습니다: %@", move[@"from"]]);
+    }
     for (NSDictionary *record in journal[@"documents"]) {
         NSString *path = record[@"path"];
         [self report:[NSString stringWithFormat:@"문서 적용 · %@", path]];
@@ -401,13 +533,29 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
             YBReplacePlaylist(self.playlistURL, current, after, [backupRoot stringByAppendingPathComponent:@"playlist"], self.presenterRunning);
         }
     }
+    // 서버 휴지통에 넣은 문서는 macOS 휴지통으로 옮긴다. 이미 없으면 끝난 것이다.
+    NSMutableArray *trashed = [NSMutableArray array];
+    for (NSString *path in journal[@"trash"]) {
+        NSString *absolute = [self diskPath:path];
+        if (!absolute) { [trashed addObject:path]; continue; }
+        YBRequire(!self.presenterRunning(), @"ProPresenter가 실행됐습니다. 적용을 중단했습니다.");
+        [self report:[@"휴지통으로 · " stringByAppendingString:path]];
+        YBRequire(self.trashItem(absolute) != nil, [NSString stringWithFormat:@"휴지통으로 옮기지 못했습니다: %@", path]);
+        [trashed addObject:path];
+    }
     // 2. 영수증: 실제로 쓴 것만 기록한다.
     [self.receipt transaction:^{
+        for (NSDictionary *move in journal[@"moves"]) if ([self.receipt document:move[@"from"]]) [self.receipt moveDocument:move[@"from"] to:move[@"to"]];
+        for (NSString *path in trashed) [self.receipt forgetDocument:path];
+        for (NSDictionary *done in journal[@"pendingDone"]) [self.receipt removePending:@"doc" entity:done[@"entity"] action:done[@"action"]];
         for (NSDictionary *record in journal[@"documents"]) {
             long long size = 0, mtime = 0; NSDictionary *result = written[record[@"path"]];
             if ([self statPath:record[@"path"] size:&size mtime:&mtime]) [self.receipt rememberDocument:record[@"path"] version:record[@"version"] sha:result[@"sha"] size:size mtime:mtime neutral:result[@"neutral"] replaced:result[@"replaced"]];
         }
-        for (NSDictionary *node in journal[@"nodes"]) [self.receipt rememberNode:node[@"key"] serverSha:node[@"serverSha"] fingerprint:node[@"fingerprint"] name:node[@"name"] replaced:node[@"replaced"]];
+        for (NSDictionary *node in journal[@"nodes"]) {
+            if ([node[@"forget"] boolValue]) [self.receipt forgetNode:node[@"key"]];
+            else [self.receipt rememberNode:node[@"key"] serverSha:node[@"serverSha"] fingerprint:node[@"fingerprint"] name:node[@"name"] replaced:node[@"replaced"]];
+        }
         [self.receipt setValue:[[NSISO8601DateFormatter new] stringFromDate:NSDate.date] forKey:@"lastApplied"];
     }];
     [NSFileManager.defaultManager removeItemAtPath:self.journalPath error:NULL];
@@ -425,6 +573,157 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     }
     [self performJournal:journal stageRoot:[self.profile stringByAppendingPathComponent:[@"stage/" stringByAppendingString:applyID]] backupRoot:[self backupRoot:applyID]];
     return [NSString stringWithFormat:@"지난번에 중단된 적용을 마무리했습니다: %@", [journal[@"applied"] componentsJoinedByString:@", "]];
+}
+
+#pragma mark - 참조 고침 (3차)
+
+static NSString *Escaped(NSString *value) {
+    return [[[[[value stringByReplacingOccurrencesOfString:@"&" withString:@"&amp;"] stringByReplacingOccurrencesOfString:@"\"" withString:@"&quot;"] stringByReplacingOccurrencesOfString:@"'" withString:@"&apos;"] stringByReplacingOccurrencesOfString:@"<" withString:@"&lt;"] stringByReplacingOccurrencesOfString:@">" withString:@"&gt;"];
+}
+// 그 노드 여는 태그의 속성 하나를 바꾼다(없으면 그대로).
+static NSString *WithAttribute(NSString *tag, NSString *name, NSString *value) {
+    NSRegularExpression *pattern = [NSRegularExpression regularExpressionWithPattern:[NSString stringWithFormat:@"\\b%@\\s*=\\s*(\"[^\"]*\"|'[^']*')", name] options:0 error:NULL];
+    NSTextCheckingResult *match = [pattern firstMatchInString:tag options:0 range:NSMakeRange(0, tag.length)];
+    if (!match) return tag;
+    return [tag stringByReplacingCharactersInRange:[match rangeAtIndex:1] withString:[NSString stringWithFormat:@"\"%@\"", Escaped(value)]];
+}
+// 문서 이름이 바뀌었을 때 모든 예배의 그 문서 cue를 새 경로로 고친다. cue 이름이 옛 문서 이름이면 그것도 바꾼다(서버와 같은 규칙).
+- (NSData *)rewriteReferences:(NSData *)data from:(NSString *)from to:(NSString *)to {
+    NSString *oldName = from.lastPathComponent.stringByDeletingPathExtension, *newName = to.lastPathComponent.stringByDeletingPathExtension;
+    for (NSDictionary *node in YBPlaylistNodes(data)) {
+        NSUInteger base = [node[@"range"] rangeValue].location;
+        NSMutableString *raw = [node[@"raw"] mutableCopy]; BOOL changed = NO;
+        for (NSDictionary *cue in [node[@"items"] reverseObjectEnumerator]) {
+            if (![cue[@"tag"] isEqual:@"RVDocumentCue"]) continue;
+            NSString *source = cue[@"attrs"][@"filePath"];
+            NSString *reference = YBPlaylistReference(source, self.sourceRoot ?: self.root) ?: YBPlaylistReference(source, self.root);
+            if (![reference isEqual:from]) continue;
+            NSRange opening = NSMakeRange([cue[@"start"] unsignedIntegerValue] - base, [cue[@"open"] unsignedIntegerValue] - [cue[@"start"] unsignedIntegerValue]);
+            NSString *tag = WithAttribute([raw substringWithRange:opening], @"filePath", [self.root stringByAppendingPathComponent:to]);
+            if ([cue[@"attrs"][@"displayName"] isEqual:oldName]) tag = WithAttribute(tag, @"displayName", newName);
+            [raw replaceCharactersInRange:opening withString:tag]; changed = YES;
+        }
+        if (changed) data = YBPlaylistReplacing(data, node[@"id"], raw);
+    }
+    return data;
+}
+
+#pragma mark - 장부 사본·새 문서·이미지 (3차)
+
+- (void)syncLedger {
+    if ([self.receipt value:@"ledgerSeq"].length) return;
+    [self report:@"서버 장부 받는 중"];
+    NSDictionary *ledger = [self.server request:@"/api/sync/ledger" method:@"GET" body:nil headers:Headers() timeout:120];
+    YBRequire([ledger[@"documents"] isKindOfClass:NSArray.class] && [ledger[@"seq"] isKindOfClass:NSNumber.class], @"서버 장부가 올바르지 않습니다.");
+    [self.receipt transaction:^{
+        for (NSDictionary *doc in ledger[@"documents"]) if ([doc[@"path"] isKindOfClass:NSString.class])
+            [self.receipt setLedger:doc[@"path"] id:doc[@"id"] version:doc[@"version"] sha:doc[@"sha256"] state:doc[@"state"] ?: @"active"];
+        for (NSDictionary *media in [ledger[@"media"] isKindOfClass:NSArray.class] ? ledger[@"media"] : @[]) if ([media[@"path"] isKindOfClass:NSString.class] && [media[@"sha256"] isKindOfClass:NSString.class])
+            [self.receipt setMedia:media[@"path"] sha:media[@"sha256"]];
+        [self.receipt setValue:[ledger[@"seq"] stringValue] forKey:@"ledgerSeq"];
+    }];
+}
+// 일지 한 줄을 장부 사본에 반영한다. 줄을 지우지 않고 상태로 남긴다.
+- (void)applyToLedger:(NSDictionary *)change {
+    NSString *kind = change[@"kind"], *action = change[@"action"], *path = change[@"path"];
+    if ([kind isEqual:@"media"]) { if (([action isEqual:@"created"] || [action isEqual:@"updated"]) && [change[@"sha256"] isKindOfClass:NSString.class]) [self.receipt setMedia:change[@"entity"] sha:change[@"sha256"]]; return; }
+    if (![kind isEqual:@"doc"] || ![path isKindOfClass:NSString.class]) return;
+    NSDictionary *states = @{@"created": @"active", @"updated": @"active", @"unarchived": @"active", @"untrashed": @"active", @"renamed": @"active", @"archived": @"archived", @"trashed": @"trashed", @"purged": @"purged"};
+    NSString *state = states[action] ?: @"active";
+    [self.receipt setLedger:path id:change[@"entity"] version:change[@"version"] ?: @0 sha:change[@"sha256"] state:state];
+    if ([action isEqual:@"renamed"] && [change[@"previous"] isKindOfClass:NSString.class]) {
+        NSDictionary *old = [self.receipt ledger:change[@"previous"]];
+        [self.receipt setLedger:change[@"previous"] id:change[@"entity"] version:old[@"version"] ?: change[@"version"] ?: @0 sha:old[@"sha"] ?: change[@"sha256"] state:@"renamed"];
+    }
+}
+// 일지 한 줄이 [적용]을 기다리는 동작이면 기록한다.
+- (void)recordPending:(NSDictionary *)change {
+    if (![change[@"kind"] isEqual:@"doc"] || ![change[@"path"] isKindOfClass:NSString.class]) return;
+    NSString *action = change[@"action"], *entity = change[@"entity"];
+    if ([action isEqual:@"trashed"]) [self.receipt addPending:@{@"kind": @"doc", @"entity": entity, @"action": @"trashed", @"path": change[@"path"], @"sha": change[@"sha256"] ?: @"", @"version": change[@"version"] ?: @0}];
+    else if ([action isEqual:@"untrashed"]) [self.receipt removePending:@"doc" entity:entity action:@"trashed"];
+    else if ([action isEqual:@"renamed"] && [change[@"previous"] isKindOfClass:NSString.class]) {
+        // 앞서 기다리던 이름 바꾸기가 있으면 그 시작 이름을 이어 받는다(가→나→다는 가→다).
+        NSString *from = change[@"previous"];
+        for (NSDictionary *item in [self.receipt pending]) if ([item[@"entity"] isEqual:entity] && [item[@"action"] isEqual:@"renamed"]) from = item[@"previous"] ?: from;
+        if ([from isEqual:change[@"path"]]) [self.receipt removePending:@"doc" entity:entity action:@"renamed"];
+        else [self.receipt addPending:@{@"kind": @"doc", @"entity": entity, @"action": @"renamed", @"path": change[@"path"], @"previous": from, @"sha": change[@"sha256"] ?: @"", @"version": change[@"version"] ?: @0}];
+        // 휴지통 대기 중인 문서의 경로도 따라간다.
+        for (NSDictionary *item in [self.receipt pending]) if ([item[@"entity"] isEqual:entity] && [item[@"action"] isEqual:@"trashed"]) {
+            NSMutableDictionary *moved = [item mutableCopy]; moved[@"path"] = change[@"path"]; [self.receipt addPending:moved];
+        }
+    }
+}
+
+// 허용 폴더 3개(sync.md 5.4). 영상은 보내지 않는다.
+static NSString *const kMediaRoot = @"/Users/Shared/Renewed Vision Media/";
+static BOOL AllowedMedia(NSString *path) {
+    if (![path hasPrefix:kMediaRoot] || [path containsString:@"/../"] || [path containsString:@"/./"]) return NO;
+    NSString *rest = [path substringFromIndex:kMediaRoot.length];
+    BOOL folder = [rest hasPrefix:@"Images/"] || [rest hasPrefix:@"ImportedImages/"] || [rest hasPrefix:@"YebaeOn/"];
+    NSSet *images = [NSSet setWithArray:@[@"jpg", @"jpeg", @"png", @"gif", @"tif", @"tiff", @"bmp", @"heic", @"psd", @"pdf"]];
+    return folder && [images containsObject:path.pathExtension.lowercaseString];
+}
+// 문서 XML 안의 이미지 절대경로(file:// URL과 /Users/Shared/… 표기 둘 다). NFC로 맞춘다.
+static NSArray *MediaPaths(NSData *document) {
+    NSString *xml = Text(document); if (!xml) return @[];
+    NSMutableOrderedSet *paths = [NSMutableOrderedSet orderedSet];
+    NSRegularExpression *pattern = [NSRegularExpression regularExpressionWithPattern:@"(file://(?:localhost)?/Users/Shared/Renewed(?:%20| )Vision(?:%20| )Media/[^\"'<>]+|/Users/Shared/Renewed Vision Media/[^\"'<>]+)" options:0 error:NULL];
+    for (NSTextCheckingResult *match in [pattern matchesInString:xml options:0 range:NSMakeRange(0, xml.length)]) {
+        NSString *value = [[[[xml substringWithRange:match.range] stringByReplacingOccurrencesOfString:@"&amp;" withString:@"&"] stringByReplacingOccurrencesOfString:@"&apos;" withString:@"'"] stringByReplacingOccurrencesOfString:@"&quot;" withString:@"\""];
+        if ([value hasPrefix:@"file:"]) { NSURL *url = [NSURL URLWithString:value] ?: [NSURL URLWithString:[value stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]]; value = url.path; }
+        else value = value.stringByRemovingPercentEncoding ?: value;
+        value = value.precomposedStringWithCanonicalMapping;
+        if (value && AllowedMedia(value)) [paths addObject:value];
+    }
+    return paths.array;
+}
+- (NSUInteger)uploadMediaFor:(NSData *)document {
+    NSMutableArray *items = [NSMutableArray array];
+    for (NSString *path in MediaPaths(document)) {
+        NSString *disk = nil;
+        for (NSString *candidate in @[path, path.decomposedStringWithCanonicalMapping]) if ([NSFileManager.defaultManager fileExistsAtPath:candidate]) { disk = candidate; break; }
+        if (!disk) continue;   // Mac에도 없는 이미지는 건너뛴다(외부 참조 점검이 보여 준다)
+        NSData *bytes = [NSData dataWithContentsOfFile:disk options:NSDataReadingMappedIfSafe error:NULL];
+        if (!bytes.length || bytes.length > 32 * 1024 * 1024) continue;
+        NSString *hash = YBHash(bytes);
+        if ([[self.receipt mediaSha:path] isEqual:hash]) continue;
+        if (![self.server mediaContentExists:hash size:bytes.length]) { [self report:[@"이미지 올리는 중 · " stringByAppendingString:path.lastPathComponent]]; [self.server uploadMedia:bytes sha256:hash]; }
+        [items addObject:@{@"path": path, @"sha256": hash, @"size": @(bytes.length)}];
+    }
+    for (NSUInteger offset = 0; offset < items.count; offset += 200) {
+        NSArray *chunk = [items subarrayWithRange:NSMakeRange(offset, MIN(200, items.count - offset))];
+        [self.server request:@"/api/media/paths" method:@"PUT" body:JSONData(@{@"items": chunk}) headers:JSONHeaders()];
+        [self.receipt transaction:^{ for (NSDictionary *item in chunk) [self.receipt setMedia:item[@"path"] sha:item[@"sha256"]]; }];
+    }
+    return items.count;
+}
+- (NSDictionary *)uploadNew {
+    NSMutableArray *created = [NSMutableArray array], *collisions = [NSMutableArray array]; NSMutableDictionary *failed = [NSMutableDictionary dictionary]; NSUInteger media = 0;
+    if (![self.receipt value:@"ledgerSeq"].length) return @{@"created": created, @"collisions": collisions, @"media": @0, @"failed": failed};   // 장부 사본이 없으면 새 문서를 가릴 수 없다
+    // Mac 문서 폴더는 평평하다. 맨 위의 .pro6만 본다.
+    for (NSString *name in [[NSFileManager.defaultManager contentsOfDirectoryAtPath:self.root error:NULL] sortedArrayUsingSelector:@selector(compare:)]) {
+        if ([name hasPrefix:@"."] || ![name.pathExtension.lowercaseString isEqual:@"pro6"]) continue;
+        NSString *path = name.precomposedStringWithCanonicalMapping;
+        if ([self.receipt ledger:path] || [self.receipt document:path]) continue;   // 서버에 있었던 경로(휴지통·이름 바뀜 포함)는 새 문서가 아니다
+        @try {
+            NSData *bytes = YBReadSafeFile(self.root, path, NULL);
+            if (!bytes) continue;
+            [self report:[@"새 문서 올리는 중 · " stringByAppendingString:path]];
+            NSDictionary *saved = nil; BOOL exists = NO;
+            @try { saved = [self.server upload:bytes path:path previous:nil]; }
+            @catch (NSException *e) { if ([e.reason hasPrefix:@"HTTP 409"]) exists = YES; else @throw; }
+            if (exists) { [collisions addObject:path]; continue; }   // 서버에 같은 이름이 있다(이름 겹침 → 정리 창)
+            long long size = 0, mtime = 0; [self statPath:path size:&size mtime:&mtime];
+            [self.receipt transaction:^{
+                [self.receipt rememberDocument:path version:saved[@"version"] sha:saved[@"sha256"] size:size mtime:mtime neutral:NeutralHash(bytes) replaced:nil];
+                [self.receipt setLedger:path id:saved[@"id"] version:saved[@"version"] sha:saved[@"sha256"] state:@"active"];
+            }];
+            [created addObject:path];
+            @try { media += [self uploadMediaFor:bytes]; } @catch (NSException *e) { failed[[path stringByAppendingString:@" 이미지"]] = e.reason ?: @"이미지 올리기 실패"; }
+        } @catch (NSException *e) { failed[path] = e.reason ?: @"올리기 실패"; }
+    }
+    return @{@"created": created, @"collisions": collisions, @"media": @(media), @"failed": failed};
 }
 
 #pragma mark - 올리기 (2차)
@@ -449,6 +748,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
                 long long size = 0, mtime = 0; [self statPath:path size:&size mtime:&mtime];
                 [self.receipt rememberDocument:path version:saved[@"version"] sha:saved[@"sha256"] size:size mtime:mtime neutral:NeutralHash(bytes) replaced:nil];
                 [sent addObject:path]; any = YES;
+                @try { [self uploadMediaFor:bytes]; } @catch (NSException *e) { failed[[path stringByAppendingString:@" 이미지"]] = e.reason ?: @"이미지 올리기 실패"; }
             }
             // Mac에서만 바꾼 순서: 이 예배 노드 하나만 교체한다. 기준은 영수증의 서버 노드 sha(= 지금 서버 노드 sha)다.
             if ([row[@"macOnlyOrder"] boolValue]) {
@@ -457,6 +757,16 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
                 NSData *body = [NSJSONSerialization dataWithJSONObject:@{@"baseNodeHash": plan[@"playlist"][@"sha256"], @"xml": row[@"localXML"]} options:0 error:NULL];
                 NSDictionary *result = [self.server request:[NSString stringWithFormat:@"/api/playlists/%@/nodes?node=%@", Query(self.library[@"id"]), Query(row[@"nodeID"])] method:@"PUT" body:body headers:JSONHeaders()];
                 YBRequire([result[@"playlist"][@"sha256"] isKindOfClass:NSString.class], @"서버가 예배 순서 저장 결과를 돌려주지 않았습니다.");
+                [self.receipt rememberNode:row[@"key"] serverSha:result[@"playlist"][@"sha256"] fingerprint:row[@"localFingerprint"] name:row[@"localName"] ?: name];
+                any = YES;
+            }
+            // Mac에서 만든 예배: 서버에 없을 때만 더한다. 서버가 보관·휴지통에 넣은 번호면 되살리지 않는다(409).
+            if ([row[@"status"] isEqual:@"macNew"]) {
+                YBRequire([row[@"localXML"] length] > 0, @"Mac 예배 순서를 읽지 못했습니다.");
+                [self report:[NSString stringWithFormat:@"%@ · 새 예배 올리는 중", name]];
+                NSData *body = [NSJSONSerialization dataWithJSONObject:@{@"xml": row[@"localXML"]} options:0 error:NULL];
+                NSDictionary *result = [self.server request:[NSString stringWithFormat:@"/api/playlists/%@/nodes?node=%@", Query(self.library[@"id"]), Query(row[@"nodeID"])] method:@"POST" body:body headers:JSONHeaders()];
+                YBRequire([result[@"playlist"][@"sha256"] isKindOfClass:NSString.class], @"서버가 새 예배 저장 결과를 돌려주지 않았습니다.");
                 [self.receipt rememberNode:row[@"key"] serverSha:result[@"playlist"][@"sha256"] fingerprint:row[@"localFingerprint"] name:name];
                 any = YES;
             }
@@ -491,6 +801,7 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
 #pragma mark - 변경 일지 (상주 확인)
 
 - (NSDictionary *)checkChanges {
+    @try { [self syncLedger]; } @catch (NSException *e) { if ([e.reason hasPrefix:@"HTTP 401"] || ![e.reason hasPrefix:@"HTTP "]) @throw; }   // 장부 API가 없는 서버(3차 배포 전)는 건너뛴다
     NSString *saved = [self.receipt value:@"logSeq"];
     if (!saved.length) {   // 처음: 지난 일지는 훑지 않고 지금 번호만 받는다. 비교 한 번으로 기준을 잡는다.
         NSDictionary *result = [self.server request:@"/api/sync/changes?since=0&limit=0" method:@"GET" body:nil headers:Headers()];
@@ -503,10 +814,22 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
         NSDictionary *result = [self.server request:[NSString stringWithFormat:@"/api/sync/changes?since=%lld&limit=500", since] method:@"GET" body:nil headers:Headers()];
         YBRequire([result[@"changes"] isKindOfClass:NSArray.class] && [result[@"head"] isKindOfClass:NSNumber.class], @"변경 일지가 올바르지 않습니다.");
         head = result[@"head"];
+        long long ledgerSeq = [self.receipt value:@"ledgerSeq"].longLongValue;
+        [self.receipt transaction:^{
+            for (NSDictionary *change in result[@"changes"]) {
+                if ([change[@"seq"] longLongValue] > ledgerSeq && [self.receipt value:@"ledgerSeq"].length) [self applyToLedger:change];
+                [self recordPending:change];
+            }
+            if (ledgerSeq && [result[@"next"] longLongValue] > ledgerSeq) [self.receipt setValue:[result[@"next"] stringValue] forKey:@"ledgerSeq"];
+        }];
         for (NSDictionary *change in result[@"changes"]) {
-            NSString *kind = change[@"kind"], *entity = change[@"entity"];
+            NSString *kind = change[@"kind"], *entity = change[@"entity"], *action = change[@"action"];
             if ([kind hasPrefix:@"node"]) { if (!prefix || [entity hasPrefix:prefix]) relevant = YES; }
-            else if ([kind isEqual:@"doc"]) { if (!self.knownDocumentIDs || [self.knownDocumentIDs containsObject:entity]) relevant = YES; }
+            else if ([kind isEqual:@"doc"]) {
+                if ([@[@"trashed", @"untrashed", @"renamed"] containsObject:action]) relevant = YES;   // [적용]을 기다릴 동작
+                else if (!self.knownDocumentIDs || [self.knownDocumentIDs containsObject:entity]) relevant = YES;
+            }
+            else if ([kind isEqual:@"media"]) {}   // 이미지 경로표는 장부 사본에만 반영한다
             else relevant = YES;   // 모르는 종류는 비교해서 확인한다
         }
         since = [result[@"next"] longLongValue];
@@ -522,9 +845,11 @@ static NSDictionary *DocumentForPath(NSDictionary *plan, NSString *path) {
     if (![self.server isKindOfClass:YB2Server.class] || !((YB2Server *)self.server).deviceID || ![seq isKindOfClass:NSNumber.class]) return;
     NSMutableArray *pending = [NSMutableArray array];
     for (NSDictionary *row in rows) {
-        if ([row[@"status"] isEqual:@"same"] || pending.count >= 200) continue;
+        // 보관 표시·Mac에서 지운 예배·문서 정리 줄은 "기다림"이 아니다.
+        if ([@[@"same", @"archived", @"actions"] containsObject:row[@"status"] ?: @""] || ![row[@"nodeID"] length] || [row[@"macDeleted"] boolValue] || pending.count >= 200) continue;
         NSMutableDictionary *item = [@{@"kind": @"node", @"entity": [NSString stringWithFormat:@"%@:%@", self.library[@"id"], row[@"nodeID"]]} mutableCopy];
-        NSString *reason = [row[@"status"] isEqual:@"hold"] ? row[@"reason"] : [row[@"status"] isEqual:@"mac"] ? @"Mac 수정 올리기 대기" : @"적용 대기";
+        NSString *status = row[@"status"];
+        NSString *reason = [status isEqual:@"hold"] ? row[@"reason"] : [status isEqual:@"mac"] || [status isEqual:@"macNew"] ? @"Mac 수정 올리기 대기" : [status isEqual:@"trash"] ? @"Mac에서 빼기 대기" : @"적용 대기";
         if (reason.length) item[@"reason"] = reason.length > 200 ? [reason substringToIndex:200] : reason;
         [pending addObject:item];
     }

@@ -86,7 +86,7 @@ export async function playlistsRoute(request, env, user, id, action) {
   const r = await row(db,id);
   if(action==='structure'){
     method(request,['GET']);
-    const removals=(await db.prepare("SELECT node_id AS id,name,state,updated_at AS updatedAt FROM yebaeon_playlist_controls WHERE library_id=? AND state IN ('archived','removed') ORDER BY node_id").bind(id).all()).results;
+    const removals=(await db.prepare("SELECT node_id AS id,name,state,updated_at AS updatedAt FROM yebaeon_playlist_controls WHERE library_id=? AND state IN ('archived','trashed','removed') ORDER BY node_id").bind(id).all()).results;
     return json({library:metadata(r),removals,fingerprint:await sha256(JSON.stringify([r.sha256,removals]))});
   }
   if(action==='nodes'&&request.method==='PUT')return replaceNode(request,env,user,id);
@@ -284,13 +284,13 @@ async function saveWithRetryHashed(env,user,id,node,baseHash,edit,extra){
   }
   throw conflict();
 }
-// 문서 이름 바꾸기 뒤: 모든 재생목록 파일에서 옛 경로 참조를 새 경로로 고친다(그 예배들만 새 노드 버전).
 // 사용 중인 재생목록이 가리키는 문서 경로. 휴지통 비우기가 이 문서는 남긴다.
 export async function referencedDocumentPaths(env){
   const libraries=(await env.DB.prepare('SELECT * FROM yebaeon_playlists').all()).results,paths=new Set();
   for(const r of libraries)for(const p of (await load(env,r)).playlists)for(const item of p.items)if(item.kind==='document'){const path=referencePath(item.sourcePath,r.source_root);if(path)paths.add(path);}
   return paths;
 }
+// 문서 이름 바꾸기 뒤: 모든 재생목록 파일에서 옛 경로 참조를 새 경로로 고친다(그 예배들만 새 노드 버전).
 export async function rewriteDocumentReferences(env,user,oldPath,newPath){
   const libraries=(await env.DB.prepare('SELECT id,source_root FROM yebaeon_playlists').all()).results,changed=[];
   for(const library of libraries){

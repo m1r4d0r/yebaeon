@@ -220,6 +220,119 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check([result[@"applied"] count] == 1, @"device key applies");
         engine = resident;
 
+        // ── 3차: 장부 사본·새 문서·서버 휴지통·이름 바꾸기·Mac 새 예배 ──
+        NSDictionary *(^Post)(NSString *, id, NSDictionary *) = ^NSDictionary *(NSString *route, id body, NSDictionary *extra) {
+            NSMutableDictionary *headers = [@{@"Content-Type": @"application/json"} mutableCopy]; [headers addEntriesFromDictionary:extra ?: @{}];
+            return [web request:route method:@"POST" body:[NSJSONSerialization dataWithJSONObject:body options:0 error:NULL] headers:headers];
+        };
+        NSDictionary *(^LibraryTag)(void) = ^NSDictionary *{ return @{@"If-Match": [NSString stringWithFormat:@"\"%@\"", Plan()[@"library"][@"version"]]}; };
+        NSArray *(^Sync)(void) = ^NSArray *{ NSDictionary *c = [engine checkChanges]; NSArray *r = [engine compare]; [engine markSeen:c[@"head"]]; return r; };
+        NSString *trashBin = [area stringByAppendingPathComponent:@"Trash"];
+        [NSFileManager.defaultManager createDirectoryAtPath:trashBin withIntermediateDirectories:YES attributes:nil error:NULL];
+        engine.trashItem = ^NSString *(NSString *absolute) {
+            NSString *target = [trashBin stringByAppendingPathComponent:absolute.lastPathComponent];
+            return [NSFileManager.defaultManager moveItemAtPath:absolute toPath:target error:NULL] ? target : nil;
+        };
+
+        // 16. 장부 사본을 만들고, 서버에 없던 Mac 문서(새 문서·처음부터 원본이 없던 '새 찬양')를 올린다. 그 문서의 허용 폴더 이미지도 올린다.
+        rows = Sync();
+        Check([engine.receipt ledger:@"1부기도.pro6"] != nil && [[engine.receipt ledger:@"광고 보관.pro6"][@"state"] isEqual:@"active"], @"ledger copy built from the R2 ledger");
+        NSString *mediaDir = @"/Users/Shared/Renewed Vision Media/YebaeOn", *imageName = [NSString stringWithFormat:@"sync2-test-%@.png", NSUUID.UUID.UUIDString];
+        NSString *imagePath = [mediaDir stringByAppendingPathComponent:imageName];
+        unsigned char png[] = {0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0};
+        BOOL withImage = [NSFileManager.defaultManager createDirectoryAtPath:mediaDir withIntermediateDirectories:YES attributes:nil error:NULL] && [[NSData dataWithBytes:png length:sizeof png] writeToFile:imagePath atomically:YES];
+        NSString *imageXML = withImage ? [NSString stringWithFormat:@"이미지 <RVImageElement source=\"file:///Users/Shared/Renewed%%20Vision%%20Media/YebaeOn/%@\"/>", imageName] : @"이미지 없음";
+        Check([Doc(imageXML) writeToFile:Local(@"새 문서") atomically:YES], @"new mac document");
+        NSDictionary *created = [engine uploadNew];
+        Check([[NSSet setWithArray:created[@"created"]] isEqual:[NSSet setWithArray:@[@"새 문서.pro6", @"새 찬양.pro6"]]] && [created[@"failed"] count] == 0, @"new Mac documents uploaded once");
+        Check([[engine uploadNew][@"created"] count] == 0, @"no second upload");
+        if (withImage) {
+            Check([created[@"media"] integerValue] == 1, @"image referenced by the new document uploaded");
+            NSArray *paths = [web request:@"/api/media/paths" method:@"GET" body:nil headers:nil][@"paths"];
+            Check([[paths valueForKey:@"path"] containsObject:imagePath], @"image path registered");
+            [NSFileManager.defaultManager removeItemAtPath:imagePath error:NULL];
+        }
+        NSDictionary *(^ServerDoc)(NSString *) = ^NSDictionary *(NSString *path) {
+            NSDictionary *found = [web request:[@"/api/documents?checkPath=" stringByAppendingString:Query(path)] method:@"GET" body:nil headers:nil];
+            Check(![found[@"available"] boolValue], [@"server has " stringByAppendingString:path]);
+            for (NSDictionary *d in [web request:[@"/api/documents?q=" stringByAppendingString:Query([path stringByDeletingPathExtension])] method:@"GET" body:nil headers:nil][@"documents"]) if ([d[@"path"] isEqual:path]) return d;
+            return nil;
+        };
+        NSDictionary *newDoc = ServerDoc(@"새 문서.pro6");
+        Check(newDoc && [newDoc[@"updatedBy"] isEqual:@"교회 Mac"], @"new document stored by the Mac");
+
+        // 17. 웹에서 문서 이름 바꾸기 → Mac은 [적용] 때 파일 이름을 바꾸고 모든 예배의 참조를 고친다.
+        NSDictionary *prayer = Meta(@"1부기도.pro6");
+        Post([NSString stringWithFormat:@"/api/documents/%@/rename", prayer[@"id"]], @{@"path": @"1부 기도문.pro6"}, @{@"If-Match": [NSString stringWithFormat:@"\"%@\"", prayer[@"version"]]});
+        rows = Sync(); NSDictionary *actions = RowNamed(rows, @"문서 정리(서버)");
+        Check([actions[@"status"] isEqual:@"actions"] && [actions[@"renames"] count] == 1 && [actions[@"renames"][0][@"to"] isEqual:@"1부 기도문.pro6"], @"server rename waits for apply");
+        Check([NSFileManager.defaultManager fileExistsAtPath:Local(@"1부기도")], @"compare does not rename");
+        result = [engine apply:@[actions]];
+        Check([result[@"failed"] count] == 0 && ![NSFileManager.defaultManager fileExistsAtPath:Local(@"1부기도")] && [NSFileManager.defaultManager fileExistsAtPath:Local(@"1부 기도문")], @"file renamed on apply");
+        NSString *renamedCue = nil;
+        for (NSDictionary *cue in YBPlaylistNode(YBReadPlaylist(playlistURL), @"N1")[@"items"]) if ([cue[@"attrs"][@"filePath"] hasSuffix:@"기도문.pro6"]) renamedCue = cue[@"attrs"][@"displayName"];
+        Check([renamedCue isEqual:@"1부 기도문"], @"playlist reference and cue name follow the rename");
+        rows = Sync();
+        Check(RowNamed(rows, @"문서 정리(서버)") == nil && [RowNamed(rows, @"1부 예배")[@"status"] isEqual:@"same"], @"same after rename");
+        Check([engine.receipt document:@"1부 기도문.pro6"] != nil && [engine.receipt document:@"1부기도.pro6"] == nil, @"receipt follows the rename");
+
+        // 18. 웹에서 휴지통: 예배가 아직 쓰는 문서는 두고, 안 쓰는 문서는 [적용] 때 macOS 휴지통으로.
+        NSDictionary *opening = Meta(@"첫화면.pro6");
+        Post([NSString stringWithFormat:@"/api/documents/%@/state", opening[@"id"]], @{@"action": @"trash"}, nil);
+        Post([NSString stringWithFormat:@"/api/documents/%@/state", newDoc[@"id"]], @{@"action": @"trash"}, nil);
+        rows = Sync(); actions = RowNamed(rows, @"문서 정리(서버)");
+        Check([actions[@"trashes"] count] == 1 && [actions[@"trashes"][0][@"path"] isEqual:@"새 문서.pro6"] && [actions[@"actionHolds"] count] == 1, @"a document still used by a service is held");
+        result = [engine apply:@[actions]];
+        Check(![NSFileManager.defaultManager fileExistsAtPath:Local(@"새 문서")] && [NSFileManager.defaultManager fileExistsAtPath:[trashBin stringByAppendingPathComponent:[@"새 문서.pro6" decomposedStringWithCanonicalMapping]]] , @"unused document moved to the trash");
+        Post([NSString stringWithFormat:@"/api/documents/%@/state", opening[@"id"]], @{@"action": @"untrash"}, nil);
+        rows = Sync();
+        Check(RowNamed(rows, @"문서 정리(서버)") == nil, @"untrash cancels the waiting move");
+        Check([[engine uploadNew][@"created"] count] == 0, @"a trashed server document is not uploaded again");
+
+        // 19. 웹에서 예배를 휴지통에: [적용] 때 그 노드만 뺀다. 꺼내면 서버에 새로 생긴 예배로 다시 받는다.
+        NSData *n1Raw = [YBPlaylistNode(YBReadPlaylist(playlistURL), @"N1")[@"raw"] dataUsingEncoding:NSUTF8StringEncoding];
+        Post([NSString stringWithFormat:@"/api/playlists/%@/trash?node=N2", libraryID], @{}, LibraryTag());
+        rows = Sync(); n2 = RowNamed(rows, @"수요예배");
+        Check([n2[@"status"] isEqual:@"trash"], @"server trash shown, not applied");
+        Check(YBPlaylistNode(YBReadPlaylist(playlistURL), @"N2") != nil, @"compare leaves the node");
+        result = [engine apply:@[n2]];
+        Check(YBPlaylistNode(YBReadPlaylist(playlistURL), @"N2") == nil && [[YBPlaylistNode(YBReadPlaylist(playlistURL), @"N1")[@"raw"] dataUsingEncoding:NSUTF8StringEncoding] isEqual:n1Raw], @"only the trashed node removed");
+        Post([NSString stringWithFormat:@"/api/playlists/%@/untrash?node=N2", libraryID], @{}, LibraryTag());
+        rows = Sync(); n2 = RowNamed(rows, @"수요예배");
+        Check([n2[@"status"] isEqual:@"receive"] && [n2[@"serverNew"] boolValue] && ![n2[@"macDeleted"] boolValue], @"restored service comes back as new");
+        result = [engine apply:@[n2]];
+        Check(YBPlaylistNode(YBReadPlaylist(playlistURL), @"N2") != nil, @"restored node received");
+
+        // 20. PP6에서 만든 예배는 서버에 없을 때만 더한다. Mac에서 지운 예배는 기본으로 되살리지 않는다.
+        NSString *youth = [NSString stringWithFormat:@"<RVPlaylistNode UUID=\"N3\" displayName=\"청년 예배\">\n%@    </RVPlaylistNode>", Cue(@"C-Y1", @"첫화면", docs)];
+        Check([YBPlaylistReplacing(YBReadPlaylist(playlistURL), @"N3", youth) writeToFile:playlistURL.path atomically:YES], @"mac creates a service");
+        rows = Sync();
+        Check([RowNamed(rows, @"청년 예배")[@"status"] isEqual:@"macNew"], @"mac-only service detected");
+        up = [engine upload:rows];
+        Check([up[@"uploaded"] containsObject:@"청년 예배"] && [up[@"failed"] count] == 0, @"mac service added to the server");
+        rows = Sync();
+        Check([RowNamed(rows, @"청년 예배")[@"status"] isEqual:@"same"], @"same after adding");
+        Check([YBPlaylistRemoving(YBReadPlaylist(playlistURL), @"N3") writeToFile:playlistURL.path atomically:YES], @"mac deletes the service");
+        rows = Sync(); NSDictionary *n3 = RowNamed(rows, @"청년 예배");
+        Check([n3[@"status"] isEqual:@"receive"] && [n3[@"macDeleted"] boolValue], @"mac-deleted service is marked, not resurrected by default");
+
+        // 21. 예배 이름: 웹에서 바꾸면 받고, Mac에서 바꾸면 올린다.
+        NSDictionary *webN1 = Plan();
+        Post([NSString stringWithFormat:@"/api/playlists/%@/rename?node=N1", libraryID], @{@"name": @"주일 1부", @"baseNodeHash": webN1[@"playlist"][@"sha256"]}, nil);
+        rows = Sync(); n1 = RowNamed(rows, @"주일 1부");
+        Check([n1[@"status"] isEqual:@"receive"] && [n1[@"renamedFrom"] isEqual:@"1부 예배"], @"server service rename received");
+        result = [engine apply:@[n1]];
+        Check([YBPlaylistNode(YBReadPlaylist(playlistURL), @"N1")[@"name"] isEqual:@"주일 1부"], @"local service renamed");
+        NSString *n2Raw = YBPlaylistNode(YBReadPlaylist(playlistURL), @"N2")[@"raw"];
+        NSString *renamedN2 = [n2Raw stringByReplacingOccurrencesOfString:@"displayName=\"수요예배\"" withString:@"displayName=\"수요 저녁\""];
+        Check(![renamedN2 isEqual:n2Raw] && [YBPlaylistReplacing(YBReadPlaylist(playlistURL), @"N2", renamedN2) writeToFile:playlistURL.path atomically:YES], @"mac renames a service");
+        rows = Sync(); n2 = RowNamed(rows, @"수요예배");
+        Check([n2[@"status"] isEqual:@"mac"] && [n2[@"macRenamed"] boolValue], @"mac service rename detected");
+        up = [engine upload:rows];
+        Check([up[@"failed"] count] == 0, @"mac rename uploaded");
+        rows = Sync();
+        Check([RowNamed(rows, @"수요 저녁")[@"status"] isEqual:@"same"], @"server follows the mac rename");
+
         // 7. PP6가 켜져 있으면 적용하지 않는다.
         engine.presenterRunning = ^BOOL { return YES; };
         BOOL refused = NO; @try { [engine apply:@[n1]]; } @catch (NSException *e) { refused = [e.reason containsString:@"ProPresenter"]; }

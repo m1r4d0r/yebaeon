@@ -2,13 +2,15 @@
 #import "../mac-sync/YBSync.h"
 #import "YB2Receipt.h"
 
-// Sync 2 엔진 · 1차: 서버 → Mac 받기만.
+// Sync 2 엔진.
 //
 // 규칙
 // - 서버가 정본이다. "서버가 바뀌었나"는 서버 노드 sha와 문서 버전·sha로 판단하고, "Mac이 바뀌었나"는 영수증과 지금 파일로 판단한다.
 // - 단위는 예배(노드)다. 재생목록 파일 전체 기준은 없다. 다른 노드의 바이트는 건드리지 않는다.
 // - 서버에 원본이 없는 참조(장부 이름만 있는 곡)는 적용을 막지 않는다. Mac은 자기 파일을 그대로 쓴다.
 // - 양쪽이 바뀐 문서·순서는 서버 것을 적용하고 Mac 것은 백업 폴더에 남긴다. 사람에게 고르게 하지 않는다.
+// - Mac 파일을 바꾸는 일(받기·휴지통·이름 바꾸기·노드 빼기)은 apply로만 한다. 상주 확인은 비교해 보여 주기까지만 한다.
+// - 없어진 것을 보고 추측해서 지우지 않는다. 서버 일지의 trashed·renamed와 서버 휴지통 상태만 따른다.
 // - 실패는 항목(예배)별로 남기고 나머지는 계속한다. 전역 잠금은 없다. 중단된 적용은 다음 실행에서 끝까지 마무리한다.
 @interface YB2Engine : NSObject
 @property(nonatomic, readonly) YBServer *server;
@@ -18,6 +20,8 @@
 @property(nonatomic, readonly) YB2Receipt *receipt;
 @property(nonatomic, copy) BOOL (^presenterRunning)(void);
 @property(nonatomic, copy) void (^progress)(NSString *message);
+// 문서를 macOS 휴지통으로 옮긴다(진짜 삭제는 없다). 검사에서는 바꿔 끼운다. 반환: 옮겨진 곳(없으면 nil = 실패)
+@property(nonatomic, copy) NSString *(^trashItem)(NSString *absolutePath);
 
 - (instancetype)initWithServer:(YBServer *)server root:(NSString *)root playlist:(NSURL *)playlist profile:(NSString *)profile;
 
@@ -26,6 +30,11 @@
 //   usageOnly(사용 기록만 바뀐 문서), revertedDocuments·revertedOrder(PP6가 옛 내용을 다시 씀 → 다시 적용), macChangedReasons, localXML
 //   orderChanged(BOOL), macOrderChanged(BOOL), macOnlyOrder(BOOL), documents(받을 서버 문서 목록), macChangedDocuments(백업될 경로 목록), macOnlyDocuments(건드리지 않는 Mac 수정 문서),
 //   missingServer(원본 없는 참조 수), missingLocal(Mac에도 없는 참조 경로 목록), updatedBy, updatedAt, plan, localFingerprint
+// 3차 status: "trash"(서버 휴지통에 넣은 예배 → [적용] 때 Mac에서 뺌), "archived"(서버에서 보관됨 · 표시만),
+//   "macNew"(Mac에만 있는 새 예배 → 서버에 없을 때만 추가), "actions"(서버 일지의 문서 이름 바꾸기·휴지통 → [적용] 때 실행)
+//   serverNew(서버에 새로 생긴 예배 · 기본 체크), macDeleted(Mac에서 지운 예배 · 기본 체크 꺼짐, 되살리지 않음),
+//   macDeletedDocuments(받을 문서 중 Mac에서 지운 것), macRenamed(Mac에서 바꾼 예배 이름 → 올리기), renamedFrom(서버 이름으로 바뀔 Mac 이름)
+//   actions 줄: renames[{id, from, to}], trashes[{id, path}], actionHolds[{path, reason}]
 - (NSArray *)compare;
 @property(nonatomic, readonly) NSString *comparedPlaylistHash;
 
@@ -38,6 +47,7 @@
 
 // ── 2차 ──
 // Mac에서만 바뀐 것을 올린다: 문서(서버 새 버전), 예배 순서(노드 교체), 사용일(버전 없이 usage).
+// 3차: Mac에만 있는 새 예배(macNew)는 서버에 "없을 때만 추가"한다.
 // 반환: {uploaded:[name…], usage:보고한 문서 수, failed:{name:reason…}}. PP6가 켜져 있어도 된다(Mac 파일을 바꾸지 않는다).
 - (NSDictionary *)upload:(NSArray *)rows;
 // 변경 일지 확인(요청 1번). 반환: {relevant:BOOL, head:번호}. relevant면 compare를 돌린다.
@@ -45,4 +55,13 @@
 - (void)markSeen:(NSNumber *)head;
 // 장치 열쇠로 들어왔을 때만: "어디까지 적용했나 + 보류 예배"를 서버에 한 줄로 보고한다.
 - (void)reportApplied:(NSNumber *)seq rows:(NSArray *)rows;
+
+// ── 3차 ──
+// Mac 장부 사본이 없으면 R2 장부 파일로 한 번 만든다. checkChanges가 부른다. 그 뒤로는 일지로만 고친다.
+- (void)syncLedger;
+// PP6를 닫을 때: 서버 장부에 없는 Mac 새 문서와, 올린 문서가 가리키는 허용 폴더 안의 새 이미지를 올린다. Mac 파일은 바꾸지 않는다.
+// 반환: {created:[경로…], collisions:[경로…](서버에 같은 이름이 있음 → 정리 창), media:올린 이미지 수, failed:{경로:이유}}
+- (NSDictionary *)uploadNew;
+// 문서 바이트가 가리키는 이미지 중 허용 폴더 안의 것을 서버에 올리고 경로표에 등록한다. 반환: 올리거나 등록한 수
+- (NSUInteger)uploadMediaFor:(NSData *)document;
 @end
