@@ -27,7 +27,7 @@
   }
   const store = {
     id: () => tab + '/' + crypto.randomUUID(),
-    put: record => { const copy=structuredClone({...record,schema:1,tab,updatedAt:new Date().toISOString()}); return transact('readwrite', store=>store.put(copy)).catch(error=>{report(error);throw error;}); },
+    put: record => { if(clearing)return Promise.resolve(); const copy=structuredClone({...record,schema:1,tab,updatedAt:new Date().toISOString()}); return transact('readwrite', store=>store.put(copy)).catch(error=>{report(error);throw error;}); },
     remove: id => transact('readwrite', store => store.delete(id)),
     settle: (id, serial, base, baseXML) => transact('readwrite', store => {
       const request = store.get(id);
@@ -42,33 +42,20 @@
   };
   function report(error) { $('draftState').textContent = '브라우저 보존 실패 · 파일로 따로 저장하세요. ' + error.message; }
   function notify(message) { $('draftState').textContent = message; }
-  // Delete only the confirmed snapshots. A concurrent update in another tab wins.
-  async function clearPrevious() {
+  // One confirmation wipes every draft in this browser, then reloads so in-memory edits and undo history go too.
+  async function clearAll() {
     if(clearing)return;
-    clearing=true;$('draftClear').disabled=true;
-    try {
-      const records=(await store.all()).filter(record=>record.tab!==tab);
-      if(!records.length){await show();return;}
-      if(!confirm(`이 브라우저에 보관된 이전 초안 ${records.length}개를 삭제할까요?\n모든 작업자의 문서·순서 초안이 대상이며 되돌릴 수 없습니다. 필요한 초안은 먼저 파일로 보관하세요.\n현재 탭의 작업과 서버 저장본은 유지합니다. 다른 탭에서 변경 중인 초안은 남거나 다시 보존될 수 있습니다.`))return;
-      const snapshots=new Map(records.map(record=>[record.id,JSON.stringify(record)]));let removed=0;
-      await transact('readwrite',drafts=>{
-        const request=drafts.openCursor();
-        request.onsuccess=()=>{const cursor=request.result;if(!cursor)return;const record=cursor.value;if(record.tab!==tab&&snapshots.get(record.id)===JSON.stringify(record)){cursor.delete();removed++;}cursor.continue();};
-        return request;
-      });
-      await show();
-      $('draftMessage').textContent=`이전 초안 ${removed}개를 삭제했습니다. 현재 탭의 작업과 서버 저장본은 유지했습니다.`+(removed<records.length?' 확인 중 바뀐 초안은 삭제하지 않았습니다.':'');
-      notify('이전 초안 정리 완료 · 현재 탭의 편집은 유지');
-    }catch(error){$('draftMessage').textContent=error.message;report(error);}
-    finally{clearing=false;$('draftClear').disabled=!(await store.all().catch(()=>[])).some(record=>record.tab!==tab);}
+    if(!confirm('이 브라우저에 남은 수정 내역(문서·순서 초안)을 모두 지울까요?\n서버에 저장된 내용은 그대로이며, 지운 내역은 되돌릴 수 없습니다.\n지운 뒤 화면을 새로 불러옵니다.'))return;
+    clearing=true;
+    try{await transact('readwrite',drafts=>drafts.clear());window.YebaeonEditor?.discardChanges?.();location.reload();}
+    catch(error){clearing=false;report(error);alert('브라우저 수정 내역을 지우지 못했습니다. '+error.message);}
   }
   async function show() {
     const dialog = $('draftDialog'); if (!dialog.open) dialog.showModal();
-    $('accountMenu').hidden=true;$('cloudAccount').setAttribute('aria-expanded','false');$('draftClear').disabled=true;
+    $('accountMenu').hidden=true;$('cloudAccount').setAttribute('aria-expanded','false');
     const list = $('draftList'); list.replaceChildren(); $('draftMessage').textContent = '확인 중…';
     try {
       const records = (await store.all()).sort((a,b) => b.updatedAt.localeCompare(a.updatedAt));
-      $('draftClear').disabled=clearing||!records.some(record=>record.tab!==tab);
       $('draftMessage').textContent = records.length ? '이 브라우저에 보존된 작업입니다. 복구해도 서버 내용은 저장 버튼을 누르기 전까지 바뀌지 않습니다.' : '보존된 초안이 없습니다.';
       for (const record of records) {
         const row = document.createElement('div'); row.className = 'library-row';
@@ -87,13 +74,13 @@
           const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href=url; a.download=record.kind === 'document' ? record.name : record.name + '-초안.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
         };
         const remove = document.createElement('button'); remove.textContent = '삭제';
-        remove.onclick = async () => { if (record.tab === tab) { $('draftMessage').textContent='현재 탭의 작업입니다. 서버에 저장하면 해당 초안이 정리됩니다.'; return; } if (confirm('이 초안을 삭제할까요? 서버 문서는 그대로 남습니다.')) { try { await store.remove(record.id); await show(); } catch(error) { report(error); } } };
+        remove.onclick = async () => { if (confirm(record.tab === tab ? '이 초안을 삭제할까요? 지금 화면에서 고친 내용은 다시 고치면 새로 보존됩니다. 서버 문서는 그대로 남습니다.' : '이 초안을 삭제할까요? 서버 문서는 그대로 남습니다.')) { try { await store.remove(record.id); await show(); } catch(error) { report(error); } } };
         row.append(restore,download,remove); list.append(row);
       }
     } catch(error) { $('draftMessage').textContent=error.message; report(error); }
   }
-  window.YebaeonDrafts = { ...store, report, notify, show, clearPrevious };
-  $('draftClear').onclick=clearPrevious;
+  window.YebaeonDrafts = { ...store, report, notify, show, clearAll };
+  $('draftClear').onclick=clearAll;
   $('draftOpen').onclick = show; $('draftClose').onclick=()=> $('draftDialog').close();
   store.all().then(records => { if(records.length)notify(`복구 가능한 초안 ${records.length}개 · ‘브라우저 초안’에서 확인`); }).catch(report);
 })();
