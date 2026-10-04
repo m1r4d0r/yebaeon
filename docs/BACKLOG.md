@@ -10,7 +10,9 @@
 | 1' | Sync 2 1차(받기 전용) — Mac CI 빌드·통합 검사·High Sierra 실기 | 확인 |
 | 2 | 서버: 변경 일지·장치 열쇠·보관본·노드 GET/교체·usage·manifest·적용 보고, 스키마 확인 1행 — main 병합(배포 확인 전). 남음: 이미지 경로표, 미디어 가져오기 일지, 기존 자료 일지 채우기(필요 시), 일지 정리·`resync_required` | 부분 |
 | 3 | Sync 2 2차: 올리기·사용일·보관본·되돌림·상주·장치 열쇠 — 구현(a732290), Mac CI·실기 남음. 남음: 새 문서 올리기, 이미지, 처음 연결 manifest 대조, 장부 이름 변동분 | 부분 |
-| 4 | Studio: Mac 적용 상태·보류 표시, 교회 Mac 수정본 비교·채택, 원본 요청, 이미지 폴더 설정, 검색 색인 파일(D1 읽기 0) | 미완 |
+| 3' | 관리 기준 결론(sync.md 13장) — 서버 3차·Studio 3차·Mac 3차 구현(작업 브랜치). 남음: main 병합·배포 승인, `ADMIN_PASSWORD` 비밀값, 교회 Mac 실기 | 부분 |
+| 3'' | 결론 중 남은 것: 고아 이미지 계산·정리(관리자, 서버가 일괄 계산 → 이미지 `trashed` 일지 → Mac [적용] 때 휴지통), Studio 충돌(보관본) 비교·채택 화면, Mac → 서버 이름 바꾸기 자동 감지(sha 같은 사라짐+생김), 받을 것 미리 내려받아 두기(지금은 [적용] 때 받음) | 미완 |
+| 4 | Studio: 교회 Mac 수정본 비교·채택, 원본 요청, 이미지 폴더 설정, 검색 색인 파일(D1 읽기 0). Mac 적용 상태 표시는 3'에서 함 | 미완 |
 | 5 | 교회 전환(재설계안 9.2)과 실기 확인 4가지(PP6 `~/` 경로, 종료 시 재저장 여부, 지문 불변, .pro6pl 재기록) | 확인 |
 | 6 | 0.6.6 코드·inventory·sync-observations·버전별 미디어 참조 정리(승인 후) | 보류 |
 
@@ -19,7 +21,6 @@
 ## 서버·Worker
 
 - 이미지 보호 표시 켜기/끄기 UI (미완)
-- 미참조 이미지 후보 조회·수동 정리 (미완)
 - 정리본 템플릿 6종을 서버 리소스에 반영 (미완)
 - 레거시 표 정리: `yebaeon_catalog_imports`, `document_usage`, `reference_cache`, R2 잔여 객체 (보류, 승인 후)
 - 성경 원본 모듈·다른 번역본 (보류)
@@ -28,10 +29,10 @@
 
 - 사용자가 10-03 작업하며 찾은 개선점 정리 (목록 받기)
 - 렌더 정밀도(제목 슬라이드·자동 글자 크기·그림자) (미완)
-- 재생목록·문서 이름 변경, 복제, arrangement (미완)
+- arrangement (미완). 이름 변경·복제는 3'에서 함
 - 일반 이미지 추가 마무리 (부분)
 - PPT 가져오기 실파일 피드백, 모바일·Edge 실기 (확인)
-- 동시 접속자 표시 (보류)
+- 동시 접속자 표시: 편집 중 한 줄 안내로 대신함(폴링 없음)
 
 ## 교회 자료
 
@@ -44,7 +45,7 @@
 ## 운영·결정
 
 - **private 전환**: Sync 2 검사가 끝나면 전환한다(사용자 결정 10-04). `church-resources/`(폰트·템플릿·개역개정·이미지)는 빌드 입력이므로 그대로 둔다. 전환 뒤에는 Mac 검사 workflow의 public 조건을 다시 본다 (보류)
-- **`mac-app/` 삭제**: Sync 2가 자리 잡은 뒤. 그 전에 `YBPlaylistIO.m`·`YBPlaylistFormat.m`·`assets/SyncIcon-1024.png`를 `mac-sync2/`로 옮기고, `mac-sync/PP6Core.*`·`test-server.mjs`, `cloudflare/inventory.mjs`·`sync-observations.mjs`도 같이 정리 (보류)
+- **`mac-app/` 삭제**: Sync 2가 자리 잡은 뒤. 그 전에 `YBPlaylistIO.m`·`YBPlaylistFormat.m`·`assets/SyncIcon-1024.png`(PC e293513에서 옮김, push 전)와 차이 창이 쓰는 `YBDocumentComparison.*`·`YBAppUI.*`·`mac-sync/PP6Core.*`를 `mac-sync2/`로 옮기고, `mac-sync/test-server.mjs`, `cloudflare/inventory.mjs`·`sync-observations.mjs`도 같이 정리 (보류)
 - 운영 D1 실측 (미완). 자동 검사가 운영 DB를 치지 않도록 운영 바인딩을 검사 환경에서 제외 (미완)
 - Cloudflare Git 연결과 Actions 배포 중복 확인 (미완)
 - Sync 설치본 영구 보관(Actions artifact 만료) (미완)
