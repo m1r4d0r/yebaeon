@@ -20,7 +20,7 @@
   if(e.target.closest('#layoutStage')&&mod&&!e.altKey&&['KeyZ','KeyY'].includes(e.code)){consume(e,()=>E.undo(e.code==='KeyY'||!!e.shiftKey));return;}
   if(e.target.closest('#layoutStage'))return;
   if(text||dialog||!pane||e.target.closest('#contextMenu')||e.target.closest('#libraryDivider'))return;
-  if(mod&&!e.altKey){const actions={KeyA:()=>pane.all(),KeyC:()=>pane.options.copy?.(false),KeyX:()=>pane.options.copy?.(true),KeyV:()=>pane.options.paste?.(),KeyZ:()=>pane.options.undo?.(!!e.shiftKey),KeyY:()=>pane.options.undo?.(true)};if(actions[e.code]){consume(e,actions[e.code]);return;}}
+  if(mod&&!e.altKey){const actions={KeyA:()=>pane.all(),KeyC:()=>pane.options.copy?.(false),KeyX:()=>pane.options.copy?.(true),KeyV:()=>pane.options.paste?.(),KeyZ:()=>pane.options.undo?.(!!e.shiftKey),KeyY:()=>pane.options.undo?.(true)};if(pane.options.duplicate)actions.KeyD=()=>pane.options.duplicate();if(actions[e.code]){consume(e,actions[e.code]);return;}}
   if(e.code==='ContextMenu'||e.code==='F10'&&e.shiftKey){consume(e,()=>pane.options.menu?.(e));return;}
   if(e.target.closest('button,a,summary')&&['Enter','Space'].includes(e.code))return;
   if(e.code==='Enter'){consume(e,()=>pane.options.open?.());return;}if(e.code==='Delete'){consume(e,()=>pane.options.remove?.());return;}if(e.code==='F2'){consume(e,()=>pane.options.rename?.());return;}

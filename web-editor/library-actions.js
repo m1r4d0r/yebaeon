@@ -1,6 +1,6 @@
 (function(){'use strict';
  const $=id=>document.getElementById(id),C=YebaeonCloud,P=PP6;
- let sourceXML=null,prepared=null,creating=false,listId=null,emptyLibraryXML=null,sourceGeneration=0,appendTarget=null;
+ let sourceXML=null,prepared=null,creating=false,listId=null,emptyLibraryXML=null,sourceGeneration=0,appendTarget=null,insertTarget=null;
  // 서버 카테고리 정책표를 불러오기 전 기본값. 창을 열 때 library-manage.js가 서버 목록으로 바꾼다.
  const names=['가사찬양','악보찬양','예배순서','특별순서','옛날자료'];
  const escape=value=>String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
@@ -20,12 +20,12 @@
    root.setAttribute('lastDateUsed','');root.setAttribute('usedCount','0');
    return P.serialize(model);
  }
- async function newDocument(doc=null){
+ async function newDocument(doc=null,{after=null}={}){
    if(!C.needUser()||creating)return;
-   appendTarget=doc?null:YebaeonPlaylists.selectedPlaylist();
+   appendTarget=doc?null:YebaeonPlaylists.selectedPlaylist();insertTarget=doc&&after&&YebaeonPlaylists.selectedPlaylist()?.editable?{playlist:YebaeonPlaylists.selectedPlaylist().key,item:after}:null;
    if(!doc&&(!appendTarget?.editable||YebaeonPlaylists.state().busy||YebaeonSave?.busy())){YebaeonEditor.status('문서를 추가할 재생목록을 먼저 선택하세요.');return;}
    const generation=++sourceGeneration;sourceXML=null;prepared=null;$('newDocumentTitle').textContent=doc?'문서 복제':'문서 추가';$('newDocumentMessage').textContent='';$('newDocumentName').value=doc?doc.name.replace(/\.pro6$/i,'')+' 복사':'';if([...$('newDocumentCategory').options].some(o=>o.value==='예배순서'))$('newDocumentCategory').value='예배순서';$('newDocumentSubmit').disabled=!!doc;dialog.showModal();
-   if(doc){try{const value=await C.documentCopySource(doc.id);if(!dialog.open||generation!==sourceGeneration)return;sourceXML=value.xml;const category=P.parse(sourceXML,'source').doc.documentElement.getAttribute('category')||'미결';if(![...$('newDocumentCategory').options].some(o=>o.value===category))$('newDocumentCategory').add(new Option(category,category));$('newDocumentCategory').value=category;$('newDocumentMessage').textContent=value.local?'이 브라우저에서 편집 중인 내용을 복제합니다. 원본의 미저장 변경도 그대로 남습니다.':'서버에 저장된 가사·서식·배경을 복제합니다. 원본은 바뀌지 않습니다.';$('newDocumentSubmit').disabled=false;}catch(error){$('newDocumentMessage').textContent=error.message;}}
+   if(doc){try{const value=await C.documentCopySource(doc.id);if(!dialog.open||generation!==sourceGeneration)return;sourceXML=value.xml;const category=P.parse(sourceXML,'source').doc.documentElement.getAttribute('category')||'미결';if(![...$('newDocumentCategory').options].some(o=>o.value===category))$('newDocumentCategory').add(new Option(category,category));$('newDocumentCategory').value=category;$('newDocumentMessage').textContent=value.local?'이 브라우저에서 편집 중인 내용을 복제합니다. 원본의 미저장 변경도 그대로 남습니다.':'서버에 저장된 가사·서식·배경을 복제합니다. 원본은 바뀌지 않습니다.';if(insertTarget)$('newDocumentMessage').textContent+=' 복제본은 순서에서 원본 바로 뒤에 넣습니다.';$('newDocumentSubmit').disabled=false;}catch(error){$('newDocumentMessage').textContent=error.message;}}
    if(appendTarget){$('newDocumentMessage').textContent=appendTarget.name+' 순서 맨 아래에 추가합니다. 순서는 서버 저장으로 확정하세요.';}
    $('newDocumentSubmit').textContent=doc?'복제':'만들고 추가';$('newDocumentName').focus();$('newDocumentName').select();
  }
@@ -40,6 +40,9 @@
      if(appendTarget){
        if(YebaeonPlaylists.selectedPlaylist()?.key===appendTarget.key&&YebaeonPlaylists.appendDocuments([made])){window.YebaeonResponsive?.navigate('order');YebaeonEditor.status(made.name+' · 순서 맨 아래에 추가됨. 서버 저장으로 순서를 확정하세요.');}
        else YebaeonEditor.status('문서는 서버에 생성됐지만 순서에는 추가하지 못했습니다. 이름으로 검색해 추가하세요.');
+     }else if(insertTarget){
+       if(YebaeonPlaylists.selectedPlaylist()?.key===insertTarget.playlist&&YebaeonPlaylists.insertAfter(insertTarget.item,[made]))YebaeonEditor.status(made.name.replace(/\.pro6$/i,'')+' · 원본 바로 뒤에 추가됨. 서버 저장으로 순서를 확정하세요.');
+       else YebaeonEditor.status('복제한 문서는 서버에 생성됐지만 순서에는 추가하지 못했습니다. 이름으로 검색해 추가하세요.');
      }
      dialog.close();
    }catch(error){$('newDocumentMessage').textContent=error.message;}finally{creating=false;$('newDocumentSubmit').disabled=false;}

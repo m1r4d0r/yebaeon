@@ -40,6 +40,10 @@ const assert=require('node:assert/strict');
   await openPlaylists();await page.locator('#playlistArchives').click();await page.locator('.archive-row').waitFor();await page.getByRole('button',{name:'보관 문서',exact:true}).click();await page.locator('.archive-files a').waitFor();
   await mkdir('artifacts',{recursive:true});await page.screenshot({path:'artifacts/library-archives.png'});
   await page.getByRole('button',{name:'사용 중으로 복원'}).click();await page.locator('.archive-row').waitFor({state:'hidden'});await page.locator('#playlistArchivesClose').click();assert.match(await page.locator('#playlistsTitle').textContent(),/새 예배/);assert.equal(await page.locator('#playlistItems .order-item').count(),1);
-  await page.screenshot({path:'artifacts/library-management.png'});assert.deepEqual(errors,[]);console.log('Library UI passed: create, name collision, dirty duplicate, UUID references/media, playlist create/archive/restore');
+  // Duplicating from the order puts the copy right after its original.
+  await page.locator('#playlistItems .order-item').first().click({button:'right'});await page.getByRole('menuitem',{name:'문서 복제',exact:true}).click();await page.waitForFunction(()=>!document.getElementById('newDocumentSubmit').disabled);assert.match(await page.locator('#newDocumentMessage').textContent(),/원본 바로 뒤/);
+  await page.locator('#newDocumentName').fill('순서에서 복제');await page.locator('#newDocumentSubmit').click();await page.locator('#newDocumentDialog').waitFor({state:'hidden'});await page.waitForFunction(()=>document.querySelectorAll('#playlistItems .order-item').length===2);
+  assert.match(await page.locator('#playlistItems .order-item').nth(1).textContent(),/순서에서 복제/);assert.match(await page.locator('#docTitle').textContent(),/순서에서 복제/);
+  await page.screenshot({path:'artifacts/library-management.png'});assert.deepEqual(errors,[]);console.log('Library UI passed: create, name collision, dirty duplicate, duplicate from order, UUID references/media, playlist create/archive/restore');
  }finally{await browser.close();await new Promise(r=>server.close(r));await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

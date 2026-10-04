@@ -8,12 +8,11 @@
  const make=(tag,cls,html='')=>{const el=document.createElement(tag);el.className=cls;el.innerHTML=html;return el;};
  const button=(id,label,title=label)=>{const b=document.createElement('button');b.id=id;b.type='button';b.textContent=label;b.title=title;b.setAttribute('aria-label',title);return b;};
  function dialog(id,title){const el=make('dialog','studio-dialog');el.id=id;el.setAttribute('aria-labelledby',id+'Title');el.innerHTML=`<div class="dialog-heading"><h2 id="${id}Title">${title}</h2></div>`;const close=button(id+'Close','×','닫기');close.onclick=()=>el.close();el.firstChild.append(close);document.body.append(el);return el;}
- const globalTools=make('div','studio-global-tools');globalTools.id='studioGlobalTools';top.querySelector('.brandmark').after(globalTools);
+ const globalTools=make('div','studio-global-tools');globalTools.id='studioGlobalTools';top.querySelector('.segmented').before(globalTools);
  $('undo').textContent='↶';$('undo').setAttribute('aria-label','실행취소');$('redo').textContent='↷';$('redo').setAttribute('aria-label','다시 실행');
  const reset=button('studioReset','초기화','이전 브라우저 초안 초기화');top.querySelector('.segmented').append(reset);reset.onclick=()=>YebaeonDrafts.clearPrevious();
  const topSave=make('div','studio-save');topSave.id='studioTopSave';top.querySelector('.account-wrap').before(topSave);
- const presence=button('studioPresence','','다른 작업자 표시 · 준비 중');presence.className='studio-presence';presence.innerHTML='<span aria-hidden="true">○</span><span aria-hidden="true">○</span>';
- const help=button('studioHelp','?','사용법·단축키');help.className='studio-help';topSave.after(presence,help);
+ const help=button('studioHelp','?','사용법·단축키');help.className='studio-help';topSave.after(help);
  $('accountMenu').prepend($('serverStatus'));
  const settings=button('studioSettings','설정·관리');$('accountMenu').prepend(settings);
  const settingsDialog=dialog('studioSettingsDialog','설정·관리');
@@ -60,10 +59,9 @@
  function menuAt(button,items){const r=button.getBoundingClientRect();S.menu({preventDefault(){},clientX:r.left,clientY:r.bottom},items);}
  picker.onclick=()=>{if(phone())navigate('playlists');else playlistDialog.showModal();};
  orderMenu.onclick=()=>menuAt(orderMenu,[{label:'순서 저장 이력',disabled:$('playlistHistory').disabled,action:()=>$('playlistHistory').click()},{label:'순서 새로고침',action:()=>$('playlistsRefresh').click()}]);
- more.onclick=()=>menuAt(more,[{label:'문서 정보·서식',action:()=>documentDialog.showModal()},{label:'문서 저장 이력',disabled:$('cloudHistory').hidden,action:()=>$('cloudHistory').click()},{label:'검색·이력 설정',disabled:$('documentPolicy').hidden,action:()=>$('documentPolicy').click()},{label:'선택 슬라이드 작업',action:()=>{const r=more.getBoundingClientRect();E.selection.options.menu({preventDefault(){},clientX:r.left,clientY:r.bottom});}}]);
+ more.onclick=()=>menuAt(more,[{label:'문서 정보·서식',action:()=>documentDialog.showModal()},{label:'문서 복제',disabled:!E.ready()||C.linked()?.id!==E.state().key,action:()=>YebaeonLibraryActions.duplicate(C.linked())},{label:'문서 저장 이력',disabled:$('cloudHistory').hidden,action:()=>$('cloudHistory').click()},{label:'검색·이력 설정',disabled:$('documentPolicy').hidden,action:()=>$('documentPolicy').click()},{label:'선택 슬라이드 작업',action:()=>{const r=more.getBoundingClientRect();E.selection.options.menu({preventDefault(){},clientX:r.left,clientY:r.bottom});}}]);
  quick.onclick=()=>E.quick();propertiesButton.onclick=()=>properties(!document.body.classList.contains('responsive-properties'));
  multi.onclick=()=>{multiple=!multiple;multi.setAttribute('aria-pressed',String(multiple));multi.title=multiple?'여러 장 선택 종료':'여러 장 선택';};
- const presenceDialog=dialog('studioPresenceDialog','함께 작업');presenceDialog.append(make('p','dialog-help','작업자 표시를 준비하고 있습니다. 현재는 다른 작업자의 접속 여부를 확인할 수 없습니다.'));presence.onclick=()=>presenceDialog.showModal();
  const helpDialog=dialog('studioHelpDialog','사용법·단축키');helpDialog.insertAdjacentHTML('beforeend','<ol class="studio-help-steps"><li>검색 결과를 누르면 순서 맨 아래에 추가됩니다. 손잡이를 끌면 원하는 위치에 넣을 수 있습니다.</li><li>순서의 제목을 눌러 문서를 열고, 편집 화면에서 슬라이드를 추가합니다.</li><li>서버 저장으로 현재 예배의 수정한 문서와 순서를 저장합니다.</li></ol><label class="studio-help-platform">단축키 <select id="studioShortcutOS"><option value="windows">Windows</option><option value="mac">Mac</option></select></label><dl id="studioShortcutList"></dl><details class="studio-help-more"><summary>선택·편집 단축키</summary><p>방향키: 선택 이동 · Shift: 범위 선택 · Ctrl/⌘: 여러 항목 선택<br>Ctrl/⌘ + A/C/X/V: 전체 선택·복사·잘라내기·붙여넣기<br>Delete: 선택 항목 삭제 · F2: 이름 변경<br>Alt/Option + Enter: 리플로우 나누기 · 맨 앞 Backspace: 앞 장에 합치기</p><p>글 입력 중에는 입력란의 편집 동작을 우선합니다.</p></details>');
  function shortcuts(){const mac=$('studioShortcutOS').value==='mac',mod=mac?'⌘':'Ctrl',alt=mac?'왼쪽 Option':'왼쪽 Alt';$('studioShortcutList').replaceChildren();for(const [name,key]of[['서버 저장',mod+' + S'],['문서 검색',mod+' + F'],['실행취소',mod+' + Z'],['다시 실행',mod+' + Shift + Z / '+mod+' + Y'],['문서 열기·빠른 편집','Enter'],['닫기·선택 해제','Esc'],['리플로우 / 편집기',alt+' + R / E'],['성경 / 미디어',alt+' + B / V']]){const row=make('div','','<dt></dt><dd><kbd></kbd></dd>');row.querySelector('dt').textContent=name;row.querySelector('kbd').textContent=key;$('studioShortcutList').append(row);}}
  $('studioShortcutOS').value=/Mac|iPhone|iPad/.test(navigator.platform)?'mac':'windows';$('studioShortcutOS').onchange=shortcuts;shortcuts();help.onclick=()=>helpDialog.showModal();
@@ -74,13 +72,13 @@
   nav.querySelectorAll('[data-page]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.page===page)));fab.hidden=!phone()||page!=='order';fab.disabled=!current?.editable;
   $('studioOrderCount').textContent='순서 '+L.selection.keys.length;$('studioSearchCount').textContent=$('libraryList').querySelectorAll('.document-item').length?'검색 결과 '+$('libraryList').querySelectorAll('.document-item').length:'문서 검색';
   $('documentNew').disabled=!current?.editable||L.state().busy||L.state().blocked||!!window.YebaeonSave?.busy();
-  viewSelect.value=E.view();$('responsiveSelection').textContent=E.ready()?(E.selection.values().length>1?E.selection.values().length+'장 선택':(E.selected()+1)+' / '+$('slideCount').textContent.replace(/장.*/,'')):'';
+  viewSelect.value=E.view();const chosen=E.selection.values().length,total=$('slideCount').textContent.replace(/장.*/,'');$('responsiveSelection').textContent=E.ready()?(chosen>1?chosen+'장 선택':chosen||E.view()==='editor'?(E.selected()+1)+' / '+total:total+'장'):'';
   for(const b of[quick,multi,more,propertiesButton])b.disabled=!E.ready();propertiesButton.hidden=E.view()!=='editor'||!compact();multi.hidden=E.view()==='editor';
   $('resourceOpen').hidden=E.view()!=='slides';$('mediaOpen').hidden=E.view()!=='slides';if(E.view()!=='editor')properties(false);window.YebaeonSave?.update();
  }
  function viewport(){const v=window.visualViewport;document.body.classList.toggle('responsive-keyboard',!!v&&innerHeight-v.height>150);document.documentElement.style.setProperty('--responsive-height',(v?.height||innerHeight)+'px');document.documentElement.style.setProperty('--keyboard-offset',Math.max(0,innerHeight-(v?.height||innerHeight)-(v?.offsetTop||0))+'px');}
  function layout(){window.YebaeonStudioDrag?.cancel();closeSearch(false);properties(false);
-  if(phone()){document.querySelector('.playlist-columns').prepend(browser);$('responsiveSearchSlot').append(documents);nav.append(help);heading.querySelector('.responsive-title').after(presence);}else{playlistDialog.append(browser);orderWorkspace.insertBefore(documents,$('orderPane'));topSave.after(presence,help);}
+  if(phone()){document.querySelector('.playlist-columns').prepend(browser);$('responsiveSearchSlot').append(documents);nav.append(help);}else{playlistDialog.append(browser);orderWorkspace.insertBefore(documents,$('orderPane'));topSave.after(help);}
   (compact()?$('responsiveSave'):topSave).append($('saveScope'),$('cloudSave'));viewport();update();decorate();
  }
  $('responsiveBack').onclick=()=>navigate(page==='edit'?'order':'playlists');fab.onclick=search;$('responsiveSearchClose').onclick=()=>closeSearch();
