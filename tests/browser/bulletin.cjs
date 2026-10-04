@@ -44,6 +44,9 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   assert.equal(await page.locator('.bulletin-target select').evaluate(s=>s.selectedOptions[0].text),'1부 예배(품성)','first Sunday uses 품성');
   // Songs: candidates only; nothing is replaced until the user picks a document.
   await slot('찬양 1').click();await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor();assert.match(await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 악보'}).textContent(),/악보찬양/);
+  assert.equal(await page.locator('.bulletin-cands input').count(),0,'the slot box is the search box; candidates show results only');
+  const songBox=slot('찬양 1').locator('input[id^=bulletin-]');await songBox.fill('악보');await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor({state:'detached'});assert.equal(await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 악보'}).count(),1,'typing in the slot box searches again');
+  await songBox.fill('100 주');await songBox.press('Enter');await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor();
   await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).click();
   await slot('설교 후 찬양').click();await page.locator('.bulletin-cands .cand',{hasText:'지금 이 자리'}).waitFor();assert.match(await page.locator('.bulletin-cands .cand',{hasText:'지금 이 자리'}).textContent(),/옛 설교후/);
   await page.locator('.bulletin-cands .cand',{hasText:'합성 찬양 D'}).click();

@@ -91,22 +91,22 @@
  /* ---------- work ---------- */
  function activate(id){if(ui.active===id)return;const typing=document.activeElement?.id==='bulletin-'+id;ui.active=id;ui.fresh=true;ui.openLine=null;render();if(typing){const box=document.getElementById('bulletin-'+id);box?.focus();box?.setSelectionRange?.(box.value.length,box.value.length);}}
  function slotRow(id,extra){const s=get(id),row=el('div','bulletin-slot'+(ui.active===id?' active':'')+(s.skip?' skipped':'')+(s.locked?' locked':''));
-  const multi=s.label==='제목',lab=el('label',null,s.label),inp=el(multi?'textarea':'input',s.sug?'sug':'');if(multi){inp.rows=Math.min(4,Math.max(2,s.value.split('\n').length));inp.title='Enter로 줄을 바꿀 수 있습니다';}inp.id='bulletin-'+id;lab.htmlFor=inp.id;inp.value=s.value;inp.disabled=s.locked;inp.placeholder=s.locked?'':'주보에서 골라 채우기';
-  inp.oninput=()=>{s.value=inp.value;s.sug=false;inp.className='';if(s.kind==='song'){s.choice=null;s.query=null;}};inp.onchange=()=>{save();render();};
+  const multi=s.label==='제목',lab=el('label',null,s.label),inp=el(multi?'textarea':'input',s.sug?'sug':'');if(multi){inp.rows=Math.min(4,Math.max(2,s.value.split('\n').length));inp.title='Enter로 줄을 바꿀 수 있습니다';}inp.id='bulletin-'+id;lab.htmlFor=inp.id;const song=s.kind==='song'&&!s.locked;inp.value=song?(s.query??BP.songQuery(s.value)):s.value;inp.disabled=s.locked;inp.placeholder=s.locked?'':song?'찬양 이름·가사로 찾기':'주보에서 골라 채우기';if(song)inp.setAttribute('aria-label',s.label+' 찬양 검색어');
+  inp.oninput=()=>{s.sug=false;inp.className='';if(song){s.query=inp.value;if(!s.src.length)s.value=inp.value;return;}s.value=inp.value;};inp.onchange=()=>{save();if(!song)render();};
   const acts=el('div','acts'),src=el('button','src','주보');src.onclick=e=>{e.stopPropagation();activate(id);ui.sheet=true;sheet();};const skip=el('button','skip',s.skip?'넘김':'넘어가기');skip.disabled=s.locked;skip.onclick=e=>{e.stopPropagation();s.skip=!s.skip;save();render();};acts.append(src,skip);
   const meta=el('div','meta');if(!s.locked)meta.append(el('span',null,s.src.length?'주보에서 가져옴':'주보 힌트 없음'));if(s.note)meta.append(el('span',null,s.note));
   if(s.kind==='prayer'&&s.value){const n=BP.splitName(s.value);meta.append(n?el('span','ok',`이름 ${n.name} · 직함 ${n.title}`):el('span','bad','이름과 직함을 나누지 못했습니다'));}
   if(s.kind==='ref'&&s.value){const r=BP.reference(s.value);meta.append(r.error?el('span','bad',r.error):el('span','ok',r.labels.join(' + ')+` · ${r.count}절`));}
   if(s.kind==='song'&&!s.locked&&s.value)meta.append(el('span',s.choice?'ok':'',s.choice?(s.choice.keep?'그대로 둠: ':'고름: ')+s.choice.name:'후보를 고르세요'));
   row.append(lab,inp,acts,meta);if(extra)extra(row);
-  if(s.kind==='song'&&!s.locked&&!s.skip&&ui.active===id&&s.value)row.append(candidates(s));
+  if(song&&!s.skip&&ui.active===id&&(s.value||s.query))row.append(candidates(s,inp));
   row.addEventListener('click',e=>{if(e.target.closest('.acts,.bulletin-cands'))return;activate(id);});inp.addEventListener('focus',()=>activate(id));return row;}
- function candidates(s){const box=el('div','bulletin-cands'),remembered=aliases[songKey(s.value)],on=c=>s.choice?.id===c.id&&!!s.choice.keep===!!c.keep;
+ function candidates(s,input){const box=el('div','bulletin-cands'),remembered=aliases[songKey(s.value)],on=c=>s.choice?.id===c.id&&!!s.choice.keep===!!c.keep;
   const pick=c=>{s.choice=on(c)?null:c;if(s.choice&&!c.keep){aliases[songKey(s.value)]={id:c.id,name:c.name};try{localStorage.setItem('yebaeon.bulletin.songs',JSON.stringify(aliases));}catch{}shareChoice(s,c);}save();render();};
-  YebaeonSearch.box(box,{value:s.query??BP.songQuery(s.value),label:'찬양 검색어',placeholder:'찬양 이름·가사',itemClass:'cand',
+  YebaeonSearch.box(box,{input,itemClass:'cand',
    extras:()=>s.current?[{doc:{id:s.current.id,name:s.current.name},keep:true,tag:'지금 이 자리',on:on({id:s.current.id,keep:true})}]:[],
    decorate:d=>({tag:[d.category,remembered?.id===d.id?'지난번에 고름':'',d.matchedBy==='content'?'가사 일치':''].filter(Boolean).join(' · ')||d.path,on:on({id:d.id})}),
-   onQuery:q=>{if(q!==(s.query??BP.songQuery(s.value))){s.query=q;save();}},
+   onQuery:q=>{if(q!==BP.songQuery(s.value))s.query=q;save();},
    onPick:(doc,info)=>pick({id:doc.id,name:base(doc.name),...doc.category?{category:doc.category}:{},...info.keep?{keep:true}:{}})}).run();
   return box;}
  // 설교 후 찬양·헌금 찬양은 예배마다 보통 같다. 한 예배에서 고르면 아직 고르지 않은 다른 예배의 같은 자리에도 넣는다(주보 글이 다르면 넣지 않음).

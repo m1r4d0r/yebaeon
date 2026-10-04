@@ -11,9 +11,11 @@
   const data=C.api('/documents?'+params).then(r=>r.json());cache.set(key,{at:Date.now(),data});try{return await data;}catch(e){cache.delete(key);throw e;}}
  const clear=()=>cache.clear();
  // 작은 검색창: [검색어][검색] 아래 결과 단추. extras는 결과 앞에 둘 단추(예: 지금 이 자리), decorate(doc)는 {tag,on}을 돌려준다.
- function box(container,{value='',placeholder='문서 이름·본문',label='문서 검색',limit=30,itemClass='',extras=()=>[],decorate=()=>({}),onPick,onQuery}={}){
-  const root=el('div','doc-search'),row=el('div','doc-search-row'),input=el('input'),go=el('button',null,'검색'),list=el('div','doc-search-list');
-  input.type='search';input.value=value;input.placeholder=placeholder;input.setAttribute('aria-label',label);go.type='button';row.append(input,go);root.append(row,list);container.replaceChildren(root);
+ // input을 주면 그 바깥 입력칸이 검색창이 되고 여기에는 결과만 보인다(치는 동안 잠깐 멈추면 찾는다).
+ function box(container,{value='',placeholder='문서 이름·본문',label='문서 검색',limit=30,itemClass='',input:outer=null,extras=()=>[],decorate=()=>({}),onPick,onQuery}={}){
+  const root=el('div','doc-search'),list=el('div','doc-search-list'),input=outer||el('input');
+  if(!outer){const row=el('div','doc-search-row'),go=el('button',null,'검색');input.type='search';input.value=value;input.placeholder=placeholder;input.setAttribute('aria-label',label);go.type='button';go.onclick=()=>run();row.append(input,go);root.append(row);}
+  root.append(list);container.replaceChildren(root);
   const item=(doc,info={})=>{const b=el('button','doc-search-item'+(itemClass?' '+itemClass:'')+(info.on?' on':''));b.type='button';b.append(el('span','nm',stem(doc.name)),el('span','tag',info.tag??(doc.matchedBy==='content'?'본문 일치':doc.category||'')));b.onclick=()=>onPick?.(doc,info);return b;};
   let generation=0;
   async function run(){const q=input.value.trim(),g=++generation;onQuery?.(q);list.replaceChildren(...extras().map(x=>item(x.doc,x)));if(!q)return;list.append(el('p','hint','찾는 중…'));
@@ -21,7 +23,8 @@
     for(const d of docs.slice(0,limit))list.append(item(d,decorate(d)));
     if(!docs.length)list.append(el('p','hint','검색 결과가 없습니다. 검색어를 고쳐 보세요.'));else if(docs.length>limit)list.append(el('p','hint','결과가 많습니다. 검색어를 더 구체적으로 입력하세요.'));}
    catch(e){if(g===generation){list.querySelector('.hint')?.remove();list.append(el('p','hint bad',e.message));}}}
-  go.onclick=run;input.onkeydown=e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();run();}};
+  let timer;const enter=e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();clearTimeout(timer);run();}};input.addEventListener('keydown',enter);
+  if(outer)input.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(run,400);});
   return {run,input,focus:()=>input.focus(),element:root};
  }
  window.addEventListener('yebaeoncloudsaved',clear);
