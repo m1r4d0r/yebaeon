@@ -31,13 +31,30 @@
    work.prayer[i]=slot({step:'prayer',kind:'prayer',label:SVC[i]+' 기도',...val(s.prayer)});}
   const groups=parsed.sermonGroups.length?parsed.sermonGroups:[{services:[0,1,2]}],main=groups.find(g=>g.services.includes(1))||groups[0],S=parsed.sermon;
   work.main={services:main.services,doc:PL.sermonDoc(main.services),series:slot({step:'sermon',label:'시리즈명',...val(S.series)}),title:slot({step:'sermon',label:'제목',...val(S.title.value?S.title:main.title)}),ref:slot({step:'sermon',kind:'ref',label:'설교 본문',...val(S.ref.value?S.ref:main.ref)}),
-   groups:S.groups.map(g=>({what:slot({step:'sermon',label:'대지 질문',...val(g.what)}),points:g.points.map(p=>({tpl:slot({step:'sermon',kind:'template',label:'대지 문장',...val(p.template)}),blanks:p.blanks.map((x,k)=>slot({step:'sermon',label:'빈칸 '+(k+1),...val(x),zone:parsed.summary})),quotes:p.quotes.map(q=>slot({step:'sermon',kind:'ref',label:'인용구',...val(q)}))}))}))};
+   groups:makeGroups(S.groups,parsed.summary)};
   for(const g of groups)if(g!==main)work.extra.push({services:g.services,preacher:g.preacher,doc:PL.sermonDoc(g.services),series:slot({step:'sermon',label:'시리즈명',...val(g.series)}),title:slot({step:'sermon',label:'제목',...val(g.title)}),ref:slot({step:'sermon',kind:'ref',label:'설교 본문',...val(g.ref)})});
-  const day=parsed.date?new Date(parsed.date+'T00:00:00'):null;
-  ['수요예배','금요예배'].forEach((name,d)=>{const w=parsed.weekday[d]||{series:{},title:{},ref:{}},dt=day?new Date(day.getTime()+(d?5:3)*864e5):null,skip=!!w.minister||!!w.event||!w.title?.value;
-   work.weekday.push({day:name,doc:d?'금요예배말씀':'수요예배',date:dt?`${dt.getMonth()+1}/${dt.getDate()}`:'',minister:w.minister||'',event:w.event||'',series:slot({step:'weekday',label:'시리즈명',...val(w.series),skip}),title:slot({step:'weekday',label:'제목',...val(w.title),skip}),ref:slot({step:'weekday',kind:'ref',label:'본문',...val(w.ref),skip})});});
+  work.weekday=makeWeekday(parsed.weekday);
   pickTargets();
  }
+ function makeGroups(groups,zone){return groups.map(g=>({what:slot({step:'sermon',label:'대지 질문',...val(g.what)}),points:g.points.map(p=>({tpl:slot({step:'sermon',kind:'template',label:'대지 문장',...val(p.template)}),blanks:p.blanks.map((x,k)=>slot({step:'sermon',label:'빈칸 '+(k+1),...val(x),zone})),quotes:p.quotes.map(q=>slot({step:'sermon',kind:'ref',label:'인용구',...val(q)}))}))}));}
+ function makeWeekday(list){const day=work.date?new Date(work.date+'T00:00:00'):null;return ['수요예배','금요예배'].map((name,d)=>{const w=list[d]||{series:{},title:{},ref:{}},dt=day?new Date(day.getTime()+(d?5:3)*864e5):null,skip=!!w.minister||!!w.event||!w.title?.value;
+  return {day:name,doc:d?'금요예배말씀':'수요예배',date:dt?`${dt.getMonth()+1}/${dt.getDate()}`:'',minister:w.minister||'',event:w.event||'',series:slot({step:'weekday',label:'시리즈명',...val(w.series),skip}),title:slot({step:'weekday',label:'제목',...val(w.title),skip}),ref:slot({step:'weekday',kind:'ref',label:'본문',...val(w.ref),skip})};});}
+ const groupSlots=G=>[G.what,...G.points.flatMap(p=>[p.tpl,...p.blanks,...p.quotes])];
+ // The user tells which cell is a region when the automatic reading misses it; suggestions are re-derived from that cell.
+ function tools(key){const list=[];if(!work)return list;
+  if(work.step==='song')list.push([`이 칸을 ${SVC[work.svc]} 찬양으로`,()=>designate('songs',key)]);
+  if(work.step==='sermon'){list.push(['설교 노트로',()=>designate('note',key)]);if(work.main.groups.some(g=>g.points.length))list.push(['말씀 요약으로',()=>designate('summary',key)]);}
+  if(work.step==='weekday')list.push(['주중예배 칸으로',()=>designate('weekday',key)]);
+  return list;}
+ function designate(kind,key){let said='';const say=t=>said=t;const M=work.main,points=M.groups.flatMap(g=>g.points);
+  const r=BP.region(work.tables,key,kind,kind==='note'?work.summary:kind==='summary'?points.map(p=>get(p.tpl).value):undefined);
+  if(kind==='songs'){if(!r.length){message('이 칸에서 찬양으로 볼 줄을 찾지 못했습니다.');return;}const i=work.svc;for(const id of work.songs[i])delete work.slots[id];work.songs[i]=r.map((x,k)=>slot({step:'song',svc:i,kind:'song',label:'찬양 '+(k+1),...val(x)}));say(`${SVC[i]} 예배 전 찬양을 이 칸에서 다시 채웠습니다.`);}
+  if(kind==='note'){if(!r.groups.length&&!r.title.value){message('이 칸에서 제목(■)이나 대지(What?·How? 등)를 찾지 못했습니다.');return;}
+   for(const k of ['series','title','ref'])if(r[k].value)Object.assign(get(M[k]),{value:r[k].value,src:r[k].src,sug:true,skip:false});
+   if(r.groups.length){for(const G of M.groups)for(const id of groupSlots(G))delete work.slots[id];M.groups=makeGroups(r.groups,work.summary);}say('설교 노트를 이 칸에서 다시 읽었습니다.');}
+  if(kind==='summary'){work.summary=key;let filled=0;points.forEach((p,i)=>{syncBlanks(p);p.blanks.forEach((id,k)=>{const x=r[i]?.[k],s=get(id);s.zone=key;if(x?.value){Object.assign(s,{value:x.value,src:x.src,sug:true,skip:false});filled++;}});});say(filled?`빈칸 ${filled}개를 이 칸에서 찾았습니다.`:'이 칸에서 빈칸 답을 찾지 못했습니다. 낱말을 눌러 채우세요.');}
+  if(kind==='weekday'){if(!r.length){message('이 칸에 글이 없습니다.');return;}for(const W of work.weekday)for(const id of [W.series,W.title,W.ref])delete work.slots[id];work.weekday=makeWeekday(r);say('주중예배를 이 칸에서 다시 읽었습니다.');}
+  ui.active=null;reviewOps=null;save();render();message(said);}
  function playlists(){return L.libraries().flatMap(l=>l.playlists.map(p=>({key:l.id+'/'+p.id,library:l.id,node:p.id,name:p.name})));}
  function pickTargets(){const all=playlists(),names=all.map(p=>p.name);work.targets=[0,1,2].map(i=>all.find(p=>p.name===PL.playlistFor(i,work.date,names))?.key||'');}
  const target=i=>playlists().find(p=>p.key===work.targets[i]);
@@ -53,6 +70,7 @@
  function tree(root,keys){const m=marks(),a=ui.active&&get(ui.active),small=mobile();
   for(const t of work.tables){const cells=t.cells.filter(c=>c.lines.length&&(!keys||keys.has(`${t.idx}:${c.row}:${c.col}`)));if(!cells.length)continue;const box=el('div','bulletin-table');box.append(el('h4',null,role(t)));
    for(const c of cells.sort((x,y)=>x.row-y.row||x.col-y.col)){const key=`${t.idx}:${c.row}:${c.col}`,cell=el('div','bulletin-cell'+(a?.zone===key?' zone':''));
+    const acts=tools(key);if(acts.length){const bar=el('div','bulletin-cell-tools');for(const [label,fn] of acts){const b=el('button',null,label);b.onclick=()=>{fn();if(small)closeSheet();};bar.append(b);}cell.append(bar);}
     c.lines.forEach((line,li)=>{const mk=m.get(key+':'+li)||[],cls=wi=>{let r='';for(const x of mk)if(x.a===null||(wi>=x.a&&wi<=x.b))r=x.c==='act'?'act':(r||'sug');return r;};
      if(small){const open=ui.openLine===key+':'+li,b=el('button','bulletin-mline'+(mk.length?' sug':'')+(open?' open':''),line);b.onclick=()=>{ui.openLine=open?null:key+':'+li;sheet();};cell.append(b);
       if(open){const chips=el('div','bulletin-chips'),whole=el('button','whole','줄 전체 넣기');whole.onclick=()=>pickLine(key,li,line);chips.append(whole);BP.words(line).forEach((w,wi)=>{const x=el('button',cls(wi),w);x.onclick=()=>pickWord(key,li,wi,w);chips.append(x);});cell.append(chips);}}
@@ -69,7 +87,7 @@
  function cleanLine(line,kind){let v=line.replace(/^■\s*/,'');if(kind==='template')v=v.replace(/^\d+\.\s*/,'');if(kind==='ref'){const m=v.match(/^([가-힣]{1,6}\s?\d+\s*:\s*[\d,\-~]+)/)||v.match(/\(([가-힣]{1,6}\s?\d+:[\d,\-~]+)\)\s*$/);if(m)v=m[1];}return v.trim();}
  function targetSlot(){const s=ui.active&&get(ui.active);if(!s){message('채울 칸을 먼저 고르세요.');return null;}if(s.locked){message(s.note);return null;}return s;}
  function pickWord(key,li,wi,w){const s=targetSlot();if(!s)return;w=cleanWord(w);if(ui.fresh||s.kind==='prayer'){s.value=w;s.src=[{key,line:li,a:wi,b:wi}];}else{s.value=(s.value?s.value+' ':'')+w;const l=s.src.at(-1);if(l&&l.key===key&&l.line===li&&l.b===wi-1)l.b=wi;else s.src.push({key,line:li,a:wi,b:wi});}changed(s);}
- function pickLine(key,li,line){const s=targetSlot();if(!s)return;s.value=cleanLine(line,s.kind);s.src=[{key,line:li,a:null,b:null}];changed(s);if(mobile())closeSheet();}
+ function pickLine(key,li,line){const s=targetSlot();if(!s)return;if(s.kind==='prayer'&&line.split('/').length===3){line.split('/').forEach((name,i)=>Object.assign(get(work.prayer[i]),{value:name.trim(),src:[{key,line:li,a:null,b:null}],sug:false,skip:false}));ui.fresh=false;save();render();if(mobile())closeSheet();return;}s.value=cleanLine(line,s.kind);s.src=[{key,line:li,a:null,b:null}];changed(s);if(mobile())closeSheet();}
  function changed(s){s.sug=false;s.skip=false;if(s.kind==='song'){s.choice=null;s.query=null;}ui.fresh=false;save();render();}
  /* ---------- work ---------- */
  function activate(id){if(ui.active===id)return;ui.active=id;ui.fresh=true;ui.openLine=null;render();}

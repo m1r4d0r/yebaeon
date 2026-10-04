@@ -79,6 +79,20 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   assert.deepEqual(check.labels,['창세기 1:1 (NKRV)','창세기 1:2 (NKRV)','창세기 1:3 (NKRV)','창세기 1:1 (NKRV)','요한복음 13:36 (NKRV)','요한복음 13:37 (NKRV)']);
   assert.equal(check.point,'What? 합성 믿음의 원리는?\n믿음은 의심이 아닙니다.\n믿기 위해 기도하십시오.');assert.deepEqual(check.underlined,['의심','기도']);
   assert.deepEqual(check.youthBoxes,['청년 합성 설교','','(요한복음 3:16)'],'boxes are filled by screen position; no series leaves the series box empty');assert.equal(check.friday,3);assert.deepEqual(check.fridayTitle,['합성 기도2\n\n금요 합성 제목','(누가복음 22:31-32)']);assert.deepEqual(check.fridaySizes.map(r=>r[1]),check.before,'series and title keep their own sizes');assert.ok(check.before[0]<check.before.at(-1),JSON.stringify(check.before));
+  // Changed format: automatic regions are missed, so the user designates them from the full bulletin.
+  await page.locator('#bulletinFile').setInputFiles({name:'changed.hwp',mimeType:'application/octet-stream',buffer:syntheticHWP({changed:true})});await page.waitForFunction(()=>YebaeonBulletin.state()?.file==='changed.hwp');
+  await page.locator('.bulletin-svc button',{hasText:'2부'}).click();assert.equal(await slot('찬양 1').locator('input[id^=bulletin-]').inputValue(),'');
+  await page.locator('#bulletinSource .bulletin-source-bar input').check();const cell=text=>page.locator('#bulletinSource .bulletin-cell',{hasText:text});
+  await cell('합성 찬양 A').locator('.bulletin-cell-tools button',{hasText:'2부 찬양으로'}).click();
+  assert.deepEqual(await page.locator('.bulletin-slot input[id^=bulletin-]').evaluateAll(xs=>xs.slice(0,2).map(x=>x.value)),['합성 찬양 A','합성 찬양 B']);
+  await page.locator('#bulletinSteps button',{hasText:'기도'}).click();await slot('1부 기도').click();await page.locator('#bulletinSource .bulletin-line',{hasText:'가나다집사 /'}).locator('.pil').click();
+  assert.deepEqual(await page.locator('.bulletin-slot input[id^=bulletin-]').evaluateAll(xs=>xs.map(x=>x.value)),['가나다집사','라마바시무집사','사아자형제'],'one prayer line fills all services');
+  await page.locator('#bulletinSteps button',{hasText:'주일말씀'}).click();await cell('질문 합성').locator('.bulletin-cell-tools button',{hasText:'설교 노트로'}).click();
+  assert.equal(await slot('대지 질문').locator('input[id^=bulletin-]').inputValue(),'질문 합성 믿음의 원리는?');assert.equal(await slot('빈칸 1').locator('input[id^=bulletin-]').inputValue(),'');
+  await cell('하나, 믿음은').locator('.bulletin-cell-tools button',{hasText:'말씀 요약으로'}).click();assert.equal(await slot('빈칸 1').locator('input[id^=bulletin-]').inputValue(),'의심');assert.match(await page.locator('#bulletinMessage').textContent(),/빈칸 3개/);
+  await page.locator('#bulletinSteps button',{hasText:'주중말씀'}).click();await cell('파하가전도사').locator('.bulletin-cell-tools button',{hasText:'주중예배 칸으로'}).click();
+  assert.match(await page.locator('.bulletin-group',{hasText:'금요예배'}).textContent(),/금요 합성 제목/);
+  await page.locator('#bulletinSource .bulletin-source-bar input').uncheck();
   // Mobile: the work column is primary and the bulletin opens as a sheet; lines expand into word buttons.
   await page.setViewportSize({width:390,height:844});await page.locator('#bulletinSteps button',{hasText:'찬양'}).click();await page.locator('.bulletin-svc button',{hasText:'2부'}).click();
   assert.equal(await page.locator('#bulletinSource').isVisible(),false);await slot('찬양 2').locator('.src').click();await page.locator('#bulletinSheet').waitFor();
@@ -95,6 +109,6 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   dropboxReady=true;await page.locator('#dropboxTab').click();await page.locator('.dropbox-row').first().waitFor();assert.equal(await page.locator('#dropboxTab').getAttribute('aria-pressed'),'true');
   for(const [w,h] of [[1440,960],[768,1024],[390,844],[320,568]]){await page.setViewportSize({width:w,height:h});assert.equal(await page.locator('#dropboxSection .bulletin-body').evaluate(el=>el.scrollWidth>el.clientWidth+1),false,`Dropbox overflow ${w}`);await page.screenshot({path:`artifacts/dropbox-${w}.png`});}
   await page.locator('#bulletinClose').click();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);assert.equal(await page.locator('#bulletinOpen').isVisible(),true);assert.deepEqual(errors,[]);
-  console.log('Bulletin browser passed: HWP understanding, song candidates without auto replace, word/line picking, review before save, pending-document guard and retry, prayer/sermon/weekday documents edited in place, playlist slots and youth sermon swap, mobile sheet, Dropbox, bounded dialogs at 320/390/768/1440px.');
+  console.log('Bulletin browser passed: HWP understanding, region designation after a format change, song candidates without auto replace, word/line picking, review before save, pending-document guard and retry, prayer/sermon/weekday documents edited in place, playlist slots and youth sermon swap, mobile sheet, Dropbox, bounded dialogs at 320/390/768/1440px.');
  }catch(e){console.error('UI errors',errors,await page.locator('#bulletinMessage').textContent().catch(()=>''));throw e;}finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

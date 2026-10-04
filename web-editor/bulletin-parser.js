@@ -45,6 +45,35 @@
   }
   return {fills,pos};
  }
+
+ const QUESTION=/^(What|How|Why|Who|When|Where)\?/i;
+ const FIXED=/^(예배의 부름|신앙고백|성도의 교제|축복의 선포|합심기도|대표기도|드림의 찬양)/;
+ function cellAt(tables,key){const [t,row,col]=key.split(':').map(Number);const c=tables.find(x=>x.idx===t)?.cells.find(x=>x.row===row&&x.col===col);return c?{c,key}:null;}
+ // Blank answers come from the summary box: ~다 style sentences after 첫째·둘째·셋째.
+ function summaryText(sum){let text='';const map=[];if(sum)sum.c.lines.forEach((line,li)=>{map.push({li,start:text.length,line});text+=line+'\n';});
+  return {text,at(start,value){const seg=[...map].reverse().find(s=>s.start<=start);const before=seg.line.slice(0,start-seg.start).split(' ').length-1;return {key:sum.key,line:seg.li,a:before,b:before+value.split(' ').length-1};}};}
+ function groups(note,sum,loose=false){const list=[],{text,at}=summaryText(sum);let g=null,p=null,pos=0;
+  note.c.lines.forEach((line,li)=>{
+   if(QUESTION.test(line)){g={what:item(line,src(note.key,li,line)),points:[]};list.push(g);p=null;return;}
+   const pm=line.match(/^(\d+)\.\s*(.*_{2,}.*)$/);
+   if(pm&&!g&&loose){const prev=li>0?note.c.lines[li-1]:'',plain=prev&&!/^■/.test(prev)&&!/^\d+\./.test(prev);g={what:plain?item(prev,src(note.key,li-1,prev)):item(),points:[]};list.push(g);}
+   if(pm&&g){const template=pm[2],r=blanks(template,text,pos,g.points.length);pos=r.pos;p={template:item(template,src(note.key,li,line,template)),blanks:r.fills.map(f=>f?item(f.text,at(f.start,f.text)):item()),quotes:[]};g.points.push(p);return;}
+   const qm=line.match(/^([가-힣]{1,4}\s?\d+:[\d,\-~]+)\s/);
+   if(qm&&p)p.quotes.push(item(qm[1],src(note.key,li,line,qm[1])));
+  });return list;}
+ function blanks(template,text,pos,index){if(!text)return {fills:template.split(/_{2,}/).slice(1).map(()=>null),pos};let end,loose=false;
+  const k=text.indexOf(ORD[index],pos);if(k>=0){pos=k;loose=true;const next=ORD.map(o=>text.indexOf(o,k+2)).filter(i=>i>0),nl=text.indexOf('\n',k);end=Math.min(...next,nl<0?text.length:nl);}
+  return fillBlanks(template,text,pos,end,loose);}
+ function songsIn(cell){const list=[];cell.c.lines.forEach((line,li)=>{if(FIXED.test(line)||line.split('/').length===3||/^[가-힣]+\s*\d+\s*:\s*\d/.test(line))return;list.push(item(/^(부름의 찬양|찬양)$/.test(line)?'':line,src(cell.key,li,line)));});return list;}
+ // A user-designated region re-derives suggestions from that cell only.
+ function region(tables,key,kind,extra){const cell=cellAt(tables,key);if(!cell)return null;
+  if(kind==='songs')return songsIn(cell);
+  if(kind==='weekday')return cell.c.lines.slice(0,2).map((line,li)=>weekdayLine(line,key,li,['수요예배','금요예배'][li]));
+  if(kind==='note'){const r={series:item(),title:item(),ref:item(),groups:groups(cell,extra?cellAt(tables,extra):null,true)};const heads=cell.c.lines.map((line,li)=>({line,li})).filter(o=>/^■/.test(o.line)),refLine=heads.find(o=>/^■\s*[가-힣]+\s*\d+:\d/.test(o.line)),titleLine=heads.find(o=>o!==refLine);
+   if(titleLine){const x=series(titleLine.line.replace(/^■\s*/,''));r.series=item(x.series,x.series?src(key,titleLine.li,titleLine.line,x.series):null);r.title=item(x.title,src(key,titleLine.li,titleLine.line,x.title));}
+   if(refLine){const v=refLine.line.replace(/^■\s*/,'');r.ref=item(v,src(key,refLine.li,refLine.line,v));}return r;}
+  if(kind==='summary'){const {text,at}=summaryText(cell);let pos=0;return extra.map((template,i)=>{const r=blanks(template,text,pos,i);pos=r.pos;return r.fills.map(f=>f?item(f.text,at(f.start,f.text)):item());});}
+  return null;}
  function weekdayLine(line,key,li,day){
   const value=line.trim();
   if(new RegExp(`^[가-힣]{2,4}\\s*(${TITLES})$`).test(value))return {day,minister:value,event:'',series:item(),title:item(),ref:item()};
@@ -89,21 +118,9 @@
   const refLine=heads.find(o=>/^■\s*[가-힣]+\s*\d+:\d/.test(o.line)),titleLine=heads.find(o=>o!==refLine);
   if(titleLine){const body=titleLine.line.replace(/^■\s*/,''),r=series(body);S.series=item(r.series,r.series?src(titleLine.x.key,titleLine.li,titleLine.line,r.series):null);S.title=item(r.title,src(titleLine.x.key,titleLine.li,titleLine.line,r.title));}
   if(refLine){const v=refLine.line.replace(/^■\s*/,'');S.ref=item(v,src(refLine.x.key,refLine.li,refLine.line,v));}
-  const sum=all.find(x=>x.c.lines.some(s=>/(^|\s)첫째,/.test(s)));let sumText='';const sumMap=[];
-  if(sum){sum.c.lines.forEach((line,li)=>{sumMap.push({li,start:sumText.length,line});sumText+=line+'\n';});out.summary=sum.key;}
-  const at=(start,value)=>{const seg=[...sumMap].reverse().find(s=>s.start<=start);const before=seg.line.slice(0,start-seg.start).split(' ').length-1;return {key:sum.key,line:seg.li,a:before,b:before+value.split(' ').length-1};};
-  const note=all.find(x=>x.c.lines.some(s=>/^(What|How|Why|Who|When|Where)\?/i.test(s)));
-  if(note){let g=null,p=null,pos=0;
-   note.c.lines.forEach((line,li)=>{
-    if(/^(What|How|Why|Who|When|Where)\?/i.test(line)){g={what:item(line,src(note.key,li,line)),points:[]};S.groups.push(g);p=null;return;}
-    const pm=line.match(/^(\d+)\.\s*(.*_{2,}.*)$/);
-    if(pm&&g){const template=pm[2];let end,loose=false;
-     if(sumText){const k=sumText.indexOf(ORD[g.points.length],pos);if(k>=0){pos=k;loose=true;const next=ORD.map(o=>sumText.indexOf(o,k+2)).filter(i=>i>0),nl=sumText.indexOf('\n',k);end=Math.min(...next,nl<0?sumText.length:nl);}}
-     const r=sumText?fillBlanks(template,sumText,pos,end,loose):{fills:template.split(/_{2,}/).slice(1).map(()=>null),pos};pos=r.pos;
-     p={template:item(template,src(note.key,li,line,template)),blanks:r.fills.map(f=>f?item(f.text,at(f.start,f.text)):item()),quotes:[]};g.points.push(p);return;}
-    const qm=line.match(/^([가-힣]{1,4}\s?\d+:[\d,\-~]+)\s/);
-    if(qm&&p)p.quotes.push(item(qm[1],src(note.key,li,line,qm[1])));
-   });}
+  const sum=all.find(x=>x.c.lines.some(s=>/(^|\s)첫째,/.test(s)));if(sum)out.summary=sum.key;
+  const note=all.find(x=>x.c.lines.some(s=>QUESTION.test(s)));
+  if(note)S.groups=groups(note,sum);
   return out;
  }
  function splitName(value){const m=String(value||'').trim().match(new RegExp(`^([가-힣\\s]{2,6}?)\\s*(${TITLES})$`));return m?{name:m[1].replace(/\s/g,''),title:m[2]}:null;}
@@ -117,5 +134,5 @@
   return {tables,paragraphs};}
  function parse(buffer){const {tables,paragraphs}=read(buffer);const dates=[...new Set(paragraphs.flatMap(s=>[...s.matchAll(/\b(20\d{2})\.(\d{2})\.(\d{2})\b/g)].map(m=>m.slice(1).join('-'))))];
   return {date:dates.length===1?dates[0]:'',tables,...understand(tables)};}
- root.YebaeonBulletinParser={parse,read,understand,records,tablesFromRecords,reference,splitName,songQuery,fillBlanks,words,clean};
+ root.YebaeonBulletinParser={parse,read,understand,region,records,tablesFromRecords,reference,splitName,songQuery,fillBlanks,words,clean};
 })(globalThis);

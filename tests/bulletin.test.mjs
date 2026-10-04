@@ -9,13 +9,13 @@ for(const f of ['hwp-binary','bulletin-parser','bulletin-plan','bible-format'])v
 const P=context.YebaeonBulletinParser,PL=context.YebaeonBulletinPlan,B=context.YebaeonBible;
 const plain=v=>JSON.parse(JSON.stringify(v));
 // Synthetic Sunday bulletin: sermon note, summary box, order table with a separate 청년예배 sermon cell and a weekday cell.
-export function syntheticHWP(){
+export function syntheticHWP({changed=false}={}){
  const rec=(tag,level,data)=>{const h=Buffer.alloc(4);h.writeUInt32LE(tag+(level<<10)+(data.length<<20));return Buffer.concat([h,data]);};
  const entries=[];
  const table=cells=>{entries.push(rec(71,1,Buffer.from(' lbt')));for(const [col,row,cols,rows,lines] of cells){const d=Buffer.alloc(47);d.writeUInt16LE(col,8);d.writeUInt16LE(row,10);d.writeUInt16LE(cols,12);d.writeUInt16LE(rows,14);entries.push(rec(72,2,d));for(const line of lines)entries.push(rec(67,3,Buffer.from(line+'\r','utf16le')));}};
- table([[0,0,1,1,['■ 합성 시리즈3, 합성 설교 제목!','■ 창세기 1:1-3','What? 합성 믿음의 원리는?','1. 믿음은 _______이 아닙니다. 믿기 위해 _______하십시오.','창1:1 태초에 합성 인용','2. 믿음은 ________입니다.','요13:36,37 합성 인용 둘','=> 결단 문장은 쓰지 않음']]]);
- table([[0,0,1,1,['합성 나눔 제목','첫째, 믿음은 의심이 아니다. 믿기 위해 기도해야 한다.','둘째, 믿음은 순종이다. 끝.']]]);
- table([[0,0,1,1,['1부예배']],[1,0,1,1,['2부예배']],[2,0,1,1,['3부예배']],
+ table([[0,0,1,1,['■ 합성 시리즈3, 합성 설교 제목!','■ 창세기 1:1-3',changed?'질문 합성 믿음의 원리는?':'What? 합성 믿음의 원리는?','1. 믿음은 _______이 아닙니다. 믿기 위해 _______하십시오.','창1:1 태초에 합성 인용','2. 믿음은 ________입니다.','요13:36,37 합성 인용 둘','=> 결단 문장은 쓰지 않음']]]);
+ table([[0,0,1,1,['합성 나눔 제목',(changed?'하나, ':'첫째, ')+'믿음은 의심이 아니다. 믿기 위해 기도해야 한다.',(changed?'둘, ':'둘째, ')+'믿음은 순종이다. 끝.']]]);
+ table([[0,0,1,1,[changed?'1부':'1부예배']],[1,0,1,1,[changed?'2부':'2부예배']],[2,0,1,1,[changed?'3부':'3부예배']],
   [0,1,1,1,['예배의 부름(시편 1:1)','부름의 찬양']],[1,1,2,1,['신앙고백(사도신경)']],[0,2,1,1,['신앙고백(사도신경)']],[1,2,1,2,['합성 찬양 A','합성 찬양 B']],[2,2,1,2,['합성 찬양 C']],[0,3,1,1,['찬송가 100']],
   [0,4,3,1,['합심기도 후 대표기도','가나다집사 / 라마바시무집사 / 사아자형제']],[0,5,3,1,['성도의 교제 & 합성 소식']],
   [0,6,2,1,['창세기 1:1-3(구약.p.1)','합성 설교 제목!','시 험 목사']],[2,6,1,1,['요 3:16','청년 합성 설교','차카타 강도사']],
@@ -73,4 +73,14 @@ test('target playlists and sermon documents follow the service rules',()=>{
  const names=['1부 예배(품성)','1부 예배(클래식)','2부 예배','청년예배','수요예배'];
  assert.equal(PL.playlistFor(0,'2026-10-04',names),'1부 예배(품성)');assert.equal(PL.playlistFor(0,'2026-10-11',names),'1부 예배(클래식)');assert.equal(PL.playlistFor(1,'2026-10-11',names),'2부 예배');assert.equal(PL.playlistFor(2,'',names),'청년예배');
  assert.equal(PL.sermonDoc([0,1,2]),'주일예배말씀');assert.equal(PL.sermonDoc([1]),'주일예배말씀');assert.equal(PL.sermonDoc([0]),'1부 말씀');assert.equal(PL.sermonDoc([2]),'청년부 말씀');
+});
+test('a designated region re-derives suggestions when the format changed',()=>{
+ const p=P.parse(syntheticHWP({changed:true}));assert.equal(p.services.length,0);assert.equal(p.sermon.groups.length,0);assert.equal(p.summary,null);
+ const key=(t,row,col)=>`${t}:${row}:${col}`;
+ assert.deepEqual(plain(P.region(p.tables,key(2,2,1),'songs').map(x=>x.value)),['합성 찬양 A','합성 찬양 B']);
+ const note=P.region(p.tables,key(0,0,0),'note',key(1,0,0));assert.equal(note.title.value,'합성 설교 제목!');assert.equal(note.groups[0].what.value,'질문 합성 믿음의 원리는?');
+ assert.deepEqual(plain(note.groups[0].points.map(x=>x.blanks.map(b=>b.value))),[['의심','기도'],['순종']],'blanks follow anchors without ordinal words');
+ assert.deepEqual(plain(P.region(p.tables,key(1,0,0),'summary',['믿음은 _______이 아닙니다.']).map(r=>r.map(x=>x.value))),[['의심']]);
+ const w=P.region(p.tables,key(2,10,1),'weekday');assert.equal(w[0].minister,'파하가전도사');assert.equal(w[1].title.value,'금요 합성 제목');
+ assert.deepEqual(plain(P.region(p.tables,key(2,9,0),'songs')),[],'fixed lines are not songs');
 });

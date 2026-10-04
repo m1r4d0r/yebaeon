@@ -44,6 +44,8 @@
 .bulletin-table h4{margin:0;padding:6px 10px;border-bottom:1px solid var(--line,#dce2ed);font-size:12px;font-weight:600;color:#657187}
 .bulletin-cell{padding:6px 10px;border-top:1px solid #edf0f5}
 .bulletin-cell:first-of-type{border-top:0}
+.bulletin-cell-tools{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px;margin-bottom:2px}
+.studio-import-dialog .bulletin-cell-tools button{min-height:24px;padding:1px 8px;font-size:11px;border-style:dashed;color:var(--blue,#3e55cf);background:#fff}
 .bulletin-cell.zone{background:#e8f5ee;box-shadow:inset 3px 0 0 #1f7a4a}
 .bulletin-line{display:flex;align-items:flex-start;gap:4px;line-height:1.65}
 .bulletin-line>span{min-width:0;overflow-wrap:anywhere}
@@ -162,6 +164,7 @@
  .bulletin-slot .meta{grid-column:1 / -1}
  .bulletin-slot .acts .src{display:inline-block}
  .bulletin-slot .acts button,.bulletin-svc button,.bulletin-cands button{min-height:40px}
+ .studio-import-dialog .bulletin-cell-tools button{min-height:36px;font-size:12px}
  .dropbox-row{flex-wrap:wrap;column-gap:12px;row-gap:2px}
  .dropbox-row>span{flex-basis:100%}
  .dropbox-row button,.dropbox-row a{min-height:36px}
