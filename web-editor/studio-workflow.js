@@ -25,13 +25,14 @@
   failed=false;lock(true);let done=0,total=0;const errors=[],notes=[];L.takeReports();
   try{
    await C.checkpointDraft();await L.checkpoint();await L.refreshPending();
-   const w=work();total=w.docs.length+w.lists.length+(w.current?1:0);if(!total)return;let n=0;
-   for(const record of w.docs){E.status(`서버 저장 ${++n}/${total} · ${base(record.name)}`);try{await C.saveRecord(record);done++;}catch(error){if(error.status===409&&error.code==='version_conflict'){try{notes.push(await C.resolveConflict(record));done++;continue;}catch(choice){error=choice;}}errors.push(`${base(record.name)}: ${error.message}`);}}
+   const w=work();total=w.docs.length+w.lists.length+(w.current?1:0);let current=w.current;if(!total)return;let n=0;
+   for(const record of w.docs){E.status(`서버 저장 ${++n}/${total} · ${base(record.name)}`);try{await C.saveRecord(record);done++;}catch(error){if(error.status===409&&error.code==='version_conflict'){try{const r=await C.resolveConflict(record);let text=r.text;if(r.copy){const placed=await L.placeCopy(record.id,r.copy);text+=placed.length?`\n  사본을 ${placed.map(n=>`‘${n}’`).join(', ')} 순서에서 원래 문서 바로 아래에 넣었습니다. 둘을 비교해 하나를 옮기거나 지우세요.`:'\n  순서에는 넣지 않았습니다(이 문서가 든 열린 순서가 없음).';}notes.push(text);done++;continue;}catch(choice){error=choice;}}errors.push(`${base(record.name)}: ${error.message}`);}}
    // 문서가 하나라도 실패하면 순서는 올리지 않는다(순서가 가리킬 문서 내용이 아직 서버에 없을 수 있다).
    if(errors.length)errors.push('문서 저장 실패로 순서는 저장하지 않았습니다.');
    else{
    for(const record of w.lists){E.status(`서버 저장 ${++n}/${total} · ${record.name} 순서`);try{await L.saveRecord(record);done++;}catch(error){errors.push(`${record.name} 순서: ${error.message}`);}}
-   if(w.current){E.status(`서버 저장 ${++n}/${total} · ${L.selectedPlaylist()?.name||''} 순서`);if(await L.save({refresh:false}))done++;else errors.push(`${L.selectedPlaylist()?.name||''} 순서: ${$('playlistsMessage').textContent||'저장 실패'}`);}
+   if(!current&&L.state().dirty){current=true;total++;}
+   if(current){E.status(`서버 저장 ${++n}/${total} · ${L.selectedPlaylist()?.name||''} 순서`);if(await L.save({refresh:false}))done++;else errors.push(`${L.selectedPlaylist()?.name||''} 순서: ${$('playlistsMessage').textContent||'저장 실패'}`);}
    }
    failed=errors.length>0;const reports=L.takeReports();
    if(reports.length)notes.push(...reports.map(r=>`${r.name}: ${r.who} 저장한 순서를 덮어썼습니다.\n  ${r.lines.join('\n  ')}`));

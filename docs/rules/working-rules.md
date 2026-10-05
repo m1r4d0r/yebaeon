@@ -37,6 +37,6 @@
 ## 문서
 
 - 세션마다 새 인계 파일을 만들지 않고 STATUS를 덮어쓴다.
-- 끝난 일은 CHANGELOG에 한 줄로 적는다.
+- 끝난 일은 CHANGELOG에 한 줄로 적는다. 배포 커밋에 함께 넣는다. 빌드가 CHANGELOG 마지막 5줄을 Studio 개발자도구 콘솔에 배포 번호(Actions run 번호)·커밋과 함께 보여 준다(`build-info.js`).
 - 남은 일은 BACKLOG 한 곳에서만 관리하고, 끝나면 CHANGELOG로 옮기며 BACKLOG에서 지운다.
 - 상세 경위는 archive에 둔다.

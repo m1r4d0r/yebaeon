@@ -229,7 +229,7 @@
     let latest = null; try { latest = (await (await api('/documents/' + record.id)).json()).document; } catch (_) {}
     const who = latest ? `${latest.updatedBy}님이 ${time(latest.updatedAt)}에 v${latest.version}으로` : '다른 작업자가';
     const choice = await choose(`‘${name}’ 저장 충돌`, `${who} 먼저 저장해서 내 편집을 저장하지 않았습니다. 어떻게 할까요?`, [['latest','최신 버전 불러오기 (내 편집 버림)'],['copy','내 편집을 사본으로 저장','primary'],['later','나중에 (초안 유지)']]);
-    if (choice === 'latest') { await dropEdit(record); return `${name}: 최신 버전을 불러왔습니다(내 편집은 버림).`; }
+    if (choice === 'latest') { await dropEdit(record); return {text:`${name}: 최신 버전을 불러왔습니다(내 편집은 버림).`}; }
     if (choice === 'copy') {
       const category = PP6.parse(record.xml, record.name).doc.documentElement.getAttribute('category') || '미결';
       const folder = (record.base.path || record.name).split('/').slice(0, -1).join('/'), file = `${name} (사본 ${(user?.name || '작업자').replace(/[\/\\]/g, '')} ${stamp()}).pro6`;
@@ -237,7 +237,7 @@
       const made = (await (await api('/documents?' + new URLSearchParams({path:(folder ? folder + '/' : '') + file}), {method:'POST', headers:{'Content-Type':'application/xml', 'X-YebaeOn-Client':'studio'}, body:xml})).json()).document;
       await dropEdit(record, linked?.id === record.id ? {doc:made, xml} : null);
       window.dispatchEvent(new CustomEvent('yebaeoncloudsaved', {detail:made}));
-      return `${name}: 내 편집을 ‘${made.name.replace(/\.pro6$/i, '')}’ 사본으로 저장했습니다. 순서에는 원래 문서가 그대로 있습니다.`;
+      return {text:`${name}: 내 편집을 ‘${made.name.replace(/\.pro6$/i, '')}’ 사본으로 저장했습니다.`, copy:made};
     }
     throw new Error('다른 작업자가 먼저 저장했습니다. 내 편집은 브라우저 초안에 남아 있습니다.');
   }

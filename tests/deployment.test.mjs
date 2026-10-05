@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import worker from '../cloudflare/worker.mjs';
-import { build, publicFiles, generatedPublicFiles } from '../scripts/build.mjs';
+import { build, buildInfo, publicFiles, generatedPublicFiles } from '../scripts/build.mjs';
 
 test('publication includes only app assets, even with private local fixtures', async () => {
   const prefix = join(tmpdir(), 'yebaeon-build-test-');
@@ -61,4 +61,12 @@ test('non-API requests retain the asset response including missing-file status',
     ASSETS: { fetch(received) { assert.equal(received, request); return new Response('Not found', { status: 404 }); } }
   });
   assert.equal(response.status, 404);
+});
+
+test('build info names the deploy run, commit and newest changelog lines first', async () => {
+  const info = await buildInfo(undefined, { GITHUB_RUN_NUMBER: '42', GITHUB_SHA: '0123456789abcdef' });
+  const data = JSON.parse(info.match(/^window\.YEBAEON_BUILD=(.*);$/m)[1]);
+  assert.equal(data.number, '42'); assert.equal(data.commit, '0123456');
+  assert.ok(data.changes.length > 0 && data.changes.length <= 5); assert.ok(data.changes.every(c => /^\d{4}-\d{2}-\d{2}: /.test(c) && !/main 병합·배포\)$/.test(c)));
+  assert.match(info, /console\.info/);
 });

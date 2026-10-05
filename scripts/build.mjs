@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { runInNewContext } from 'node:vm';
 import { XMLParser } from 'fast-xml-parser';
 
@@ -46,7 +47,14 @@ export const publicFiles = Object.freeze([
   'fonts.js', 'studio-workflow.js', 'layout-editor.js', 'render.js', 'selection.js', 'editor-history.js', 'bible-format.js', 'shortcuts.js', 'app.js', 'drafts.js', 'cloud.js', 'usage.js', 'playlists.js', 'resources.js', 'library-actions.js', 'library-manage.js', 'status.html', 'status.js', 'status.css', '_headers'
 ]);
 
-export const generatedPublicFiles=Object.freeze(['ppt-engine.js','ppt-LICENSES.txt',...pdfFiles]);
+export const generatedPublicFiles=Object.freeze(['build-info.js','ppt-engine.js','ppt-LICENSES.txt',...pdfFiles]);
+// 배포 번호(Actions run 번호)·커밋·빌드 시각과 CHANGELOG 최근 줄을 Studio 콘솔에 보이게 한다.
+export async function buildInfo(sourceRoot=root,env=process.env){
+  let changes=[];try{changes=(await readFile(join(sourceRoot,'docs/CHANGELOG.md'),'utf8')).split('\n').filter(l=>/^- \d{4}-\d{2}-\d{2}:/.test(l)).slice(-5).reverse().map(l=>l.slice(2).trim().replace(/\s*\(main 병합·배포\)\.?$/,''));}catch(error){if(error.code!=='ENOENT')throw error;}
+  let commit=(env.GITHUB_SHA||'').slice(0,7);if(!commit)try{commit=execFileSync('git',['rev-parse','--short','HEAD'],{cwd:sourceRoot,stdio:['ignore','pipe','ignore']}).toString().trim();}catch{commit='unknown';}
+  const info={number:env.GITHUB_RUN_NUMBER||'local',run:env.GITHUB_RUN_ID||null,commit,builtAt:new Date().toLocaleString('sv-SE',{timeZone:'Asia/Seoul'}).slice(0,16)+' KST',changes};
+  return `window.YEBAEON_BUILD=${JSON.stringify(info)};\n${readFileSync(new URL('../web-editor/build-info.js',import.meta.url),'utf8').split('\n').filter(l=>!l.startsWith('window.YEBAEON_BUILD=')).join('\n')}`;
+}
 export async function build({ sourceRoot = root, outputDir = join(root, 'dist') } = {}) {
   // Read an explicit list: the local source folder may contain private fixtures.
   const contents = await Promise.all(publicFiles.map(async name => {
@@ -54,7 +62,7 @@ export async function build({ sourceRoot = root, outputDir = join(root, 'dist') 
     if (!(await lstat(source)).isFile()) throw new Error(`Expected a regular source file: ${name}`);
     return [name, await readFile(source)];
   }));
-  contents.push(...await buildPPT(),...await buildPDF());
+  contents.push(['build-info.js',Buffer.from(await buildInfo(sourceRoot))],...await buildPPT(),...await buildPDF());
   let resources = [];
   let catalogBytes;
   try { catalogBytes = await readFile(join(sourceRoot, 'church-resources/catalog.json'), 'utf8'); } catch (error) { if(error.code !== 'ENOENT') throw error; }
