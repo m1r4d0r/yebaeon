@@ -49,11 +49,6 @@ jobs:
           path: mac-sync2/build/manual-shots
           if-no-files-found: ignore
           retention-days: 30
-      # 같은 그림을 로그에도 base64로 남긴다(artifact 저장소에 닿지 않는 작업 환경에서 받기용).
-      - name: Manual screenshots in the log
-        if: always()
-        continue-on-error: true
-        run: for f in mac-sync2/build/manual-shots/*.png; do echo "SHOT-BEGIN $(basename "$f")"; base64 -i "$f" | tr -d '\n' | fold -w 4000; echo; echo "SHOT-END"; done
       # main 빌드만 서버(R2)에 올린다. 교회 Mac의 Sync 2가 [지금 설치]로 받는다. 작업 브랜치 빌드는 올리지 않는다.
       - name: Publish to the server (main only)
         if: github.ref == 'refs/heads/main'
@@ -69,3 +64,25 @@ jobs:
           node -e 'const [b,s,z,k]=process.argv.slice(1);const n=(process.env.NOTES||"").split("\n")[0].replace(/\s*\[verify-mac\]\s*/,"").slice(0,200);process.stdout.write(JSON.stringify({build:+b,sha256:s,size:+z,key:k,notes:n,createdAt:new Date().toISOString()}))' "$BUILD" "$SHA" "$SIZE" "$KEY" > latest.json
           npx wrangler r2 object put "pp6-library-files/apps/sync2/latest.json" --file latest.json --content-type application/json --remote
           cat latest.json
+  # 작업 브랜치에서 수동 실행했을 때만: 찍은 Sync 2 창 그림을 그 브랜치의 docs/manual/img에 올린다(main에는 쓰지 않는다).
+  manual-shots:
+    needs: sync2
+    if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Commit Sync 2 screenshots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download ${{ github.run_id }} -n manual-sync-shots -D docs/manual/img
+          git add docs/manual/img/sync-*.png
+          if git diff --cached --quiet; then echo "그림 변화 없음"; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "설명서: Sync 2 창 그림 (Mac 검사 캡처) [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
