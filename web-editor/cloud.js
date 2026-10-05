@@ -191,6 +191,9 @@
     try{await drafts.settle(record.draftID,record.serial,next,record.xml);}catch(error){drafts.report(error);}
     window.dispatchEvent(new CustomEvent('yebaeoncloudsaved',{detail:result.document}));update();return result.document;
   }
+  // 이 탭에서 저장하지 않은 문서 전부(열린 문서와 미리 연 문서).
+  function pendingAll() { return pendingDocuments([...new Set([...contexts.keys(), ...(linked ? [linked.id] : [])])]); }
+  const marked = id => linked?.id === id ? !!draftMark : !!contexts.get(id)?.mark;
   // 주보 적용: 서버에 쓰지 않고 이 탭의 미저장 문서로 둔다. mark는 이 문서가 든 재생목록 키들이다(목록에 ‘저장 필요’ 표시).
   function place(doc, before, xml, id, mark) {
     if (linked?.id === doc.id) {
@@ -348,7 +351,7 @@
   document.addEventListener('visibilitychange', () => { if(document.hidden)checkpointDraft().catch(drafts.report); });
   // 서버에서 이름이 바뀐 문서: 열린 문서·보관 맥락·편집기 캐시의 이름만 맞춘다. 내용과 버전은 그대로다.
   function renamed(doc){const c=contexts.get(doc.id);if(c?.linked)c.linked={...c.linked,path:doc.path,name:doc.name};const cached=editor.cache?.(doc.id);if(cached)cached.name=doc.name;if(linked?.id===doc.id){linked={...linked,path:doc.path,name:doc.name};editor.model().name=doc.name;editor.redraw();update();}}
-  window.YebaeonCloud = { api, authenticated:()=>!!user, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, renamed, refresh:list, checkpointDraft, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)),pendingDocuments,saveRecord,stageDocument,adoptDrafts,listedDocument:id=>documents.find(doc=>doc.id===id),
+  window.YebaeonCloud = { api, authenticated:()=>!!user, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, renamed, refresh:list, checkpointDraft, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)),pendingDocuments,pendingAll,marked,saveRecord,stageDocument,adoptDrafts,listedDocument:id=>documents.find(doc=>doc.id===id),
     async documentCopySource(id){
       const local=editor.cache(id);if(local?.dirty)return {xml:local.xml,local:true};
       const doc=(await(await api('/documents/'+id)).json()).document;

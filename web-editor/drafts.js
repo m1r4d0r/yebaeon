@@ -79,7 +79,7 @@
       }
     } catch(error) { $('draftMessage').textContent=error.message; report(error); }
   }
-  window.YebaeonDrafts = { ...store, report, notify, show, clearAll };
+  window.YebaeonDrafts = { ...store, tab, report, notify, show, clearAll };
   $('draftClear').onclick=clearAll;
   $('draftOpen').onclick = show; $('draftClose').onclick=()=> $('draftDialog').close();
   store.all().then(records => { if(records.length)notify(`복구 가능한 초안 ${records.length}개 · ‘브라우저 초안’에서 확인`); }).catch(report);
