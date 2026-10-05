@@ -365,8 +365,10 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 - (void)captureForManual {
     NSString *select = Env(@"YB2_CAPTURE_SELECT");
     for (NSUInteger i = 0; i < self.rows.count; i++) if ([self.rows[i][@"name"] isEqual:select]) [self.table selectRowIndexes:[NSIndexSet indexSetWithIndex:i] byExtendingSelection:NO];
-    // 그림에는 로컬 시험 주소 대신 교회 Mac에서 보이는 주소를 보인다.
+    // 그림에는 로컬 시험 주소·임시 폴더 대신 교회 Mac에서 보이는 주소와 기본 폴더를 보인다.
     self.connectionLabel.stringValue = [NSString stringWithFormat:@"연결됨 (장치 열쇠) · %@", kOrigin];
+    self.rootLabel.stringValue = @"문서 폴더  /Users/church/Documents/ProPresenter6";
+    self.playlistLabel.stringValue = @"재생목록  /Users/church/Library/Application Support/RenewedVision/ProPresenter6/Playlists/기본 .pro6pl";
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         NSView *frame = self.window.contentView.superview;
         NSSize size = frame.bounds.size;
@@ -1135,6 +1137,8 @@ static NSString *DetailText(NSDictionary *row) {
     if ([column.identifier isEqual:@"checked"]) [cell setEnabled:!self.busy && Checkable(row)];
     if ([column.identifier isEqual:@"status"] && [cell isKindOfClass:NSTextFieldCell.class]) {
         NSString *status = row[@"status"];
+        // 고른 줄은 파란 바탕이므로 흰 글씨로 읽히게 한다.
+        if ([table isRowSelected:index]) { [cell setTextColor:NSColor.alternateSelectedControlTextColor]; return; }
         [cell setTextColor:Checkable(row) && !NoHistoryOnly(row) ? [NSColor colorWithCalibratedRed:0.10 green:0.35 blue:0.75 alpha:1] : [status isEqual:@"hold"] ? [NSColor colorWithCalibratedRed:0.75 green:0.35 blue:0.10 alpha:1] : NSColor.disabledControlTextColor];
     }
 }
