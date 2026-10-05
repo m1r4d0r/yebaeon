@@ -129,7 +129,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     self.statusLabel = Label(@"", NSMakeRect(16, 16, w - 300, 18), 12); self.statusLabel.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
     self.presenterLabel = Label(@"", NSMakeRect(w - 440, 16, 160, 18), 12); self.presenterLabel.autoresizingMask = NSViewMinXMargin | NSViewMaxYMargin; self.presenterLabel.alignment = NSTextAlignmentRight;
     self.compareButton = Button(@"다시 비교", NSMakeRect(w - 270, 10, 110, 28), self, @selector(compareNow:));
-    self.applyButton = Button(@"적용·올리기", NSMakeRect(w - 150, 10, 134, 28), self, @selector(applyNow:));
+    self.applyButton = Button(@"받기·올리기", NSMakeRect(w - 150, 10, 134, 28), self, @selector(applyNow:));
     self.applyButton.keyEquivalent = @"\r"; self.applyButton.enabled = NO;
     [content addSubview:self.statusLabel]; [content addSubview:self.presenterLabel]; [content addSubview:self.compareButton]; [content addSubview:self.applyButton];
     // "확인 필요 n · 정리 열기" 한 줄. n=0이면 숨긴다.
@@ -197,7 +197,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 - (void)installUpdate:(id)sender {
     NSDictionary *release = self.pendingRelease;
     if (!release) return;
-    if (self.busy || self.checking || YBPresenterRunning()) { [self alert:@"지금은 설치할 수 없습니다" text:@"적용·올리기·전체 확인이 끝나고 PP6를 닫은 뒤 다시 눌러 주세요."]; return; }
+    if (self.busy || self.checking || YBPresenterRunning()) { [self alert:@"지금은 설치할 수 없습니다" text:@"받기·올리기·전체 확인이 끝나고 PP6를 닫은 뒤 다시 눌러 주세요."]; return; }
     [self showWindow:nil];
     NSAlert *confirm = [NSAlert new]; confirm.messageText = [NSString stringWithFormat:@"빌드 %@로 바꿀까요?", release[@"build"]];
     confirm.informativeText = @"새 버전을 받아 앱을 바꾸고 다시 켭니다. 지금 앱은 백업 폴더에 남습니다. 영수증·백업·설정은 그대로입니다.";
@@ -307,8 +307,8 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     } @catch (NSException *e) { [self alert:@"중단된 적용을 마무리하지 못함" text:e.reason]; }
     if (!self.server.cookie && !self.server.deviceToken) { if (![self loginSheet]) return; }
     else self.connectionLabel.stringValue = [NSString stringWithFormat:@"연결 확인 중%@ · %@", self.server.deviceToken ? @" (장치 열쇠)" : @"", kOrigin];
-    // 구형 Mac은 부팅 뒤 한참 인터넷을 못 잡는다. 바로 돌지 않고 잠시 뒤에 시작하며, 네트워크 오류면 간격을 늘려 조용히 기다린다.
-    [self performSelector:@selector(startupCompare) withObject:nil afterDelay:5];
+    // 켜자마자 서버에 연결한다. 네트워크 오류면 startupCompare가 15초마다 다시 시도한다.
+    [self performSelector:@selector(startupCompare) withObject:nil afterDelay:0];
 }
 - (void)startupCompare {
     if (self.busy) return;
@@ -316,7 +316,8 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
         if (!error) { [self runFullCheckIfDue]; [self checkUpdate:NO]; return; }
         if ([error.reason hasPrefix:@"HTTP 401"]) { dispatch_async(dispatch_get_main_queue(), ^{ [self handleLoginRequired]; }); return; }
         if ([error.reason hasPrefix:@"HTTP "]) { dispatch_async(dispatch_get_main_queue(), ^{ self.statusLabel.stringValue = error.reason; }); return; }
-        NSArray *delays = @[@10, @20, @40, @80, @160, @300];
+        // 켜자마자 연결하고, 네트워크가 없으면 15초마다 다시 시도한다(최대 5분).
+        NSArray *delays = [@"15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15" componentsSeparatedByString:@" "];
         if (self.startupAttempt >= delays.count) { dispatch_async(dispatch_get_main_queue(), ^{ self.statusLabel.stringValue = [@"서버에 연결하지 못했습니다. 인터넷 연결 뒤 ‘다시 비교’를 눌러 주세요. " stringByAppendingString:error.reason]; }); return; }
         NSTimeInterval delay = [delays[self.startupAttempt++] doubleValue];
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -389,7 +390,10 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
     for (NSDictionary *row in self.rows) if ([row[@"checked"] boolValue] && !NoHistoryOnly(row)) { checked++; if (ChangesMac(row)) receive++; }
     // 올리기는 PP6가 켜져 있어도 된다(Mac 파일을 바꾸지 않는다). 받기는 PP6를 닫아야 한다.
     self.applyButton.enabled = !self.busy && checked > 0 && (receive == 0 || !YBPresenterRunning());
-    self.applyButton.title = checked ? [NSString stringWithFormat:@"%lu개 적용·올리기", (unsigned long)checked] : @"적용·올리기";
+    // 고른 줄의 방향대로: 받기(Mac이 바뀜)만, 올리기만, 둘 다
+    NSUInteger up = checked - receive;
+    NSString *verb = receive && up ? @"받기·올리기" : receive ? @"받기" : @"올리기";
+    self.applyButton.title = checked ? [NSString stringWithFormat:@"%lu개 %@", (unsigned long)checked, verb] : @"받기·올리기";
 }
 - (void)refreshStatusItem {
     NSUInteger waiting = 0, hold = 0;
