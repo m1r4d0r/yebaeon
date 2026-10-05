@@ -167,7 +167,7 @@
  let reviewOps=null;
  function stepReview(root){if(staged){const g=group('적용 미리보기','아직 서버에 저장하지 않았습니다');for(const r of staged.values()){const d=el('div','bulletin-staged'+(r.ok?'':' bad'));d.append(el('strong',null,r.label),el('small',null,r.text));if(r.ok)d.append(preview(r));g.append(d);}root.append(g);}
   if(work.results){const g=group('적용 결과');const ul=el('ul','bulletin-results');for(const r of work.results)ul.append(el('li',r.ok?'ok':'bad',`${r.label} · ${r.text}`));g.append(ul);if(work.results.some(r=>!r.ok))g.append(el('p','bulletin-note','실패한 항목만 ‘다시 적용’으로 다시 할 수 있습니다. 다른 사람이 먼저 저장했다면 최신 내용을 확인한 뒤 다시 적용하세요.'));root.append(g);}
-  const head=el('div','bulletin-review-head'),date=el('input');date.type='date';date.value=work.date||'';date.setAttribute('aria-label','주보 날짜');date.onchange=()=>{work.date=date.value;pickTargets();reviewOps=null;staged=null;save();render();};const dl=el('label');dl.append('주보 날짜',date);head.append(dl,el('p','bulletin-note','‘적용’은 바뀐 내용을 여기서 미리 보여 줄 뿐이고, ‘서버에 저장’을 눌러야 저장합니다. 빼고 싶은 항목은 체크를 끄세요.'));root.append(head);
+  const head=el('div','bulletin-review-head'),date=el('input');date.type='date';date.value=work.date||'';date.setAttribute('aria-label','주보 날짜');date.onchange=()=>{work.date=date.value;pickTargets();reviewOps=null;staged=null;save();render();};const dl=el('label');dl.append('주보 날짜',date);head.append(dl,el('p','bulletin-note','‘미리 보기’로 바뀐 모습을 확인한 뒤 ‘적용’을 누르면 저장하고 창을 닫습니다. 빼고 싶은 항목은 체크를 끄세요.'));root.append(head);
   const list=el('div','bulletin-review');root.append(list);list.append(el('p','bulletin-note','바뀌는 것을 계산하는 중…'));
   (reviewOps||(reviewOps=operations())).then(ops=>{list.replaceChildren();for(const o of ops){if(!(o.key in work.include))work.include[o.key]=!o.skip&&!o.lines.some(l=>l[0]==='bad');const d=el('div','bulletin-op'+(work.include[o.key]?'':' off')),lab=el('label'),cb=el('input');cb.type='checkbox';cb.checked=work.include[o.key];cb.disabled=o.lines.some(l=>l[0]==='bad')||o.kind==='error';cb.onchange=()=>{work.include[o.key]=cb.checked;staged=null;save();render();};
     lab.append(cb,o.label,el('small',null,o.sub||''));const ul=el('ul');for(const [c,t] of o.lines)ul.append(el('li',c,t));d.append(lab,ul);list.append(d);}foot();}).catch(e=>{list.replaceChildren(el('p','bulletin-note bad',e.message));});}
@@ -192,13 +192,13 @@
   let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const next=new Map();
   for(const [n,o] of todo.entries()){message(`${n+1}/${todo.length} ${o.label} 만드는 중…`);
    try{next.set(o.key,{key:o.key,label:o.label,ok:true,op:o,...await stageOp(o,need)});}catch(e){next.set(o.key,{key:o.key,label:o.label,ok:false,text:e.message});}}
-  staged=next;message([...next.values()].every(r=>r.ok)?'바뀐 내용을 확인하고 ‘서버에 저장’을 누르세요. 아직 서버에는 아무것도 저장하지 않았습니다.':'만들지 못한 항목이 있습니다. 나머지는 확인한 뒤 저장할 수 있습니다.');render();}
+  staged=next;message([...next.values()].every(r=>r.ok)?'바뀐 내용을 확인하고 ‘적용’을 누르세요. 아직 서버에는 아무것도 저장하지 않았습니다.':'만들지 못한 항목이 있습니다. 나머지는 확인한 뒤 적용할 수 있습니다.');render();}
  async function commit(){if(L.state().dirty)throw Error('Studio에서 열린 순서의 변경사항을 먼저 저장하세요.');const results=(work.results||[]).filter(r=>r.ok);
   let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());
   const ready=[...staged.values()];for(const [n,r] of ready.entries()){if(!r.ok){results.push({key:r.key,label:r.label,ok:false,text:r.text});continue;}message(`${n+1}/${ready.length} ${r.label} 저장 중…`);
    try{if(r.op.kind==='playlist')plans.delete(r.op.target);const fresh=await stageOp(r.op,need);results.push({key:r.key,label:r.label,ok:true,text:await fresh.write()});}catch(e){results.push({key:r.key,label:r.label,ok:false,text:e.message});}}
   staged=null;work.results=results;save();const open=L.selectedPlaylist();if(open&&!L.state().dirty&&results.some(r=>r.ok)){const [library,node]=open.key.split('/');await L.openNode(library,node);}
-  message(results.every(r=>r.ok)?'모두 서버에 저장했습니다. 열려 있던 문서는 다시 열어 확인하세요.':'일부 항목을 저장하지 못했습니다. 결과를 확인하세요.');render();}
+  if(results.every(r=>r.ok)){dialog.close();YebaeonEditor.status('주보 내용을 적용해 서버에 저장했습니다. 열려 있던 문서는 다시 열어 확인하세요.');render();return;}message('일부 항목을 적용하지 못했습니다. 결과를 확인하세요.');render();}
  // 바뀌기 전과 뒤를 실제 모양으로 보여 준다. 설교처럼 긴 문서는 위(전)·아래(후) 두 줄을 가로로 넘기고, 나머지는 나란히 둔다.
  function thumbs(xml,name){const model=PP6.parse(xml,name),strip=el('div','bulletin-thumbs');for(const slide of PP6.slides(model)){const c=document.createElement('canvas');c.width=192;c.height=Math.round(192*model.height/model.width);strip.append(c);PP6Render.draw(c,model,slide,new Map()).catch(()=>{});}if(!strip.children.length)strip.append(el('small',null,'슬라이드 없음'));return strip;}
  function side(title,body){const box=el('div','bulletin-compare-side');box.append(el('strong',null,title),body);return box;}
@@ -212,7 +212,7 @@
   if(id!=='review'){const left=Object.values(work.slots).filter(s=>s.step===id&&!s.locked&&!s.skip&&(s.kind==='song'?s.value&&!s.choice:!s.value.trim())).length;b.append(el('span','n'+(left?' left':''),left?String(left):'✓'));}
   b.onclick=()=>{work.step=id;ui.active=null;save();render();};nav.append(b);}}
  function foot(){const prev=$('bulletinPrev'),next=$('bulletinNext');if(!work){prev.hidden=next.hidden=true;return;}prev.hidden=next.hidden=false;const i=STEPS.findIndex(s=>s[0]===work.step);prev.disabled=busy||i===0;
-  next.disabled=busy;if(work.step==='review'){const done=work.results&&work.results.every(r=>r.ok);next.textContent=done?'닫기':staged?'서버에 저장':work.results?'다시 적용':'적용';if(staged)next.disabled=busy||![...staged.values()].some(r=>r.ok);}else next.textContent=i===3?'검토하기':'다음';}
+  next.disabled=busy;if(work.step==='review'){const done=work.results&&work.results.every(r=>r.ok);next.textContent=done?'닫기':staged?'적용':work.results?'다시 미리 보기':'미리 보기';if(staged)next.disabled=busy||![...staged.values()].some(r=>r.ok);}else next.textContent=i===3?'검토하기':'다음';}
  // 화면을 다시 그리는 동안 포커스된 입력칸이 빠지면 change가 다시 render를 부른다. 끝난 뒤 한 번 더 그린다.
  let rendering=false,again=false;
  function render(){if(rendering){again=true;return;}rendering=true;try{draw();}finally{rendering=false;}if(again){again=false;render();}}
