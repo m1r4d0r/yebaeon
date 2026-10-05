@@ -1,5 +1,6 @@
 import {buildPPT,buildPDF,pdfFiles} from './build-ppt.mjs';
-import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import {buildManual} from './build-manual.mjs';
+import { lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
@@ -43,7 +44,7 @@ export function splitTemplates(bytes) {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const publicFiles = Object.freeze([
-  'ppt-import.js', 'dropbox-picker.js', 'document-search.js', 'media-library.js', 'media-thumbnail.js', 'ppt-import.css', 'hwp-binary.js', 'bulletin-parser.js', 'bulletin-plan.js', 'bulletin-documents.js', 'bulletin.js', 'bulletin.css', 'responsive.js', 'studio-drag.js', 'responsive.css', 'index.html', 'favicon.svg', 'favicon.ico', 'style.css', 'fonts.css', 'pp6.js',
+  'ppt-import.js', 'dropbox-picker.js', 'document-search.js', 'media-library.js', 'media-thumbnail.js', 'ppt-import.css', 'hwp-binary.js', 'bulletin-parser.js', 'bulletin-plan.js', 'bulletin-documents.js', 'bulletin.js', 'bulletin.css', 'responsive.js', 'studio-drag.js', 'manual.js', 'manual.css', 'responsive.css', 'index.html', 'favicon.svg', 'favicon.ico', 'style.css', 'fonts.css', 'pp6.js',
   'fonts.js', 'studio-workflow.js', 'layout-editor.js', 'render.js', 'selection.js', 'editor-history.js', 'bible-format.js', 'shortcuts.js', 'app.js', 'drafts.js', 'cloud.js', 'usage.js', 'playlists.js', 'resources.js', 'library-actions.js', 'library-manage.js', 'status.html', 'status.js', 'status.css', '_headers'
 ]);
 
@@ -95,11 +96,12 @@ export async function build({ sourceRoot = root, outputDir = join(root, 'dist') 
     catalog.storage={mediaBytes:catalog.media.reduce((sum,x)=>sum+sizes.get(x.file),0),fontBytes:catalog.fonts.reduce((sum,x)=>sum+sizes.get(x.file),0)};
     resources[index][1]=Buffer.from(JSON.stringify(catalog));
   }
+  const manual = await buildManual(sourceRoot);
   await mkdir(outputDir, { recursive: true });
   if (!(await lstat(outputDir)).isDirectory()) throw new Error('Output must be a regular directory.');
   const entries = await readdir(outputDir, { withFileTypes: true });
   // Never publish unexpected leftovers or follow symlinks in the output folder.
-  if (entries.some(entry => entry.name === 'resources' ? !entry.isDirectory() || !resources.length : !entry.isFile() || !publicFiles.includes(entry.name) && !generatedPublicFiles.includes(entry.name))) {
+  if (entries.some(entry => entry.name === 'resources' ? !entry.isDirectory() || !resources.length : entry.name === 'manual' ? !entry.isDirectory() || !manual.length : !entry.isFile() || !publicFiles.includes(entry.name) && !generatedPublicFiles.includes(entry.name))) {
     throw new Error('Unexpected files in the output directory. Use an empty dist directory.');
   }
   await Promise.all(contents.map(([name, bytes]) => writeFile(join(outputDir, name), bytes)));
@@ -109,7 +111,13 @@ export async function build({ sourceRoot = root, outputDir = join(root, 'dist') 
     if (entries.some(x => !x.isFile() || !resources.some(([name]) => name === x.name))) throw new Error('Unexpected resource files');
     await Promise.all(resources.map(([name, bytes]) => writeFile(join(target, name), bytes)));
   }
-  return [...publicFiles,...generatedPublicFiles, ...resources.map(([name]) => 'resources/' + name)];
+  if (manual.length) {
+    // 설명서 폴더는 빌드가 만든 파일만 둔다(지난 빌드의 남은 그림은 지운다).
+    await rm(join(outputDir, 'manual'), { recursive: true, force: true });
+    await mkdir(join(outputDir, 'manual', 'img'), { recursive: true });
+    await Promise.all(manual.map(([name, bytes]) => writeFile(join(outputDir, name), bytes)));
+  }
+  return [...publicFiles,...generatedPublicFiles, ...resources.map(([name]) => 'resources/' + name), ...manual.map(([name]) => name)];
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
