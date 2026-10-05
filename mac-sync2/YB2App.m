@@ -42,7 +42,8 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) NSDictionary *pendingRelease;           // 서버의 새 빌드(지금보다 새로울 때만)
 @property(nonatomic) NSInteger dismissedBuild;        // [나중에]를 누른 빌드(이번 실행 동안 숨김)
 @property(nonatomic) NSDate *lastUpdateCheck;
-@property(nonatomic) NSMenuItem *statusUpdateItem;               // 전체 확인이 뒤에서 도는 중(데일리 창은 잠그지 않는다)
+@property(nonatomic) NSMenuItem *statusUpdateItem, *statusLineItem;
+@property(nonatomic) NSDate *lastCycleAt;             // 마지막으로 서버를 확인한 때(메뉴 막대 상태 줄)               // 전체 확인이 뒤에서 도는 중(데일리 창은 잠그지 않는다)
 @property(nonatomic) NSUInteger startupAttempt;
 @property(nonatomic) dispatch_queue_t work;
 @end
@@ -369,6 +370,9 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
     for (NSDictionary *row in self.rows) { if (Checkable(row) && !([row[@"macDeleted"] boolValue])) waiting++; else if ([row[@"status"] isEqual:@"hold"]) hold++; }
     NSString *title = self.busy ? @"예배온 확인 중" : waiting ? [NSString stringWithFormat:@"예배온 대기 %lu", (unsigned long)waiting] : hold ? [NSString stringWithFormat:@"예배온 보류 %lu", (unsigned long)hold] : @"예배온 최신";
     self.statusItem.button.title = self.pendingRelease ? [title stringByAppendingString:@" · 새 버전"] : title;
+    NSString *state = self.busy ? @"확인 중" : waiting ? [NSString stringWithFormat:@"받을·올릴 것 %lu", (unsigned long)waiting] : hold ? [NSString stringWithFormat:@"보류 %lu", (unsigned long)hold] : @"모두 같음";
+    NSString *at = self.lastCycleAt ? [@" · " stringByAppendingString:[NSDateFormatter localizedStringFromDate:self.lastCycleAt dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle]] : @"";
+    self.statusLineItem.title = [state stringByAppendingString:at];
 }
 - (void)showRows:(NSArray *)result {
     [self.rows removeAllObjects];
@@ -454,6 +458,7 @@ static NSString *Summary(NSDictionary *result) {
             if (rows) { @try { [self.engine reportApplied:head rows:rows]; } @catch (NSException *e) { NSLog(@"applied report: %@", e.reason); } }
         } @catch (NSException *e) { error = e; }
         dispatch_async(dispatch_get_main_queue(), ^{
+            if (!error) self.lastCycleAt = NSDate.date;
             self.busy = NO;
             if (rows) [self showRows:rows];
             else if (error) self.statusLabel.stringValue = error.reason ?: @"확인 실패";
@@ -705,11 +710,11 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
 - (void)buildStatusItem {
     self.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSVariableStatusItemLength];
     self.statusItem.button.title = @"예배온";
+    // 메뉴 막대 아이콘은 상주용으로 짧게: 지금 상태 한 줄, 창 열기, (새 버전이 있을 때만) 설치, 종료. 나머지 동작은 창과 앱 메뉴에 있다.
     NSMenu *menu = [NSMenu new];
+    self.statusLineItem = [menu addItemWithTitle:@"확인 전" action:nil keyEquivalent:@""]; self.statusLineItem.enabled = NO;
+    [menu addItem:NSMenuItem.separatorItem];
     [menu addItemWithTitle:@"예배온 Sync 2 창 열기" action:@selector(showWindow:) keyEquivalent:@""];
-    [menu addItemWithTitle:@"지금 확인" action:@selector(compareNow:) keyEquivalent:@""];
-    [menu addItemWithTitle:@"정리…" action:@selector(showOrganizer:) keyEquivalent:@""];
-    [menu addItemWithTitle:@"예배온 Studio 열기" action:@selector(openStudio:) keyEquivalent:@""];
     self.statusUpdateItem = [menu addItemWithTitle:@"새 버전 설치…" action:@selector(installUpdate:) keyEquivalent:@""]; self.statusUpdateItem.hidden = YES;
     [menu addItem:NSMenuItem.separatorItem];
     [menu addItemWithTitle:@"예배온 Sync 2 종료" action:@selector(terminate:) keyEquivalent:@""];
