@@ -49,6 +49,11 @@ jobs:
           path: mac-sync2/build/manual-shots
           if-no-files-found: ignore
           retention-days: 30
+      # 같은 그림을 로그에도 base64로 남긴다(artifact 저장소에 닿지 않는 작업 환경에서 받기용).
+      - name: Manual screenshots in the log
+        if: always()
+        continue-on-error: true
+        run: for f in mac-sync2/build/manual-shots/*.png; do echo "SHOT-BEGIN $(basename "$f")"; base64 -i "$f" | tr -d '\n' | fold -w 4000; echo; echo "SHOT-END"; done
       # main 빌드만 서버(R2)에 올린다. 교회 Mac의 Sync 2가 [지금 설치]로 받는다. 작업 브랜치 빌드는 올리지 않는다.
       - name: Publish to the server (main only)
         if: github.ref == 'refs/heads/main'

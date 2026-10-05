@@ -16,11 +16,11 @@ const run = (file, args, env = {}) => new Promise((done, fail) => {
   child.once('exit', code => { clearTimeout(timer); code === 0 ? done(output) : fail(new Error(`${file} exited ${code}`)); });
 });
 const { outputFiles } = await build({ entryPoints: ['cloudflare/worker.mjs'], bundle: true, write: false, format: 'esm', platform: 'browser' });
-const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: outputFiles[0].text, compatibilityDate: '2026-09-28', host: '127.0.0.1', port: 0, bindings: { SITE_PASSWORD: PASSWORD }, d1Databases: ['DB'], r2Buckets: ['FILES'], cf: false }));
-try {
-  const origin = (await mf.ready).origin;
-  for (const [name, select] of SHOTS) {
-    // 장면마다 새 시험 폴더: 앞 장면의 비교가 영수증을 바꾸지 않게 한다.
+for (const [name, select] of SHOTS) {
+  // 장면마다 빈 로컬 Worker와 새 시험 폴더를 쓴다(같은 자료를 두 번 올리지 않게).
+  const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: outputFiles[0].text, compatibilityDate: '2026-09-28', host: '127.0.0.1', port: 0, bindings: { SITE_PASSWORD: PASSWORD }, d1Databases: ['DB'], r2Buckets: ['FILES'], cf: false }));
+  try {
+    const origin = (await mf.ready).origin;
     const area = JSON.parse(await run(resolve(tools, 'yb2-capture-seed'), [origin, PASSWORD]));
     await run(resolve(tools, 'SyncCapture.app/Contents/MacOS/YebaeOnSync2'), [], {
       YB2_CAPTURE_ORIGIN: origin, YB2_CAPTURE_NAME: '교회 Mac', YB2_CAPTURE_PASSWORD: PASSWORD,
@@ -28,5 +28,5 @@ try {
       YB2_CAPTURE_SELECT: select, YB2_CAPTURE_OUT: resolve(out, name)
     });
     console.log('그림', name);
-  }
-} finally { await mf.dispose(); }
+  } finally { await mf.dispose(); }
+}
