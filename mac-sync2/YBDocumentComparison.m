@@ -1,5 +1,6 @@
 #import "YBDocumentComparison.h"
 #import "PP6Core.h"
+#import "YBCore.h"
 
 static NSArray *RTFSignatures(NSDictionary *slide) {NSMutableArray *out=[NSMutableArray array];for(NSDictionary *t in slide[@"texts"])[out addObject:YBRTFSignature(t[@"rtfBase64"])];return out;}
 NSArray *YBComparisonRows(NSDictionary *local,NSDictionary *remote) {
