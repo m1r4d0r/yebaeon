@@ -12,6 +12,13 @@
 // - 상주: 15분마다 변경 일지만 묻고(요청 1번), 바뀐 것이 있을 때만 비교해 창에 보여 준다. 적용하지 않는다.
 //   PP6가 닫히면 Mac 수정분과 새 문서를 올린다. 잠자기에서 깨면 다시 확인한다.
 static NSString *const kOrigin = @"https://yebaeon.grace-jean-p.workers.dev";
+#ifdef YB2_MANUAL_CAPTURE
+// 설명서 그림 전용 빌드(capture.command): 로컬 Worker 주소·시험 폴더·입장 정보를 환경 변수로 받고, 비교가 끝나면 창을 PNG로 저장한 뒤 끝난다. 배포 앱에는 들어가지 않는다.
+static NSString *Env(NSString *key) { const char *value = getenv(key.UTF8String); return value ? [NSString stringWithUTF8String:value] : nil; }
+#define YB2_ORIGIN Env(@"YB2_CAPTURE_ORIGIN")
+#else
+#define YB2_ORIGIN kOrigin
+#endif
 static NSString *const kRootKey = @"documentsRoot", *const kPlaylistKey = @"playlistPath";
 static NSString *const kResidentKey = @"residentMode";
 static NSString *const kAgentLabel = @"org.yebaeon.sync2";
@@ -56,17 +63,26 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 #pragma mark - 설정
 
 - (NSString *)root {
+#ifdef YB2_MANUAL_CAPTURE
+    return Env(@"YB2_CAPTURE_ROOT");
+#endif
     NSString *value = [NSUserDefaults.standardUserDefaults stringForKey:kRootKey];
     return value.length ? value : [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/ProPresenter6"];
 }
 - (NSURL *)playlistURL {
+#ifdef YB2_MANUAL_CAPTURE
+    return [NSURL fileURLWithPath:Env(@"YB2_CAPTURE_PLAYLIST")];
+#endif
     NSString *value = [NSUserDefaults.standardUserDefaults stringForKey:kPlaylistKey];
     if (!value.length) value = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/RenewedVision/ProPresenter6/Playlists/기본 .pro6pl"];
     return [NSURL fileURLWithPath:value];
 }
 - (BOOL)resident { return [NSUserDefaults.standardUserDefaults objectForKey:kResidentKey] ? [NSUserDefaults.standardUserDefaults boolForKey:kResidentKey] : YES; }
 - (NSString *)profile {
-    NSString *identity = YBHash([[NSString stringWithFormat:@"%@\n%@", kOrigin, self.root] dataUsingEncoding:NSUTF8StringEncoding]);
+#ifdef YB2_MANUAL_CAPTURE
+    return Env(@"YB2_CAPTURE_PROFILE");
+#endif
+    NSString *identity = YBHash([[NSString stringWithFormat:@"%@\n%@", YB2_ORIGIN, self.root] dataUsingEncoding:NSUTF8StringEncoding]);
     return [[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/YebaeOn Sync 2"] stringByAppendingPathComponent:[identity substringToIndex:16]];
 }
 - (void)rebuildEngine {
@@ -219,7 +235,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     }];
 }
 
-- (void)openStudio:(id)sender { [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:kOrigin]]; }
+- (void)openStudio:(id)sender { [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:YB2_ORIGIN]]; }
 - (void)buildMenu {
     NSMenu *bar = [NSMenu new]; NSMenuItem *appItem = [NSMenuItem new]; [bar addItem:appItem];
     // 프로그램 이름 메뉴: 버전·업데이트·Studio는 메뉴 막대 아이콘 메뉴와 같은 것을 여기에도 둔다(아이콘 메뉴는 창이 닫혀 있을 때 쓴다).
@@ -266,7 +282,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
         // 상주용 장치 열쇠를 받는다. 서버가 아직 열쇠를 모르면(배포 전) 쿠키로 계속 쓴다.
         @try { [self.server registerDevice:name.stringValue]; [self.server saveDeviceToken]; }
         @catch (NSException *e) { NSLog(@"device key: %@", e.reason); self.server.deviceToken = nil; }
-        self.connectionLabel.stringValue = [NSString stringWithFormat:@"%@ 연결됨%@ · %@", name.stringValue, self.server.deviceToken ? @" (장치 열쇠)" : @"", kOrigin];
+        self.connectionLabel.stringValue = [NSString stringWithFormat:@"%@ 연결됨%@ · %@", name.stringValue, self.server.deviceToken ? @" (장치 열쇠)" : @"", YB2_ORIGIN];
         return YES;
     } @catch (NSException *e) {
         [self alert:@"입장 실패" text:e.reason]; return NO;
@@ -292,14 +308,21 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 #pragma mark - 시작
 
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
+#ifndef YB2_MANUAL_CAPTURE
     [self repairLoginAgent];
+#endif
     self.work = dispatch_queue_create("org.yebaeon.sync2", DISPATCH_QUEUE_SERIAL);
     self.rows = [NSMutableArray array];
     [self buildMenu]; [self buildWindow]; [self buildStatusItem];
     [self.window makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
-    self.server = [[YB2Server alloc] initWithOrigin:kOrigin allowLocalTestServer:NO];
+#ifdef YB2_MANUAL_CAPTURE
+    self.server = [[YB2Server alloc] initWithOrigin:YB2_ORIGIN allowLocalTestServer:YES];
+    [self.server login:Env(@"YB2_CAPTURE_NAME") password:Env(@"YB2_CAPTURE_PASSWORD")];
+#else
+    self.server = [[YB2Server alloc] initWithOrigin:YB2_ORIGIN allowLocalTestServer:NO];
     @try { [self.server loadDeviceToken]; } @catch (NSException *e) { NSLog(@"%@", e.reason); }
     @try { [self.server loadSession]; } @catch (NSException *e) { NSLog(@"%@", e.reason); }
+#endif
     [self rebuildEngine];
     [NSTimer scheduledTimerWithTimeInterval:3 target:self selector:@selector(refreshPresenterState) userInfo:nil repeats:YES];
     [NSTimer scheduledTimerWithTimeInterval:kResidentInterval target:self selector:@selector(residentTick) userInfo:nil repeats:YES];
@@ -312,13 +335,17 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
         if (finished) [self alert:@"중단된 적용 마무리" text:finished];
     } @catch (NSException *e) { [self alert:@"중단된 적용을 마무리하지 못함" text:e.reason]; }
     if (!self.server.cookie && !self.server.deviceToken) { if (![self loginSheet]) return; }
-    else self.connectionLabel.stringValue = [NSString stringWithFormat:@"연결 확인 중%@ · %@", self.server.deviceToken ? @" (장치 열쇠)" : @"", kOrigin];
+    else self.connectionLabel.stringValue = [NSString stringWithFormat:@"연결 확인 중%@ · %@", self.server.deviceToken ? @" (장치 열쇠)" : @"", YB2_ORIGIN];
     // 켜자마자 서버에 연결한다. 네트워크 오류면 startupCompare가 15초마다 다시 시도한다.
     [self performSelector:@selector(startupCompare) withObject:nil afterDelay:0];
 }
 - (void)startupCompare {
     if (self.busy) return;
     [self runCycleForce:YES upload:NO completion:^(NSException *error) {
+#ifdef YB2_MANUAL_CAPTURE
+        if (!error) { dispatch_async(dispatch_get_main_queue(), ^{ [self captureForManual]; }); return; }
+        NSLog(@"capture compare failed: %@", error.reason); exit(3);
+#endif
         if (!error) { [self runFullCheckIfDue]; [self checkUpdate:NO]; return; }
         if ([error.reason hasPrefix:@"HTTP 401"]) { dispatch_async(dispatch_get_main_queue(), ^{ [self handleLoginRequired]; }); return; }
         if ([error.reason hasPrefix:@"HTTP "]) { dispatch_async(dispatch_get_main_queue(), ^{ self.statusLabel.stringValue = error.reason; }); return; }
@@ -332,6 +359,27 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
         });
     }];
 }
+
+#ifdef YB2_MANUAL_CAPTURE
+// 고를 줄(YB2_CAPTURE_SELECT)을 고르고, 제목 줄까지 포함한 창을 2배 해상도 PNG(YB2_CAPTURE_OUT)로 저장한다.
+- (void)captureForManual {
+    NSString *select = Env(@"YB2_CAPTURE_SELECT");
+    for (NSUInteger i = 0; i < self.rows.count; i++) if ([self.rows[i][@"name"] isEqual:select]) [self.table selectRowIndexes:[NSIndexSet indexSetWithIndex:i] byExtendingSelection:NO];
+    // 그림에는 로컬 시험 주소 대신 교회 Mac에서 보이는 주소를 보인다.
+    self.connectionLabel.stringValue = [NSString stringWithFormat:@"연결됨 (장치 열쇠) · %@", kOrigin];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSView *frame = self.window.contentView.superview;
+        NSSize size = frame.bounds.size;
+        NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:(NSInteger)size.width * 2 pixelsHigh:(NSInteger)size.height * 2 bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:0 bitsPerPixel:0];
+        rep.size = size;
+        [frame cacheDisplayInRect:frame.bounds toBitmapImageRep:rep];
+        NSData *png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+        BOOL ok = [png writeToFile:Env(@"YB2_CAPTURE_OUT") atomically:YES];
+        NSLog(@"capture %@ %@", Env(@"YB2_CAPTURE_OUT"), ok ? @"saved" : @"failed");
+        exit(ok ? 0 : 4);
+    });
+}
+#endif
 
 #pragma mark - 상주
 
@@ -431,7 +479,7 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
     if (trash) [parts addObject:[NSString stringWithFormat:@"서버 정리 %lu개", (unsigned long)trash]];
     if (hold) [parts addObject:[NSString stringWithFormat:@"정리 창에서 정할 것 %lu개", (unsigned long)hold]];
     self.statusLabel.stringValue = parts.count ? [parts componentsJoinedByString:@" · "] : @"모두 같음";
-    self.connectionLabel.stringValue = [NSString stringWithFormat:@"연결됨%@ · %@", self.server.deviceToken ? @" (장치 열쇠)" : @"", kOrigin];
+    self.connectionLabel.stringValue = [NSString stringWithFormat:@"연결됨%@ · %@", self.server.deviceToken ? @" (장치 열쇠)" : @"", YB2_ORIGIN];
     [self refreshApplyButton]; [self refreshStatusItem]; [self refreshReview];
 }
 // 올리기와 받기. 자동(PP6 종료 뒤)은 올리기만 한다. 받기·빼기·문서 정리는 [적용]을 누른 줄만 한다.

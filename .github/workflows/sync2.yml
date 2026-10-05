@@ -38,6 +38,17 @@ jobs:
           name: YebaeOn-Sync-2.0.0
           path: mac-sync2/build/YebaeOn-Sync-2.0.0.zip
           retention-days: 30
+      # 사용설명서 그림(Sync 2 창)을 로컬 Worker와 예시 자료로 찍는다. 실패해도 앱 검사·배포는 막지 않는다.
+      - name: Manual screenshots (Sync 2 window)
+        continue-on-error: true
+        run: bash mac-sync2/capture.command build/manual-shots
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: manual-sync-shots
+          path: mac-sync2/build/manual-shots
+          if-no-files-found: ignore
+          retention-days: 30
       # main 빌드만 서버(R2)에 올린다. 교회 Mac의 Sync 2가 [지금 설치]로 받는다. 작업 브랜치 빌드는 올리지 않는다.
       - name: Publish to the server (main only)
         if: github.ref == 'refs/heads/main'
