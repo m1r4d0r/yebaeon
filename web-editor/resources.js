@@ -84,7 +84,7 @@
  $('templateOpen').onclick=openTemplates;
  async function showMedia(){if(!E.ready()||!YebaeonCloud.needUser())return;try{await boot();$('mediaDrawer').hidden=false;fillMedia();$('mediaQuery').focus();}catch(error){E.status(error.message);}}
  function fillMedia(){return YebaeonMediaLibrary.fill();}
- $('mediaOpen').onclick=toggleMedia;$('mediaBackground').onclick=()=>YebaeonPPTImport.editBackground();$('mediaClose').onclick=()=>$('mediaDrawer').hidden=true;let mediaTimer;$('mediaQuery').oninput=()=>{clearTimeout(mediaTimer);mediaTimer=setTimeout(fillMedia,300);};$('serverStatus').onclick=()=>window.open('/status','_blank','noopener');
+ $('mediaOpen').onclick=toggleMedia;$('mediaAdd').onclick=()=>YebaeonMediaLibrary.showAdd();$('mediaClose').onclick=()=>$('mediaDrawer').hidden=true;let mediaTimer;$('mediaQuery').oninput=()=>{clearTimeout(mediaTimer);mediaTimer=setTimeout(fillMedia,300);};$('serverStatus').onclick=()=>window.open('/status','_blank','noopener');
  for(const event of ['yebaeonrender','yebaeonselection'])window.addEventListener(event,()=>updateTemplateLabels().catch(e=>E.status(e.message)));
  window.addEventListener('yebaeonsession',event=>{if(event.detail.authenticated)boot().catch(e=>E.status(e.message));else{catalog=null;mediaFiles.clear();knownFormats.clear();PP6Render.clear();}});
  function toggleBible(){if(!$('biblePanel').hidden){close();E.setView('slides');return;}$('mediaDrawer').hidden=true;return show();}
