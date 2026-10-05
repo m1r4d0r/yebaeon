@@ -36,7 +36,7 @@ const assert=require('node:assert/strict');
  const beforeNav=requests.length;
  for(const section of ['playlists','edit','order']){await nav.locator(`[data-page="${section}"]`).tap();assert.equal(await nav.locator(`[data-page="${section}"]`).getAttribute('aria-pressed'),'true');}
  assert.equal(requests.length,beforeNav,'navigation must not fetch documents or playlists');
- await page.locator('#responsiveSearch').tap();assert.equal(await page.locator('#responsiveSearchDrawer').isVisible(),true);
+ await page.locator('#responsiveSearch').tap();assert.equal(await page.locator('#responsiveSearchDrawer').isVisible(),true);assert.equal(await page.locator('#responsiveSearch').evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(58, 65, 160)','tapped search button keeps a dark background');
  const beforeSearch=requests.length;await page.locator('#libraryQuery').fill('찬');assert.equal(requests.length,beforeSearch,'typing does not send a query');
  await page.locator('#libraryRefresh').tap();await page.waitForFunction(()=>document.querySelectorAll('#libraryList .document-item').length===3);
  await page.locator('#libraryList .document-item').first().locator('strong').tap();await page.waitForTimeout(150);assert.equal(await page.locator('#playlistItems .order-item').count(),2,'tapping a result opens it without adding');assert.equal(await page.evaluate(()=>YebaeonEditor.state().name),'찬양.pro6');await nav.locator('[data-page="order"]').tap();await page.locator('#responsiveSearch').tap();const beforeAdd=requests.length;await page.locator('#libraryList .document-item').first().locator('.responsive-add').tap();await page.waitForFunction(()=>document.querySelectorAll('#playlistItems .order-item').length===3);

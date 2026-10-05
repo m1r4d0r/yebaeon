@@ -124,6 +124,8 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   assert.equal(await page.locator('#bulletinSource').isVisible(),false);await slot('찬양 2').locator('.src').click();await page.locator('#bulletinSheet').waitFor();
   await page.locator('#bulletinSheet .bulletin-mline',{hasText:'합성 찬양 B'}).click();await page.locator('#bulletinSheet .bulletin-chips button',{hasText:/^B$/}).click();assert.equal(await page.locator('#bulletinSheet .bulletin-sheet-head span').textContent(),'B');
   await page.locator('#bulletinSheet .primary').click();assert.equal(await page.locator('#bulletinSheet').isVisible(),false);assert.equal(await slot('찬양 2').locator('[id^=bulletin-]').inputValue(),'B');
+  // 파란 단추는 마우스를 올려도 흰 글씨가 보일 만큼 진한 배경을 유지한다.
+  await page.locator('#bulletinStart .file-start-dropbox').hover();assert.equal(await page.locator('#bulletinStart .file-start-dropbox').evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(58, 65, 160)');
   await page.locator('#bulletinStart .file-start-dropbox').click();await page.waitForFunction(()=>document.querySelector('#bulletinStart .dropbox-picker').textContent.includes('최초 연결'));await page.locator('#bulletinStart .file-start-dropbox').click();
   const catalog=JSON.parse(await readFile('church-resources/catalog.json','utf8'));const chosenFont=catalog.fonts.find(f=>f.name==='NanumBarunGothicOTF-YetHangul');if(chosenFont){const font=await readFile('church-resources/'+chosenFont.file);await page.addStyleTag({content:`@font-face{font-family:TestKorean;src:url(data:font/woff2;base64,${font.toString('base64')})}body,button,input,select,textarea{font-family:TestKorean,sans-serif!important}`});await page.evaluate(()=>document.fonts.ready);}
   await mkdir('artifacts',{recursive:true});
