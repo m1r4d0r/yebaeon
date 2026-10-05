@@ -81,8 +81,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download ${{ github.run_id }} -n manual-sync-shots -D docs/manual/img
+          gh run download ${{ github.run_id }} -n manual-sync-shots -D "$RUNNER_TEMP/shots"
+          cp "$RUNNER_TEMP"/shots/sync-*.png docs/manual/img/
           git add docs/manual/img/sync-*.png
           if git diff --cached --quiet; then echo "그림 변화 없음"; exit 0; fi
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "설명서: Sync 2 창 그림 (Mac 검사 캡처) [skip ci]"
+          git pull --rebase origin ${{ github.ref_name }}
           git push origin HEAD:${{ github.ref_name }}
