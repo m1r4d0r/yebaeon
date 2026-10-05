@@ -73,10 +73,13 @@
  function madeTitle(model,proto,fromTemplate,{series,title,ref}){const slide=clone(model,proto);if(fromTemplate){P.ivar(slide,'array','cues')?.replaceChildren();P.ivar(slide,'RVMediaCue','backgroundMediaCue')?.remove();for(const a of ['notes','chordChartPath'])slide.setAttribute(a,'');}
   const boxes=P.textElements(slide);if(boxes.length<2)throw Error('말씀 서식 슬라이드에 본문·장절 글상자가 필요합니다.');const {empty}=lineStyles(boxes[0]),big={...empty,size:Math.round((empty.size||60)*1.35),bold:true},small={...empty,size:Math.round((empty.size||60)*0.8)};
   setLines(boxes[0],series?[{text:series,style:small},{text:'',style:small},{text:title,style:big}]:[{text:title,style:big}]);P.setText(boxes[1],ref?`(${ref})`:'');boxes.slice(2).forEach(b=>P.setText(b,''));slide.setAttribute('label',title.split('\n')[0]);return slide;}
- // 문서 전체를 [제목 → 말씀]으로 다시 만든다. 주중 말씀 문서(made)는 앞뒤에 표지·그림 장이 얼마든지 붙을 수 있어 제목 장을 찾지 않고 우리가 만드는 제목 장을 쓴다.
- // 그 밖에는 첫 장을 제목 서식으로 쓰고, 첫 장에 글상자가 없을 때만 만든다.
- // 주중 말씀은 첫 말씀(NKRV) 장보다 앞의 장 가운데 마지막 하나를 지난 제목 장으로 보고 바꾸며, 그보다 앞의 장(표지)은 맨 앞에 그대로 둔다.
- async function titlePassage(xml,name,data,materials,{made=false}={}){const model=P.parse(xml,name),slides=P.slides(model),first=slides[0],{proto,fromTemplate}=await scriptureProto(model,materials);let s,covers=[];if(made||!P.textElements(first).length){s=madeTitle(model,proto,fromTemplate,data);if(made){const verse=slides.findIndex(isScripture),before=verse<0?slides.slice(0,1):slides.slice(0,verse);covers=before.slice(0,-1);}}else{s=clone(model,first);fillTitle(s,data);}
+ // 문서 전체를 [제목 → 말씀]으로 다시 만든다.
+ // 주중 말씀 문서(made)는 첫 말씀(NKRV) 장 바로 앞 장을 지난 제목 장으로 보고, 그보다 앞의 장(표지)은 맨 앞에 그대로 둔다.
+ // 그 밖에는 첫 장을 제목 서식으로 쓰고, 첫 장에 글상자가 없을 때만 말씀 서식으로 만든다.
+ async function titlePassage(xml,name,data,materials,{made=false}={}){const model=P.parse(xml,name),slides=P.slides(model),first=slides[0],{proto,fromTemplate}=await scriptureProto(model,materials);let s,covers=[];if(made){const verse=slides.findIndex(isScripture),before=verse<0?slides.slice(0,1):slides.slice(0,verse),old=before.at(-1);covers=before.slice(0,-1);
+   // 지난 제목 장에 글상자가 있으면 그 장의 디자인(배경·글상자·글꼴)을 그대로 두고 글자만 바꾼다. 그림뿐인 제목 장이면 말씀 서식으로 만든다.
+   if(old&&P.textElements(old).length){s=clone(model,old);fillTitle(s,data);s.setAttribute('label',data.title.split('\n')[0]);}else s=madeTitle(model,proto,fromTemplate,data);}
+  else if(!P.textElements(first).length)s=madeTitle(model,proto,fromTemplate,data);else{s=clone(model,first);fillTitle(s,data);}
   const list=[...covers,s,...(data.passage?await verseSlides(model,proto,data.passage,materials,fromTemplate):[])];replaceSlides(model,list);return {xml:P.serialize(model),count:list.length,notes:covers.length?[`표지 ${covers.length}장은 맨 앞에 그대로 두었습니다.`]:[]};}
  function prayer(xml,name,person){
   const model=P.parse(xml,name),re=new RegExp(`^([가-힣]{2,4})(\\s*)(${TITLES})$`);let hits=0;
