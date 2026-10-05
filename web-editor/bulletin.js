@@ -19,6 +19,8 @@
  const message=s=>$('bulletinMessage').textContent=s;
  const get=id=>work.slots[id];
  // Mac(PP6)이 올린 이름은 한글 자모를 푼 꼴(NFD)일 수 있다. 비교·규칙 검사 전에 NFC로 맞춘다.
+ // 순서 항목의 연결 문서 id. 서버 plan은 document.id로만 준다(documentId는 Studio에서 넣은 항목에만 있다).
+ const docId=x=>x?.documentId||x?.document?.id||null;
  const base=name=>String(name||'').normalize('NFC').replace(/\.pro6$/i,'').trim();
  const songKey=v=>'song:'+BP.songQuery(v).normalize('NFC').replace(/[\s\p{P}]/gu,'');
  function slot(o){const s={id:'s'+(++seq),value:'',src:[],sug:false,skip:false,locked:false,note:'',kind:'text',choice:null,query:null,...o};if(s.value)s.sug=true;work.slots[s.id]=s;return s.id;}
@@ -62,7 +64,7 @@
  async function plan(key,fresh=false){if(!key)return null;const [library,node]=key.split('/');if(fresh||!plans.has(key))plans.set(key,C.api(`/playlists/${library}/plan?`+new URLSearchParams({node,includeIndexed:'1'})).then(r=>r.json()).catch(e=>{plans.delete(key);throw e;}));return plans.get(key);}
  const names=p=>p.items.map(x=>base(x.name||x.document?.name).split('/').pop());
  async function findDoc(name){const data=await YebaeonSearch.query(name);return data.documents.filter(d=>d.available!==false&&base(d.name)===name);}
- async function docFromPlaylist(test,name){const all=playlists().filter(p=>test(p.name));for(const p of all){const data=await plan(p.key);const item=data.items.find(x=>base(x.name||x.document?.name)===name&&x.documentId);if(item)return item.document||{id:item.documentId,name};}const found=await findDoc(name);return found.length===1?found[0]:null;}
+ async function docFromPlaylist(test,name){const all=playlists().filter(p=>test(p.name));for(const p of all){const data=await plan(p.key);const item=data.items.find(x=>base(x.name||x.document?.name)===name&&docId(x));if(item)return item.document||{id:docId(item),name};}const found=await findDoc(name);return found.length===1?found[0]:null;}
  /* ---------- source ---------- */
  function role(t){const all=t.cells.flatMap(c=>c.lines);if(t.cells.some(c=>c.lines.some(s=>s.replace(/\s/g,'').startsWith('1부예배'))))return '예배순서';if(all.some(s=>/^■/.test(s)))return '설교 노트';if(t.cells.some(c=>`${t.idx}:${c.row}:${c.col}`===work.summary))return '말씀 요약';if(all.some(s=>/^\d+\.\s*\S+\s*:/.test(s)))return '교회 소식';return '표 '+(t.idx+1);}
  function inStep(s){if(s.step!==work.step)return false;return work.step!=='song'||s.svc===work.svc;}
@@ -115,7 +117,7 @@
  function group(t,sub){const g=el('div','bulletin-group'),h=el('div','gh');h.append(el('h4',null,t));if(sub)h.append(el('small',null,sub));g.append(h);return g;}
  const v=id=>{const s=get(id);return s.skip?'':s.value.trim();};
  async function currentSlots(i){const p=await plan(work.targets[i]).catch(()=>null);if(!p)return;const r=PL.songPlan(names(p),i,{});const at=PL.sermonIndex(names(p),names(p).findIndex(n=>/사도신경/.test(n)));
-  const pick=offset=>{const item=at.last>=0?p.items[at.last+offset]:null;return item?.documentId?{id:item.documentId,name:base(item.name||item.document?.name)}:null;};
+  const pick=offset=>{const item=at.last>=0?p.items[at.last+offset]:null;return docId(item)?{id:docId(item),name:base(item.name||item.document?.name)}:null;};
   get(work.after[i]).current=pick(1);if(i<2)get(work.offer[i]).current=pick(2);return r;}
  function stepSong(root){const tabs=el('div','bulletin-svc');SVC.forEach((n,i)=>{const b=el('button',null,n);b.setAttribute('aria-selected',String(i===work.svc));b.onclick=()=>{work.svc=i;ui.active=null;save();render();};tabs.append(b);});root.append(tabs);
   const i=work.svc,sel=el('select');sel.setAttribute('aria-label',SVC[i]+' 재생목록');sel.add(new Option('재생목록을 고르세요',''));for(const p of playlists())sel.add(new Option(p.name,p.key));sel.value=work.targets[i];sel.onchange=()=>{work.targets[i]=sel.value;save();render();};
@@ -155,7 +157,7 @@
    for(const w of r.warnings)lines.push(['wait',w]);
    ops.push({key:'svc'+i,label:t.name,sub:'재생목록',kind:'playlist',service:i,target:t.key,lines:lines.length?lines:[['','바뀌는 것 없음']],skip:!r.changed});
    const at=names(p).findIndex(n=>PL.PRAYER.test(n)),name=at>=0?names(p)[at]:'',item=at>=0?p.items[at]:null;const person=BP.splitName(people[i]);
-   if(people[i]&&!(item?.documentId&&ops.some(o=>o.doc===item.documentId)))ops.push({key:'prayer'+i,label:name||SVC[i]+' 기도',sub:'문서',kind:'prayer',doc:item?.documentId,person,lines:item?.documentId?[[person?'add':'bad',person?`이름 ${person.name} · 직함 ${person.title}`:'이름과 직함을 나누지 못했습니다']]:[['bad','순서에서 기도 문서를 찾지 못했습니다.']]});}
+   if(people[i]&&!(docId(item)&&ops.some(o=>o.doc===docId(item))))ops.push({key:'prayer'+i,label:name||SVC[i]+' 기도',sub:'문서',kind:'prayer',doc:docId(item),person,lines:docId(item)?[[person?'add':'bad',person?`이름 ${person.name} · 직함 ${person.title}`:'이름과 직함을 나누지 못했습니다']]:[['bad','순서에서 기도 문서를 찾지 못했습니다.']]});}
   const M=work.main,md=sermonData(M),mainDoc=await docFromPlaylist(n=>/^2부/.test(n.replace(/\s/g,'')),M.doc);
   ops.push({key:'sermon',label:M.doc,sub:'문서',kind:'sermon',doc:mainDoc?.id,data:md,lines:mainDoc?[['add',summary(md)]]:[['bad',M.doc+' 문서를 찾지 못했습니다.']]});
   for(const E of work.extra){const doc=await extraDoc(E),d=simpleData(E);ops.push({key:'extra'+E.services.join(''),label:E.doc,sub:'문서',kind:'simple',doc:doc?.id,data:d,lines:doc?[['add',summary(d)]]:[['bad',E.doc+' 문서를 찾지 못했습니다. 이름을 확인하세요.']]});}
@@ -166,12 +168,17 @@
  async function sermonTarget(i){const E=work.extra.find(e=>e.services.includes(i));if(E){const doc=await extraDoc(E);return doc?{id:doc.id,name:base(doc.name)}:null;}if(!work.main.services.includes(i))return null;const doc=await docFromPlaylist(n=>/^2부/.test(n.replace(/\s/g,'')),work.main.doc);return doc?{id:doc.id,name:base(doc.name)}:null;}
  async function extraDoc(E){const found=await findDoc(E.doc);return found.length===1?found[0]:null;}
  let reviewOps=null;
- function stepReview(root){if(staged){const g=group('미리 보기','아직 Studio에도 서버에도 넘기지 않았습니다');for(const r of staged.values()){const d=el('div','bulletin-staged'+(r.ok?'':' bad'));d.append(el('strong',null,r.label),el('small',null,r.text));if(r.ok)d.append(preview(r));g.append(d);}root.append(g);}
-  if(work.results){const g=group('적용 결과');const ul=el('ul','bulletin-results');for(const r of work.results)ul.append(el('li',r.ok?'ok':'bad',`${r.label} · ${r.text}`));g.append(ul);if(work.results.some(r=>!r.ok))g.append(el('p','bulletin-note','실패한 항목만 ‘다시 미리 보기’로 다시 할 수 있습니다. 적용한 항목은 Studio에서 재생목록을 열어 ‘서버 저장’을 눌러야 서버에 갑니다.'));root.append(g);}
-  const head=el('div','bulletin-review-head'),date=el('input');date.type='date';date.value=work.date||'';date.setAttribute('aria-label','주보 날짜');date.onchange=()=>{work.date=date.value;pickTargets();reviewOps=null;staged=null;save();render();};const dl=el('label');dl.append('주보 날짜',date);head.append(dl,el('p','bulletin-note','‘미리 보기’로 바뀐 모습을 확인한 뒤 ‘적용’을 누르면 Studio에 저장 필요 상태로 넘기고 창을 닫습니다. 서버 저장은 Studio에서 합니다. 빼고 싶은 항목은 체크를 끄세요.'));root.append(head);
+ // 검토·적용: 들어오면 바로 미리 보기를 만든다(항목마다 체크·바뀌는 것·전후 비교가 한 칸). 체크나 날짜를 바꾸면 다시 만든다. ‘적용’이 Studio로 넘긴다.
+ let previewKey=null;
+ function stepReview(root){
+  if(work.results){const g=group('적용 결과');const ul=el('ul','bulletin-results');for(const r of work.results)ul.append(el('li',r.ok?'ok':'bad',`${r.label} · ${r.text}`));g.append(ul);if(work.results.some(r=>!r.ok))g.append(el('p','bulletin-note','실패한 항목만 다시 미리 보기를 만들어 적용할 수 있습니다. 적용한 항목은 Studio에서 ‘서버 저장’을 눌러야 서버에 갑니다.'));root.append(g);}
+  const head=el('div','bulletin-review-head'),date=el('input');date.type='date';date.value=work.date||'';date.setAttribute('aria-label','주보 날짜');date.onchange=()=>{work.date=date.value;pickTargets();reviewOps=null;staged=null;save();render();};const dl=el('label');dl.append('주보 날짜',date);head.append(dl,el('p','bulletin-note','바뀌는 모습을 확인하고 ‘적용’을 누르면 Studio에 저장 필요 상태로 넘기고 창을 닫습니다. 서버 저장은 Studio에서 합니다. 빼고 싶은 항목은 체크를 끄세요. 아직 Studio에도 서버에도 넘기지 않았습니다.'));root.append(head);
   const list=el('div','bulletin-review');root.append(list);list.append(el('p','bulletin-note','바뀌는 것을 계산하는 중…'));
-  (reviewOps||(reviewOps=operations())).then(ops=>{list.replaceChildren();for(const o of ops){if(!(o.key in work.include))work.include[o.key]=!o.skip&&!o.lines.some(l=>l[0]==='bad');const d=el('div','bulletin-op'+(work.include[o.key]?'':' off')),lab=el('label'),cb=el('input');cb.type='checkbox';cb.checked=work.include[o.key];cb.disabled=o.lines.some(l=>l[0]==='bad')||o.kind==='error';cb.onchange=()=>{work.include[o.key]=cb.checked;staged=null;save();render();};
-    lab.append(cb,o.label,el('small',null,o.sub||''));const ul=el('ul');for(const [c,t] of o.lines)ul.append(el('li',c,t));d.append(lab,ul);list.append(d);}foot();}).catch(e=>{list.replaceChildren(el('p','bulletin-note bad',e.message));});}
+  (reviewOps||(reviewOps=operations())).then(ops=>{list.replaceChildren();for(const o of ops){if(!(o.key in work.include))work.include[o.key]=!o.skip&&!o.lines.some(l=>l[0]==='bad');const r=staged?.get(o.key),d=el('div','bulletin-op'+(work.include[o.key]?'':' off')+(r&&!r.ok?' bad':'')),lab=el('label'),cb=el('input');cb.type='checkbox';cb.checked=work.include[o.key];cb.disabled=busy||o.lines.some(l=>l[0]==='bad')||o.kind==='error';cb.onchange=()=>{work.include[o.key]=cb.checked;staged=null;save();render();};
+    lab.append(cb,o.label,el('small',null,o.sub||''));const ul=el('ul');for(const [c,t] of o.lines)ul.append(el('li',c,t));d.append(lab,ul);
+    if(r){d.classList.add('bulletin-staged');d.append(el('small','bulletin-staged-note',r.text));if(r.ok)d.append(preview(r));}else if(work.include[o.key]&&!work.results?.some(x=>x.key===o.key&&x.ok))d.append(el('small','bulletin-staged-note','미리 보기 만드는 중…'));
+    list.append(d);}foot();
+   const key=JSON.stringify([work.date,work.include,(work.results||[]).filter(r=>r.ok).map(r=>r.key)]);if(!staged&&!busy&&previewKey!==key&&ops.some(o=>work.include[o.key]&&!work.results?.some(x=>x.key===o.key&&x.ok))){previewKey=key;run(apply);}}).catch(e=>{list.replaceChildren(el('p','bulletin-note bad',e.message));});}
  // 적용은 두 단계다. ‘미리 보기’는 바뀐 문서와 순서를 이 창에서만 만들어 보여 주고, ‘적용’은 그것을 Studio의 미저장 문서·순서(브라우저 초안)로 넘긴다.
  // 서버에는 쓰지 않는다. 서버에는 Studio에서 재생목록을 열어 ‘서버 저장’을 누를 때 간다.
  // 적용할 때는 서버의 최신 버전을 다시 읽어 같은 변경을 만든다. 같은 문서를 여러 항목이 고치면 chain으로 앞 항목의 결과 위에 잇는다.
@@ -188,7 +195,7 @@
    async stage(){await L.stageDraft(p,items);plans.delete(o.target);return `순서 ${items.length}개 · 저장 필요`;}};}
  function stageOp(o,need,chain){if(o.kind==='prayer')return rewrite(o.doc,(xml,name)=>D.prayer(xml,name,o.person),'side',chain);if(o.kind==='sermon')return rewrite(o.doc,async(xml,name)=>D.sermon(xml,name,o.data,await need()),'stack',chain);if(o.kind==='simple')return rewrite(o.doc,async(xml,name)=>D.titlePassage(xml,name,o.data,await need(),{made:!!o.weekday}),'side',chain);return applyPlaylist(o);}
  // 문서마다 그 문서가 든 재생목록 키들. 그 목록에 ‘저장 필요’를 붙인다.
- async function docMarks(){const m=new Map();for(const [k,p] of plans){let data;try{data=await p;}catch{continue;}for(const x of data.items)if(x.documentId){if(!m.has(x.documentId))m.set(x.documentId,new Set());m.get(x.documentId).add(k);}}return m;}
+ async function docMarks(){const m=new Map();for(const [k,p] of plans){let data;try{data=await p;}catch{continue;}for(const x of data.items)if(docId(x)){if(!m.has(docId(x)))m.set(docId(x),new Set());m.get(docId(x)).add(k);}}return m;}
  async function todoOps(){const ops=await reviewOps;const todo=ops.filter(o=>work.include[o.key]&&!work.results?.some(r=>r.key===o.key&&r.ok));if(!todo.length)throw Error('적용할 항목이 없습니다.');return [...todo.filter(o=>o.kind!=='playlist'),...todo.filter(o=>o.kind==='playlist')];}
  async function apply(){const todo=await todoOps();
   let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const next=new Map(),chain=new Map();
@@ -218,7 +225,7 @@
   if(id!=='review'){const left=Object.values(work.slots).filter(s=>s.step===id&&!s.locked&&!s.skip&&(s.kind==='song'?s.value&&!s.choice:!s.value.trim())).length;b.append(el('span','n'+(left?' left':''),left?String(left):'✓'));}
   b.onclick=()=>{work.step=id;ui.active=null;save();render();};nav.append(b);}}
  function foot(){const prev=$('bulletinPrev'),next=$('bulletinNext');if(!work){prev.hidden=next.hidden=true;return;}prev.hidden=next.hidden=false;const i=STEPS.findIndex(s=>s[0]===work.step);prev.disabled=busy||i===0;
-  next.disabled=busy;if(work.step==='review'){const done=work.results&&work.results.every(r=>r.ok);next.textContent=done?'닫기':staged?'적용':work.results?'다시 미리 보기':'미리 보기';if(staged)next.disabled=busy||![...staged.values()].some(r=>r.ok);}else next.textContent=i===3?'검토하기':'다음';}
+  next.disabled=busy;if(work.step==='review'){const done=work.results&&work.results.every(r=>r.ok);const usable=staged&&[...staged.values()].some(r=>r.ok);next.textContent=done?'닫기':usable?'적용':busy?'미리 보기 만드는 중…':'미리 보기 다시 만들기';}else next.textContent=i===3?'검토하기':'다음';}
  // 화면을 다시 그리는 동안 포커스된 입력칸이 빠지면 change가 다시 render를 부른다. 끝난 뒤 한 번 더 그린다.
  let rendering=false,again=false;
  function render(){if(rendering){again=true;return;}rendering=true;try{draw();}finally{rendering=false;}if(again){again=false;render();}}
@@ -234,7 +241,7 @@
  button.onclick=()=>{if(!C.needUser())return;if(!work){try{const saved=JSON.parse(sessionStorage.getItem(recoveryKey)||'null');if(saved?.author===C.worker()&&saved.work&&confirm('이 탭의 주보 준비 작업을 이어서 할까요?')){work=saved.work;seq=saved.seq||0;}}catch{message('보존한 주보 작업을 읽지 못했습니다. 주보를 다시 여세요.');}}render();dialog.showModal();};
  $('bulletinClose').onclick=()=>{if(!busy)dialog.close();};dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});$('bulletinScrim').onclick=closeSheet;
  $('bulletinPrev').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(i>0){work.step=STEPS[i-1][0];ui.active=null;save();render();}};
- $('bulletinNext').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(work.step!=='review'){work.step=STEPS[i+1][0];ui.active=null;if(work.step==='review'){reviewOps=null;staged=null;work.results=work.results?.some(r=>!r.ok)?work.results:null;}save();render();return;}if(work.results&&work.results.every(r=>r.ok)){dialog.close();return;}if(staged){run(commit);return;}staged=null;run(apply);};
+ $('bulletinNext').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(work.step!=='review'){work.step=STEPS[i+1][0];ui.active=null;if(work.step==='review'){reviewOps=null;staged=null;work.results=work.results?.some(r=>!r.ok)?work.results:null;}save();render();return;}if(work.results&&work.results.every(r=>r.ok)){dialog.close();return;}if(staged&&[...staged.values()].some(r=>r.ok)){run(commit);return;}staged=null;run(apply);};
  window.addEventListener('yebaeonsession',e=>{if(!e.detail.authenticated){work=null;staged=null;plans.clear();YebaeonSearch.clear();reviewOps=null;dialog.close();}});
  window.YebaeonBulletin={loadFile,state:()=>work,go(step){work.step=step;ui.active=null;render();}};render();
 })();

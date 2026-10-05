@@ -170,7 +170,7 @@
  .dropbox-row button,.dropbox-row a{min-height:36px}
 }
 .dropbox-row>.dropbox-icon{flex:none;display:flex;width:28px;height:28px;font-style:normal}.dropbox-row.is-folder{cursor:pointer}.dropbox-row.is-folder:hover{background:#eef2f8}.dropbox-row.is-folder>span{font-weight:600}
-.bulletin-staged{display:grid;gap:4px;padding:10px 0;border-bottom:1px solid var(--line,#dce2ed)}.bulletin-staged>small{color:#657187;font-size:12px}.bulletin-staged.bad>small{color:#b4233c}
+.bulletin-op.bulletin-staged{display:block}.bulletin-staged-note{display:block;color:#657187;font-size:12px;margin:6px 12px}.bulletin-op .bulletin-compare{margin:4px 12px 10px}.bulletin-staged>small{color:#657187;font-size:12px}.bulletin-staged.bad .bulletin-staged-note{color:#b4233c}
 
 .bulletin-slot textarea{font:inherit;resize:vertical;min-height:2.6em;line-height:1.4}
 .bulletin-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:6px}.bulletin-compare.stack{grid-template-columns:minmax(0,1fr)}
