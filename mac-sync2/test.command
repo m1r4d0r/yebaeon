@@ -4,6 +4,6 @@ set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p build
 COMMON=( -fobjc-arc -fobjc-arc-exceptions -fblocks -arch x86_64 -mmacosx-version-min=10.13 -Werror=unguarded-availability -framework Cocoa -framework Security -lsqlite3 )
-clang "${COMMON[@]}" YBCore.m YBPlaylistIO.m YBPlaylistFormat.m YB2Server.m YB2Receipt.m YB2Engine.m YB2Test.m -o build/yb2-test
+clang "${COMMON[@]}" YBCore.m YBPlaylistIO.m YBPlaylistFormat.m PP6Core.m YB2Server.m YB2Receipt.m YB2Engine.m YB2Test.m -o build/yb2-test
 cd ..
 node mac-sync2/test-server2.mjs mac-sync2/build/yb2-test

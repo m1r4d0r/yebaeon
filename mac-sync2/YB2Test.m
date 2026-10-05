@@ -1,4 +1,5 @@
 #import "YB2Engine.h"
+#import "PP6Core.h"
 #import "YB2Server.h"
 #import "YBPlaylistFormat.h"
 #import "YBPlaylistIO.h"
@@ -421,6 +422,18 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         collided = [full[@"collisions"] valueForKey:@"path"];
         Check(![collided containsObject:@"서식 찬양.pro6"] && [engine.receipt document:@"서식 찬양.pro6"] != nil, [NSString stringWithFormat:@"RTF notation differences are the same content: %@", collided]);
         Check([collided containsObject:@"서식 크기.pro6"], [NSString stringWithFormat:@"a font size change still differs: %@", collided]);
+
+        // 27. 차이 창 읽기: PP6가 저장한 그룹 여러 개 문서(XML 선언 없음)도 장마다 자기 요소만 읽는다.
+        NSString *(^Box)(NSString *) = ^NSString *(NSString *text) {
+            return [NSString stringWithFormat:@"<RVTextElement displayName=\"Default\"><RVRect3D rvXMLIvarName=\"position\">{0 0 0 10 10}</RVRect3D><NSString rvXMLIvarName=\"RTFData\">%@</NSString></RVTextElement>", [[[head stringByAppendingFormat:@"\\f0 %@}", text] dataUsingEncoding:NSASCIIStringEncoding] base64EncodedStringWithOptions:0]]; };
+        NSString *(^Slide)(NSString *, BOOL) = ^NSString *(NSString *text, BOOL background) {
+            NSString *cue = background ? @"<RVMediaCue rvXMLIvarName=\"backgroundMediaCue\"><RVImageElement source=\"file:///Users/Shared/a.jpg\"><RVRect3D rvXMLIvarName=\"position\">{0 0 0 0 0}</RVRect3D></RVImageElement></RVMediaCue>" : @"";
+            return [NSString stringWithFormat:@"<RVDisplaySlide UUID=\"%@\"><array rvXMLIvarName=\"cues\"></array>%@<array rvXMLIvarName=\"displayElements\">%@</array></RVDisplaySlide>", NSUUID.UUID.UUIDString, cue, Box(text)]; };
+        NSString *grouped = [NSString stringWithFormat:@"<RVPresentationDocument versionNumber=\"600\" width=\"1920\" height=\"1080\"><array rvXMLIvarName=\"groups\"><RVSlideGrouping name=\"\"><array rvXMLIvarName=\"slides\">%@</array></RVSlideGrouping><RVSlideGrouping name=\"Verse 1\"><array rvXMLIvarName=\"slides\">%@%@</array></RVSlideGrouping></array><array rvXMLIvarName=\"arrangements\"></array></RVPresentationDocument>", Slide(@"One", YES), Slide(@"Two", NO), Slide(@"Three", YES)];
+        NSDictionary *parsed = PP6ParseDocumentData([grouped dataUsingEncoding:NSUTF8StringEncoding], @"grouped.pro6", @[], @{}, @[], @{}, YES);
+        NSMutableArray *perSlide = [NSMutableArray array];
+        for (NSDictionary *group in parsed[@"groups"]) for (NSDictionary *slide in group[@"slides"]) [perSlide addObject:[NSString stringWithFormat:@"%lu/%lu", (unsigned long)[slide[@"texts"] count], (unsigned long)[slide[@"media"] count]]];
+        Check([perSlide isEqual:@[@"1/1", @"1/0", @"1/1"]], [NSString stringWithFormat:@"each slide reads only its own elements: %@ %@", perSlide, parsed[@"parseError"] ?: @""]);
 
         // 7. PP6가 켜져 있으면 적용하지 않는다.
         engine.presenterRunning = ^BOOL { return YES; };
