@@ -15,7 +15,7 @@
  const reset=button('studioReset','','초기화 · 브라우저 수정 내역 모두 지우기');reset.innerHTML=svg('<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>');top.querySelector('.segmented').append(reset);
  const trash=$('libraryBins');trash.className='studio-trash';trash.textContent='';trash.title='휴지통 · 재생목록·문서';trash.setAttribute('aria-label','휴지통');trash.innerHTML=svg('<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v5M14 11v5"/>');reset.after(trash);reset.onclick=()=>YebaeonDrafts.clearAll();
  const topSave=make('div','studio-save');topSave.id='studioTopSave';top.querySelector('.account-wrap').before(topSave);
- const help=button('studioHelp','?','사용법·단축키');help.className='studio-help';top.querySelector('.brand-name').after(help);
+ const help=button('studioHelp','?','사용설명서');help.className='studio-help';top.querySelector('.brand-name').after(help);
  $('accountMenu').prepend($('serverStatus'));
  const settings=button('studioSettings','설정·관리');$('accountMenu').prepend(settings);
  const settingsDialog=dialog('studioSettingsDialog','설정·관리');
@@ -69,9 +69,8 @@
  window.YebaeonDocumentInfo=()=>documentDialog.showModal();
  quick.onclick=()=>E.quick();propertiesButton.onclick=()=>properties(!document.body.classList.contains('responsive-properties'));
  multi.onclick=()=>{multiple=!multiple;multi.setAttribute('aria-pressed',String(multiple));multi.title=multiple?'여러 장 고르기 끝내기':'여러 장 고르기';};
- const helpDialog=dialog('studioHelpDialog','사용법·단축키');helpDialog.insertAdjacentHTML('beforeend','<ol class="studio-help-steps"><li>검색 결과의 ＋ 버튼을 누르면 순서 맨 아래에 추가됩니다. 손잡이를 끌면 원하는 위치에 넣을 수 있습니다.</li><li>순서의 제목을 눌러 문서를 열고, 편집 화면에서 슬라이드를 추가합니다.</li><li>서버 저장은 저장하지 않은 문서와 순서를 한꺼번에 저장합니다.</li><li>문서 이름 바꾸기·복제·저장 이력은 순서 항목의 ⋯(오른쪽 클릭)이나 위쪽 문서 제목을 누르면 나옵니다. 템플릿은 편집 도구줄의 ‘템플릿’입니다.</li></ol><label class="studio-help-platform">단축키 <select id="studioShortcutOS"><option value="windows">Windows</option><option value="mac">Mac</option></select></label><dl id="studioShortcutList"></dl><details class="studio-help-more"><summary>선택·편집 단축키</summary><p>방향키: 선택 이동 · Shift: 범위 선택 · Ctrl/⌘: 여러 항목 선택<br>Ctrl/⌘ + A/C/X/V: 전체 선택·복사·잘라내기·붙여넣기<br>Delete: 선택 항목 삭제 · F2: 이름 변경<br>Alt/Option + Enter: 리플로우 나누기 · 맨 앞 Backspace: 앞 장에 합치기</p><p>글 입력 중에는 입력란의 편집 동작을 우선합니다.</p></details>');
- function shortcuts(){const mac=$('studioShortcutOS').value==='mac',mod=mac?'⌘':'Ctrl',alt=mac?'왼쪽 Option':'왼쪽 Alt';$('studioShortcutList').replaceChildren();for(const [name,key]of[['서버 저장',mod+' + S'],['문서 검색',mod+' + F'],['실행취소',mod+' + Z'],['다시 실행',mod+' + Shift + Z / '+mod+' + Y'],['문서 열기·빠른 편집','Enter'],['닫기·선택 해제','Esc'],['리플로우 / 편집기',alt+' + R / E'],['성경 / 미디어',alt+' + B / V']]){const row=make('div','','<dt></dt><dd><kbd></kbd></dd>');row.querySelector('dt').textContent=name;row.querySelector('kbd').textContent=key;$('studioShortcutList').append(row);}}
- $('studioShortcutOS').value=/Mac|iPhone|iPad/.test(navigator.platform)?'mac':'windows';$('studioShortcutOS').onchange=shortcuts;shortcuts();help.onclick=()=>helpDialog.showModal();
+ // ?는 사용설명서(/manual/)를 새 탭으로 연다. 단축키도 설명서의 ‘단축키’ 페이지에 있다.
+ help.onclick=()=>window.open('/manual/','_blank','noopener');
  function decorate(){for(const row of $('libraryList').querySelectorAll('.document-item')){if(!row.querySelector('.responsive-add')){const b=button('','＋',row.querySelector('strong').textContent+' 순서 맨 아래에 추가');b.className='responsive-add';row.append(b);}}for(const row of $('playlistItems').querySelectorAll('.order-item:not(.is-header)'))if(!row.querySelector('.responsive-order-menu')){const b=button('','⋯','순서 항목 메뉴');b.className='responsive-order-menu';row.append(b);}}
  function update(){const current=L.selectedPlaylist();document.body.classList.toggle('responsive',compact());document.body.dataset.page=page;
   $('responsiveTitle').textContent=page==='playlists'&&phone()?'재생목록':phone()&&page==='order'?(current?.name||'순서'):E.state().name.replace(/\.pro6$/i,'');

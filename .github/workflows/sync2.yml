@@ -38,6 +38,17 @@ jobs:
           name: YebaeOn-Sync-2.0.0
           path: mac-sync2/build/YebaeOn-Sync-2.0.0.zip
           retention-days: 30
+      # 사용설명서 그림(Sync 2 창)을 로컬 Worker와 예시 자료로 찍는다. 실패해도 앱 검사·배포는 막지 않는다.
+      - name: Manual screenshots (Sync 2 window)
+        continue-on-error: true
+        run: bash mac-sync2/capture.command build/manual-shots
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: manual-sync-shots
+          path: mac-sync2/build/manual-shots
+          if-no-files-found: ignore
+          retention-days: 30
       # main 빌드만 서버(R2)에 올린다. 교회 Mac의 Sync 2가 [지금 설치]로 받는다. 작업 브랜치 빌드는 올리지 않는다.
       - name: Publish to the server (main only)
         if: github.ref == 'refs/heads/main'
@@ -53,3 +64,27 @@ jobs:
           node -e 'const [b,s,z,k]=process.argv.slice(1);const n=(process.env.NOTES||"").split("\n")[0].replace(/\s*\[verify-mac\]\s*/,"").slice(0,200);process.stdout.write(JSON.stringify({build:+b,sha256:s,size:+z,key:k,notes:n,createdAt:new Date().toISOString()}))' "$BUILD" "$SHA" "$SIZE" "$KEY" > latest.json
           npx wrangler r2 object put "pp6-library-files/apps/sync2/latest.json" --file latest.json --content-type application/json --remote
           cat latest.json
+  # 작업 브랜치에서 수동 실행했을 때만: 찍은 Sync 2 창 그림을 그 브랜치의 docs/manual/img에 올린다(main에는 쓰지 않는다).
+  manual-shots:
+    needs: sync2
+    if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref_name }}
+      - name: Commit Sync 2 screenshots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download ${{ github.run_id }} -n manual-sync-shots -D "$RUNNER_TEMP/shots"
+          cp "$RUNNER_TEMP"/shots/sync-*.png docs/manual/img/
+          git add docs/manual/img/sync-*.png
+          if git diff --cached --quiet; then echo "그림 변화 없음"; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "설명서: Sync 2 창 그림 (Mac 검사 캡처) [skip ci]"
+          git pull --rebase origin ${{ github.ref_name }}
+          git push origin HEAD:${{ github.ref_name }}

@@ -70,3 +70,22 @@ test('build info names the deploy run, commit and newest changelog lines first',
   assert.ok(data.changes.length > 0 && data.changes.length <= 5); assert.ok(data.changes.every(c => /^\d{4}-\d{2}-\d{2}: /.test(c) && !/main 병합·배포\)$/.test(c)));
   assert.match(info, /console\.info/);
 });
+
+test('manual builds the page, per-page Markdown, one-file Markdown and checked images', async () => {
+  const { buildManual } = await import('../scripts/build-manual.mjs');
+  const folder = await mkdtemp(join(tmpdir(), 'yebaeon-manual-test-'));
+  try {
+    await mkdir(join(folder, 'docs/manual/img'), { recursive: true });
+    await writeFile(join(folder, 'docs/manual/img/shot.png'), 'png');
+    await writeFile(join(folder, 'docs/manual/01-intro.md'), '---\ntitle: 소개\ngroup: 시작하기\nlede: 한 줄\n---\n\n## 처음\n\n![화면](img/shot.png)\n');
+    await writeFile(join(folder, 'docs/manual/02-admin.md'), '---\ntitle: 관리\ngroup: 관리자\nadmin: true\n---\n\n본문 </script> 끝\n');
+    const files = new Map((await buildManual(folder, '2026-10-05')).map(([name, bytes]) => [name, bytes.toString()]));
+    assert.deepEqual([...files.keys()].sort(), ['manual/admin.md', 'manual/img/shot.png', 'manual/index.html', 'manual/intro.md', 'manual/llms-full.txt', 'manual/llms.txt']);
+    assert.match(files.get('manual/index.html'), /data-id="admin"[^>]*data-admin="1"/);
+    assert.doesNotMatch(files.get('manual/index.html'), /본문 <\/script>/, 'page text cannot close its own script block');
+    assert.match(files.get('manual/intro.md'), /^# 소개\n\n> 한 줄\n/);
+    assert.match(files.get('manual/llms-full.txt'), /## 소개[\s\S]*### 처음[\s\S]*## 관리/);
+    await writeFile(join(folder, 'docs/manual/03-broken.md'), '---\ntitle: 깨짐\ngroup: 참고\n---\n\n![없음](img/missing.png)\n');
+    await assert.rejects(buildManual(folder), /그림이 없습니다/);
+  } finally { await rm(folder, { recursive: true }); }
+});
