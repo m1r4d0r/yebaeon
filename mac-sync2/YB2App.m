@@ -265,6 +265,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 #pragma mark - 시작
 
 - (void)applicationDidFinishLaunching:(NSNotification *)note {
+    [self repairLoginAgent];
     self.work = dispatch_queue_create("org.yebaeon.sync2", DISPATCH_QUEUE_SERIAL);
     self.rows = [NSMutableArray array];
     [self buildMenu]; [self buildWindow]; [self buildStatusItem];
@@ -728,12 +729,25 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
 }
 - (NSString *)agentPath { return [NSHomeDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"Library/LaunchAgents/%@.plist", kAgentLabel]]; }
 // 로그인 항목: ~/Library/LaunchAgents의 plist. 10.13에서 도우미 앱 없이 된다. 다음 로그인부터 적용된다.
+// 다운로드 폴더 등에서 바로 연 앱은 macOS가 임시 위치(AppTranslocation)에서 실행한다. 그 경로는 재부팅하면 사라진다.
+static BOOL Translocated(void) { return [NSBundle.mainBundle.bundlePath containsString:@"/AppTranslocation/"]; }
+- (BOOL)writeLoginAgent {
+    NSDictionary *agent = @{@"Label": kAgentLabel, @"ProgramArguments": @[@"/usr/bin/open", @"-g", NSBundle.mainBundle.bundlePath], @"RunAtLoad": @YES};
+    [NSFileManager.defaultManager createDirectoryAtPath:self.agentPath.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:NULL];
+    return [agent writeToFile:self.agentPath atomically:YES];
+}
 - (void)toggleLoginItem:(id)sender {
     NSString *path = self.agentPath;
     if ([NSFileManager.defaultManager fileExistsAtPath:path]) { [NSFileManager.defaultManager removeItemAtPath:path error:NULL]; return; }
-    NSDictionary *agent = @{@"Label": kAgentLabel, @"ProgramArguments": @[@"/usr/bin/open", @"-g", NSBundle.mainBundle.bundlePath], @"RunAtLoad": @YES};
-    [NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:NULL];
-    if (![agent writeToFile:path atomically:YES]) [self alert:@"로그인 시 실행을 설정하지 못했습니다" text:path];
+    if (Translocated()) { [self alert:@"응용 프로그램 폴더로 옮긴 뒤 켜 주세요" text:@"지금 앱은 macOS가 임시 위치에서 실행하고 있어서, 다음 로그인 때 찾지 못합니다. 앱을 응용 프로그램 폴더로 옮기고 거기서 연 다음 다시 켜 주세요."]; return; }
+    if (![self writeLoginAgent]) [self alert:@"로그인 시 실행을 설정하지 못했습니다" text:path];
+}
+// 켜져 있는데 적힌 앱 경로가 지금 앱과 다르면(앱을 옮겼거나 바꿈) 지금 경로로 고친다.
+- (void)repairLoginAgent {
+    NSDictionary *agent = [NSDictionary dictionaryWithContentsOfFile:self.agentPath];
+    if (!agent || Translocated()) return;
+    NSArray *arguments = agent[@"ProgramArguments"];
+    if (![arguments.lastObject isEqual:NSBundle.mainBundle.bundlePath]) [self writeLoginAgent];
 }
 - (BOOL)validateMenuItem:(NSMenuItem *)item {
     if (item.action == @selector(toggleResident:)) item.state = self.resident ? NSControlStateValueOn : NSControlStateValueOff;
