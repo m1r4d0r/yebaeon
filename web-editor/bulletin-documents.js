@@ -81,12 +81,23 @@
    if(old&&P.textElements(old).length){s=clone(model,old);fillTitle(s,data);s.setAttribute('label',data.title.split('\n')[0]);}else s=madeTitle(model,proto,fromTemplate,data);}
   else if(!P.textElements(first).length)s=madeTitle(model,proto,fromTemplate,data);else{s=clone(model,first);fillTitle(s,data);}
   const list=[...covers,s,...(data.passage?await verseSlides(model,proto,data.passage,materials,fromTemplate):[])];replaceSlides(model,list);return {xml:P.serialize(model),count:list.length,notes:covers.length?[`표지 ${covers.length}장은 맨 앞에 그대로 두었습니다.`]:[]};}
+ // 기도 장은 정본(1부 ‘대표기도 / 고웅 목사’) 모양으로 고정한다: 한 글상자, 가운데 정렬, ‘대표기도’ 120 · 줄바꿈 · ‘이름 직함’ 150.
+ // 글꼴·색·그림자는 고치는 글상자의 첫 글자 서식을 따른다. 기도 장이 여럿이면 정본 모양(두 줄)인 장 하나만 남기고, 글자가 없는 장(표지·첫화면)은 그대로 둔다.
+ const PRAYER_HEAD=/^대표\s*기도$/,PRAYER_WORD=/대표\s*기도/;
+ const prayerName=()=>new RegExp(`(?:^|\\s)([가-힣]{2,4})(\\s*)(${TITLES})$`);
+ const prayerLines=box=>boxText(box).normalize('NFC').split('\n').map(l=>l.trim()).filter(Boolean);
+ const isPrayerBox=box=>prayerLines(box).some(l=>PRAYER_WORD.test(l)||prayerName().test(l));
+ const canonicalBox=box=>{const lines=prayerLines(box);return lines.length===2&&PRAYER_HEAD.test(lines[0])&&prayerName().test(lines[1]);};
  function prayer(xml,name,person){
-  const model=P.parse(xml,name),re=new RegExp(`^([가-힣]{2,4})(\\s*)(${TITLES})$`);let hits=0;
-  for(const slide of P.slides(model))for(const box of P.textElements(slide)){const lines=boxText(box).split('\n');let changed=false;
-   const next=lines.map(line=>{const m=line.trim().match(re);if(!m)return line;changed=true;hits++;return line.replace(line.trim(),person.name+m[2]+person.title);});
-   if(changed)P.setText(box,next.join('\n'));}
-  if(!hits)throw Error('기도 문서에서 ‘이름 직함’ 줄을 찾지 못했습니다.');
-  return {xml:P.serialize(model),count:hits,notes:[]};}
+  const model=P.parse(xml,name),found=P.slides(model).filter(s=>P.textElements(s).some(isPrayerBox));
+  if(!found.length)throw Error('기도 문서에서 ‘대표기도’나 ‘이름 직함’ 글자가 든 장을 찾지 못했습니다.');
+  const keep=found.find(s=>P.textElements(s).some(canonicalBox))||found[0],boxes=P.textElements(keep).filter(isPrayerBox),box=boxes.find(canonicalBox)||boxes[0];
+  const parsed=P.parseRTF(P.textNode(box).textContent),first=parsed.runs.find(r=>r.text.trim())?.style||parsed.emptyStyle,style={...first,align:'center',underline:false};
+  if(!canonicalBox(box)){P.setRect(box,{x:Math.round(model.width*0.1),y:Math.round(model.height*0.3),w:Math.round(model.width*0.8),h:Math.round(model.height*0.4)});box.setAttribute('verticalAlignment','0');}
+  P.setRuns(box,[{text:'대표기도',style:{...style,size:120}},{text:'\n',style:{...style,size:120}},{text:person.name+' '+person.title,style:{...style,size:150}}],{...style,size:150});
+  for(const other of boxes)if(other!==box)P.setText(other,'');
+  for(const s of found)if(s!==keep)s.remove();
+  const notes=found.length>1?[`기도 장 ${found.length}개 중 하나만 남겼습니다.`]:[];
+  return {xml:P.serialize(model),count:1,notes};}
  root.YebaeonBulletinDocuments={sermon,titlePassage,prayer,sentence};
 })(globalThis);

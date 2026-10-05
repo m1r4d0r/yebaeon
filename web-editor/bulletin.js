@@ -176,15 +176,17 @@
   if(work.results){const g=group('적용 결과');const ul=el('ul','bulletin-results');for(const r of work.results)ul.append(el('li',r.ok?'ok':'bad',`${r.label} · ${r.text}`));g.append(ul);if(work.results.some(r=>!r.ok))g.append(el('p','bulletin-note','실패한 항목만 다시 미리 보기를 만들어 적용할 수 있습니다. 적용한 항목은 Studio에서 ‘서버 저장’을 눌러야 서버에 갑니다.'));root.append(g);}
   const head=el('div','bulletin-review-head'),date=el('input');date.type='date';date.value=work.date||'';date.setAttribute('aria-label','주보 날짜');date.onchange=()=>{work.date=date.value;pickTargets();reviewOps=null;staged=null;save();render();};const dl=el('label');dl.append('주보 날짜',date);head.append(dl,el('p','bulletin-note','바뀌는 모습을 확인하고 ‘적용’을 누르면 Studio에 저장 필요 상태로 넘기고 창을 닫습니다. 서버 저장은 Studio에서 합니다. 빼고 싶은 항목은 체크를 끄세요. 아직 Studio에도 서버에도 넘기지 않았습니다.'));root.append(head);
   const list=el('div','bulletin-review');root.append(list);list.append(el('p','bulletin-note','바뀌는 것을 계산하는 중…'));
-  (reviewOps||(reviewOps=operations())).then(ops=>{list.replaceChildren();for(const o of ops){if(!(o.key in work.include))work.include[o.key]=!o.skip&&!o.lines.some(l=>l[0]==='bad');const r=staged?.get(o.key),d=el('div','bulletin-op'+(work.include[o.key]?'':' off')+(r&&!r.ok?' bad':'')),lab=el('label'),cb=el('input');cb.type='checkbox';cb.checked=work.include[o.key];cb.disabled=busy||o.lines.some(l=>l[0]==='bad')||o.kind==='error';cb.onchange=()=>{work.include[o.key]=cb.checked;staged=null;save();render();};
-    lab.append(cb,o.label,el('small',null,o.sub||''));const ul=el('ul');for(const [c,t] of o.lines)ul.append(el('li',c,t));d.append(lab,ul);
-    if(r){d.classList.add('bulletin-staged');d.append(el('small','bulletin-staged-note',r.text));if(r.ok)d.append(preview(r));}else if(work.include[o.key]&&!work.results?.some(x=>x.key===o.key&&x.ok))d.append(el('small','bulletin-staged-note','미리 보기 만드는 중…'));
+  (reviewOps||(reviewOps=operations())).then(ops=>{list.replaceChildren();for(const o of ops){if(!(o.key in work.include))work.include[o.key]=!o.skip&&!o.lines.some(l=>l[0]==='bad');const r=staged?.get(o.key),d=el('div','bulletin-op'+(work.include[o.key]?'':' off')+(r&&!r.ok?' bad':'')),lab=el('label'),cb=el('input');cb.type='checkbox';cb.checked=work.include[o.key];cb.disabled=busy||o.lines.some(l=>l[0]==='bad')||o.kind==='error';cb.onchange=()=>{work.include[o.key]=cb.checked;save();render();};
+    lab.append(cb,o.label,el('small',null,o.sub||''));d.append(lab);for(const [c,t] of o.lines.filter(l=>l[0]==='bad'||l[0]==='wait'))d.append(el('small','bulletin-op-note '+c,t));
+    if(r&&work.include[o.key]){d.classList.add('bulletin-staged');d.append(el('small','bulletin-staged-note',r.text));if(r.ok)d.append(preview(r));}else if(work.include[o.key]&&!work.results?.some(x=>x.key===o.key&&x.ok))d.append(el('small','bulletin-staged-note','미리 보기 만드는 중…'));
     list.append(d);}foot();
-   const key=JSON.stringify([work.date,work.include,(work.results||[]).filter(r=>r.ok).map(r=>r.key)]);if(!staged&&!busy&&previewKey!==key&&ops.some(o=>work.include[o.key]&&!work.results?.some(x=>x.key===o.key&&x.ok))){previewKey=key;run(apply);}}).catch(e=>{list.replaceChildren(el('p','bulletin-note bad',e.message));});}
+   const missing=ops.filter(o=>work.include[o.key]&&!staged?.has(o.key)&&!work.results?.some(x=>x.key===o.key&&x.ok)).map(o=>o.key),key=JSON.stringify([work.date,missing]);if(missing.length&&!busy&&previewKey!==key){previewKey=key;run(apply);}}).catch(e=>{list.replaceChildren(el('p','bulletin-note bad',e.message));});}
  // 적용은 두 단계다. ‘미리 보기’는 바뀐 문서와 순서를 이 창에서만 만들어 보여 주고, ‘적용’은 그것을 Studio의 미저장 문서·순서(브라우저 초안)로 넘긴다.
  // 서버에는 쓰지 않는다. 서버에는 Studio에서 재생목록을 열어 ‘서버 저장’을 누를 때 간다.
  // 적용할 때는 서버의 최신 버전을 다시 읽어 같은 변경을 만든다. 같은 문서를 여러 항목이 고치면 chain으로 앞 항목의 결과 위에 잇는다.
  let staged=null;
+ // 미리 보기를 만든 항목 가운데 지금 체크된 것. 체크를 끄고 켜도 만든 미리 보기는 그대로 두고, 새로 켠 항목만 더 만든다.
+ const chosen=()=>staged?[...staged.values()].filter(r=>work.include[r.key]):[];
  async function rewrite(id,transform,layout='side',chain=null){const prior=chain?.get(id);if(!prior&&C.pendingDocuments([id]).length)throw Error('이 문서에 서버에 저장하지 않은 변경이 있습니다. Studio에서 먼저 서버 저장하세요.');
   let doc,original;if(prior)({doc,original}=prior);else{doc=(await(await C.api('/documents/'+id)).json()).document;const data=await(await C.api(`/documents/${id}/content?version=${doc.version}`)).arrayBuffer();
    const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),n=>n.toString(16).padStart(2,'0')).join('');if(hash!==doc.sha256)throw Error('문서 원본 확인에 실패했습니다.');original=new TextDecoder('utf-8',{fatal:true}).decode(data);}
@@ -199,14 +201,14 @@
  // 문서마다 그 문서가 든 재생목록 키들. 그 목록에 ‘저장 필요’를 붙인다.
  async function docMarks(){const m=new Map();for(const [k,p] of plans){let data;try{data=await p;}catch{continue;}for(const x of data.items)if(docId(x)){if(!m.has(docId(x)))m.set(docId(x),new Set());m.get(docId(x)).add(k);}}return m;}
  async function todoOps(){const ops=await reviewOps;const todo=ops.filter(o=>work.include[o.key]&&!work.results?.some(r=>r.key===o.key&&r.ok));if(!todo.length)throw Error('적용할 항목이 없습니다.');return [...todo.filter(o=>o.kind!=='playlist'),...todo.filter(o=>o.kind==='playlist')];}
- async function apply(){const todo=await todoOps();
-  let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const next=new Map(),chain=new Map();
+ async function apply(){const todo=(await todoOps()).filter(o=>!staged?.has(o.key));
+  let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const next=new Map(staged||[]),chain=new Map();
   for(const [n,o] of todo.entries()){message(`${n+1}/${todo.length} ${o.label} 만드는 중…`);
    try{next.set(o.key,{key:o.key,label:o.label,ok:true,op:o,...await stageOp(o,need,chain)});}catch(e){next.set(o.key,{key:o.key,label:o.label,ok:false,text:e.message});}}
-  staged=next;message([...next.values()].every(r=>r.ok)?'바뀐 내용을 확인하고 ‘적용’을 누르세요. 적용해도 서버에는 Studio에서 ‘서버 저장’을 누를 때 갑니다.':'만들지 못한 항목이 있습니다. 나머지는 확인한 뒤 적용할 수 있습니다.');render();}
+  staged=next;message(chosen().every(r=>r.ok)?'바뀐 내용을 확인하고 ‘적용’을 누르세요. 적용해도 서버에는 Studio에서 ‘서버 저장’을 누를 때 갑니다.':'만들지 못한 항목이 있습니다. 나머지는 확인한 뒤 적용할 수 있습니다.');render();}
  async function commit(){const results=(work.results||[]).filter(r=>r.ok);
   let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const chain=new Map(),docs=[],lists=[];
-  const ready=[...staged.values()];for(const [n,r] of ready.entries()){if(!r.ok){results.push({key:r.key,label:r.label,ok:false,text:r.text});continue;}message(`${n+1}/${ready.length} ${r.label} 만드는 중…`);
+  const ready=chosen();for(const [n,r] of ready.entries()){if(!r.ok){results.push({key:r.key,label:r.label,ok:false,text:r.text});continue;}message(`${n+1}/${ready.length} ${r.label} 만드는 중…`);
    try{if(r.op.kind==='playlist')plans.delete(r.op.target);const fresh=await stageOp(r.op,need,chain);(r.op.kind==='playlist'?lists:docs).push({r,fresh});}catch(e){results.push({key:r.key,label:r.label,ok:false,text:e.message});}}
   const marks=await docMarks(),failed=new Map();
   for(const [id,c] of chain){try{await C.stageDocument(c.doc,c.original,c.xml,[...(marks.get(id)||[])]);}catch(e){failed.set(id,e.message);}}
@@ -227,7 +229,7 @@
   if(id!=='review'){const left=Object.values(work.slots).filter(s=>s.step===id&&!s.locked&&!s.skip&&(s.kind==='song'?s.value&&!s.choice:!s.value.trim())).length;b.append(el('span','n'+(left?' left':''),left?String(left):'✓'));}
   b.onclick=()=>{work.step=id;ui.active=null;save();render();};nav.append(b);}}
  function foot(){const prev=$('bulletinPrev'),next=$('bulletinNext');if(!work){prev.hidden=next.hidden=true;return;}prev.hidden=next.hidden=false;const i=STEPS.findIndex(s=>s[0]===work.step);prev.disabled=busy||i===0;
-  next.disabled=busy;if(work.step==='review'){const done=work.results&&work.results.every(r=>r.ok);const usable=staged&&[...staged.values()].some(r=>r.ok);next.textContent=done?'닫기':usable?'적용':busy?'미리 보기 만드는 중…':'미리 보기 다시 만들기';}else next.textContent=i===3?'검토하기':'다음';}
+  next.disabled=busy;if(work.step==='review'){const done=work.results&&work.results.every(r=>r.ok);const usable=chosen().some(r=>r.ok);next.textContent=done?'닫기':usable?'적용':busy?'미리 보기 만드는 중…':'미리 보기 다시 만들기';}else next.textContent=i===3?'검토하기':'다음';}
  // 화면을 다시 그리는 동안 포커스된 입력칸이 빠지면 change가 다시 render를 부른다. 끝난 뒤 한 번 더 그린다.
  let rendering=false,again=false;
  function render(){if(rendering){again=true;return;}rendering=true;try{draw();}finally{rendering=false;}if(again){again=false;render();}}
@@ -243,7 +245,7 @@
  button.onclick=()=>{if(!C.needUser())return;if(!work){try{const saved=JSON.parse(sessionStorage.getItem(recoveryKey)||'null');if(saved?.author===C.worker()&&saved.work&&confirm('이 탭의 주보 준비 작업을 이어서 할까요?')){work=saved.work;seq=saved.seq||0;}}catch{message('보존한 주보 작업을 읽지 못했습니다. 주보를 다시 여세요.');}}render();dialog.showModal();};
  $('bulletinClose').onclick=()=>{if(!busy)dialog.close();};dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});$('bulletinScrim').onclick=closeSheet;
  $('bulletinPrev').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(i>0){work.step=STEPS[i-1][0];ui.active=null;save();render();}};
- $('bulletinNext').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(work.step!=='review'){work.step=STEPS[i+1][0];ui.active=null;if(work.step==='review'){reviewOps=null;staged=null;work.results=work.results?.some(r=>!r.ok)?work.results:null;}save();render();return;}if(work.results&&work.results.every(r=>r.ok)){dialog.close();return;}if(staged&&[...staged.values()].some(r=>r.ok)){run(commit);return;}staged=null;run(apply);};
+ $('bulletinNext').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(work.step!=='review'){work.step=STEPS[i+1][0];ui.active=null;if(work.step==='review'){reviewOps=null;staged=null;work.results=work.results?.some(r=>!r.ok)?work.results:null;}save();render();return;}if(work.results&&work.results.every(r=>r.ok)){dialog.close();return;}if(chosen().some(r=>r.ok)){run(commit);return;}staged=null;run(apply);};
  window.addEventListener('yebaeonsession',e=>{if(!e.detail.authenticated){work=null;staged=null;plans.clear();YebaeonSearch.clear();reviewOps=null;dialog.close();}});
  window.YebaeonBulletin={loadFile,state:()=>work,go(step){work.step=step;ui.active=null;render();}};render();
 })();
