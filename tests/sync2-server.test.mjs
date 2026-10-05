@@ -153,3 +153,26 @@ test('Sync 2 device keys: issue, use, report applied, revoke',{timeout:90000},as
  assert.deepEqual((await read(await call('/sync/devices'))).devices,[]);
  assert.equal((await mf.dispatchFetch(origin+'/api/sync/changes')).status,401);
 });
+
+test('Studio sync lights follow Sync 2: applied cursor, held services, the device\'s own uploads',{timeout:90000},async t=>{
+ const {mf,call,read}=await fixture(t);
+ const issued=await read(await call('/sync/devices','POST',JSON.stringify({name:'한우리'})),201);
+ const asDevice=(path,method='GET',body,headers={})=>mf.dispatchFetch(origin+'/api'+path,{method,body,headers:{'Content-Type':'application/json',Origin:origin,Authorization:'Bearer '+issued.token,...headers}});
+ const report=(seq,pending=[])=>asDevice(`/sync/devices/${issued.device.id}/applied`,'POST',JSON.stringify({seq,pending}));
+ const head=async()=>(await read(await call('/sync/changes?since=0&limit=0'))).head;
+ const lights=async targets=>(await read(await call('/sync-observations?'+new URLSearchParams({targets:JSON.stringify(targets)})))).items;
+ const monday=(await read(await call('/documents?path=월요일.pro6','POST',doc('월요일')),201)).document,target=[{kind:'document',id:monday.id,node:''}];
+ assert.deepEqual(await lights(target),{},'no applied report yet: unknown');
+ await read(await report(await head()));
+ assert.equal((await lights(target))['document/'+monday.id+'/'].state,'synced','the Mac applied past the last change');
+ const saved=(await read(await call('/documents/'+monday.id,'PUT',doc('월요일 v2'),{'If-Match':`"${monday.version}"`}))).document;
+ const after=(await lights(target))['document/'+monday.id+'/'];assert.equal(after.state,'pending');assert.match(after.reason,/Mac이 아직 받지 않음/);assert.equal(after.author,'한우리');
+ await read(await report(await head()));assert.equal((await lights(target))['document/'+monday.id+'/'].state,'synced','a later applied report clears it');
+ // 장치가 스스로 올린 변경은 Mac에 이미 있다.
+ await read(await asDevice('/documents/'+monday.id,'PUT',doc('월요일 Mac'),{'If-Match':`"${saved.version}"`}));assert.equal((await lights(target))['document/'+monday.id+'/'].state,'synced');
+ // 보류한 예배는 이유와 함께 노란불.
+ const library=(await read(await call('/playlists?path=기본.pro6pl','POST',playlist),201)).library;
+ await read(await report(await head(),[{kind:'node',entity:library.id+':A',reason:'적용 대기'}]));
+ const nodes=await lights([{kind:'playlist',id:library.id,node:'A'},{kind:'playlist',id:library.id,node:'B'}]);
+ assert.equal(nodes['playlist/'+library.id+'/A'].state,'pending');assert.match(nodes['playlist/'+library.id+'/A'].reason,/적용 대기/);assert.equal(nodes['playlist/'+library.id+'/B'].state,'synced');
+});

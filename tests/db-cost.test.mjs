@@ -65,7 +65,7 @@ test('scoped status and search read budgets on 3107 synthetic documents; empty s
   statements.push(db.prepare('INSERT INTO yebaeon_documents(id,path,created_at,current_version,updated_at,updated_by,sha256,size,write_id,last_used,usage_version) VALUES (?,?,?,1,?,?,?,?,?,?,1)').bind(ids[i],path,stamp,stamp,'fixture','a'.repeat(64),100,ids[i],stamp));
   statements.push(db.prepare('INSERT INTO yebaeon_document_search VALUES (?,1,?,NULL)').bind(ids[i],i<20?'needle':'other'));
   statements.push(db.prepare('INSERT INTO yebaeon_sync_observations VALUES (?,?,?,?,?,?,?,?)').bind('b'.repeat(64),'document',ids[i],'','a'.repeat(64),'same',stamp,'fixture'));
- }await db.batch(statements);}
+ }await db.batch(statements);await db.prepare("INSERT OR IGNORE INTO yebaeon_sync_devices(id,name,token_hash,created_at,created_by,applied_seq,applied_at) VALUES ('d1','한우리','x',?,'fixture',0,?)").bind(stamp,stamp).run();}
  let measured=measuredDB(db,'empty');const empty=await catalogList(new Request(origin+'/api/documents?includeIndexed=1'),{DB:measured,FILES:bucket});assert.equal((await empty.json()).documents.length,0);assert.deepEqual(measured.metrics(),[]);
  // Authenticate separately in Worker: this direct route measurement deliberately excludes auth.
  measured=measuredDB(db,'scoped-status');const targets=ids.slice(0,20).map(id=>({kind:'document',id,node:''}));

@@ -57,7 +57,9 @@ test('Bible accepts comma verses within a chapter and names the missing verse',(
 });
 const youth=['첫화면','사도신경(구)','나의 곡','말씀 앞에서','3부 기도','주일예배말씀','주일예배말씀 목사님 ppt','말씀 앞에서 경외함으로','광고','나의 모습 나의 소유','2026엔딩','마무리'];
 test('playlist plan changes only chosen song slots and respects the ending',()=>{
- const none=PL.songPlan(youth,2,{songs:[{choice:null}],after:{choice:null}});assert.equal(none.changed,false,'nothing chosen keeps the order');
+ // 10-05 교회: Mac(PP6)이 올린 순서 이름은 NFD(자모를 푼 꼴)라 기도·사도신경 규칙이 맞지 않았다.
+const nfd=PL.songPlan(['첫화면','사도신경(구)','옛 곡','1부기도','광고','주일예배말씀'].map(n=>n.normalize('NFD')),0,{songs:[{choice:{id:'s',name:'새 곡'}}]});assert.equal(nfd.changed,true,'NFD names still find 사도신경 and 기도');assert.deepEqual(plain(nfd.removed.map(x=>x.name)),['옛 곡']);
+const none=PL.songPlan(youth,2,{songs:[{choice:null}],after:{choice:null}});assert.equal(none.changed,false,'nothing chosen keeps the order');
  const r=PL.songPlan(youth,2,{songs:[{choice:{id:'n1',name:'새 곡'}},{choice:null}],after:{choice:{id:'n2',name:'새 설교 후'}},offering:{choice:{id:'n3',name:'헌금'}}});
  assert.deepEqual(plain(r.rows.map(x=>x.name)),['첫화면','사도신경(구)','새 곡','3부 기도','주일예배말씀','주일예배말씀 목사님 ppt','새 설교 후','광고','나의 모습 나의 소유','2026엔딩','마무리'],'청년예배 offering stays fixed; a song named 말씀 is not the sermon');
  assert.deepEqual(plain(r.removed.map(x=>x.name)),['나의 곡','말씀 앞에서']);

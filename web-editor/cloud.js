@@ -435,7 +435,8 @@
 
 (function(){
  let items={},pending,refreshAgain=false,failed=false,checkedAt=null;
- const labels={synced:'마지막 Mac 확인에서 일치',pending:'서버 변경 있음 · Mac으로 받기 필요',conflict:'서버와 Mac 양쪽 변경 · 충돌 확인 필요',local:'Mac 변경 있음 · 서버로 보내기 필요',unknown:'Mac 확인 기록 없음 · 동기화 여부 미확인'};
+ // 교회 Mac Sync 2의 적용 보고(적용 번호·보류 예배)와 서버 변경 일지를 비교한 결과다.
+ const labels={synced:'교회 Mac이 받음',pending:'서버 변경 있음 · Mac 적용 대기',conflict:'서버와 Mac 양쪽 변경 · 충돌 확인 필요',local:'Mac 변경 있음 · 서버로 보내기 필요',unknown:'Mac Sync 적용 보고 없음'};
  window.YebaeonSyncLights={
  async refresh(){
    if(pending){refreshAgain=true;return pending;}
@@ -446,7 +447,7 @@
      for(const old of document.querySelectorAll('.sync-light[data-sync-kind]'))old.replaceWith(window.YebaeonSyncLights.dot(old.dataset.syncKind,old.dataset.syncId,old.dataset.syncNode));
    }while(refreshAgain);})().finally(()=>{pending=null;});return pending;
  },
- dot(kind,id,node=''){const info=items[kind+'/'+id+'/'+node],state=failed?'unknown':info?.state||'unknown',span=document.createElement('span');span.dataset.syncKind=kind;span.dataset.syncId=id;span.dataset.syncNode=node;span.className='sync-light sync-'+state;span.setAttribute('role','img');span.setAttribute('aria-label',labels[state]);span.title=(failed?'서버 상태 조회 실패 · 이전 기록은 최신 확인이 아닙니다':labels[state])+(info?' · 마지막 Mac 확인 '+new Date(info.observedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+(info.author?' · '+info.author:'')+(info.deviceId?' · 장치 '+info.deviceId.slice(0,8):'')+(info.reason?' · '+info.reason:''):'')+(checkedAt?' · 웹 조회 '+checkedAt.toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'');return span;}
+ dot(kind,id,node=''){const info=items[kind+'/'+id+'/'+node],state=failed?'unknown':info?.state||'unknown',span=document.createElement('span');span.dataset.syncKind=kind;span.dataset.syncId=id;span.dataset.syncNode=node;span.className='sync-light sync-'+state;span.setAttribute('role','img');span.setAttribute('aria-label',labels[state]);span.title=(failed?'서버 상태 조회 실패 · 이전 기록은 최신 확인이 아닙니다':labels[state])+(info?' · 마지막 Mac 적용 보고 '+new Date(info.observedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})+(info.author?' · '+info.author:'')+(info.deviceId?' · 장치 '+info.deviceId.slice(0,8):'')+(info.reason?' · '+info.reason:''):'')+(checkedAt?' · 웹 조회 '+checkedAt.toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'');return span;}
  };
  // Refresh on explicit list/playlist reload and successful saves, never by a polling timer.
  window.addEventListener('yebaeoncloudsaved',()=>{if(window.YebaeonCloud.authenticated()&&!window.YebaeonSave?.busy())window.YebaeonSyncLights.refresh();});

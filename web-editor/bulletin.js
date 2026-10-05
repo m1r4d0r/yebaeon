@@ -18,7 +18,8 @@
  const mobile=()=>matchMedia('(max-width:600px)').matches;
  const message=s=>$('bulletinMessage').textContent=s;
  const get=id=>work.slots[id];
- const base=name=>String(name||'').replace(/\.pro6$/i,'').trim();
+ // Mac(PP6)이 올린 이름은 한글 자모를 푼 꼴(NFD)일 수 있다. 비교·규칙 검사 전에 NFC로 맞춘다.
+ const base=name=>String(name||'').normalize('NFC').replace(/\.pro6$/i,'').trim();
  const songKey=v=>'song:'+BP.songQuery(v).normalize('NFC').replace(/[\s\p{P}]/gu,'');
  function slot(o){const s={id:'s'+(++seq),value:'',src:[],sug:false,skip:false,locked:false,note:'',kind:'text',choice:null,query:null,...o};if(s.value)s.sug=true;work.slots[s.id]=s;return s.id;}
  const val=x=>x?{value:x.value||'',src:x.src||[]}:{};
@@ -55,7 +56,7 @@
   if(kind==='summary'){work.summary=key;let filled=0;points.forEach((p,i)=>{syncBlanks(p);p.blanks.forEach((id,k)=>{const x=r[i]?.[k],s=get(id);s.zone=key;if(x?.value){Object.assign(s,{value:x.value,src:x.src,sug:true,skip:false});filled++;}});});say(filled?`빈칸 ${filled}개를 이 칸에서 찾았습니다.`:'이 칸에서 빈칸 답을 찾지 못했습니다. 낱말을 눌러 채우세요.');}
   if(kind==='weekday'){if(!r.length){message('이 칸에 글이 없습니다.');return;}for(const W of work.weekday)for(const id of [W.series,W.title,W.ref])delete work.slots[id];work.weekday=makeWeekday(r);say('주중예배를 이 칸에서 다시 읽었습니다.');}
   ui.active=null;reviewOps=null;staged=null;save();render();message(said);}
- function playlists(){return L.libraries().flatMap(l=>l.playlists.map(p=>({key:l.id+'/'+p.id,library:l.id,node:p.id,name:p.name})));}
+ function playlists(){return L.libraries().flatMap(l=>l.playlists.map(p=>({key:l.id+'/'+p.id,library:l.id,node:p.id,name:String(p.name).normalize('NFC')})));}
  function pickTargets(){const all=playlists(),names=all.map(p=>p.name);work.targets=[0,1,2].map(i=>all.find(p=>p.name===PL.playlistFor(i,work.date,names))?.key||'');}
  const target=i=>playlists().find(p=>p.key===work.targets[i]);
  async function plan(key,fresh=false){if(!key)return null;const [library,node]=key.split('/');if(fresh||!plans.has(key))plans.set(key,C.api(`/playlists/${library}/plan?`+new URLSearchParams({node,includeIndexed:'1'})).then(r=>r.json()).catch(e=>{plans.delete(key);throw e;}));return plans.get(key);}

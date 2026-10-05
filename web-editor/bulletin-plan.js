@@ -5,7 +5,7 @@
  const ENDING=/엔딩|마지막 화면/,PASTOR=/목사님\s*ppt/i;
  const firstSunday=date=>!!date&&Number(date.slice(8,10))<=7;
  // 1부 has two playlists: the 품성 service on the first Sunday of a month, 클래식 otherwise.
- function playlistFor(service,date,names){
+ function playlistFor(service,date,names){names=names.map(n=>String(n).normalize('NFC'));
   const pick=test=>names.find(n=>test(n.replace(/\s/g,'')));
   if(service===1)return pick(n=>n.startsWith('2부'))||'';
   if(service===2)return pick(n=>n.includes('청년'))||pick(n=>n.startsWith('3부'))||'';
@@ -16,7 +16,7 @@
  // 말씀 문서가 없고 ‘주일예배말씀 목사님 ppt’만 있으면 그것을 말씀 자리로 본다.
  function sermonIndex(names,from=0){const main=names.findIndex((n,i)=>i>from&&SERMON.test(n.trim()));if(main<0){const slides=names.findIndex((n,i)=>i>from&&PASTOR.test(n.trim()));return slides<0?{main:-1,last:-1}:{main:-1,last:slides};}return {main,last:PASTOR.test(names[main+1]||'')?main+1:main};}
  // Returns the new item list for one service. Song slots change only when the user chose a document.
- function songPlan(names,service,{songs=[],after=null,offering=null,sermon=null}){
+ function songPlan(names,service,{songs=[],after=null,offering=null,sermon=null}){names=names.map(n=>String(n).normalize('NFC'));
   const rows=names.map((name,index)=>({name,index,action:'keep'})),warnings=[];
   const creed=names.findIndex(n=>/사도신경/.test(n)),prayer=names.findIndex((n,i)=>i>creed&&PRAYER.test(n.trim()));
   const ending=names.findIndex(n=>ENDING.test(n));
