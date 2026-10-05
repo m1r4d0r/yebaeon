@@ -61,7 +61,31 @@ static NSData *UsageNeutral(NSData *data) {
     NSString *clean = [UsageAttribute() stringByReplacingMatchesInString:open options:0 range:NSMakeRange(0, open.length) withTemplate:@""];
     return [[xml stringByReplacingCharactersInRange:tag withString:clean] dataUsingEncoding:NSUTF8StringEncoding];
 }
-static NSString *NeutralHash(NSData *data) { return data ? YBHash(UsageNeutral(data)) : nil; }
+// 1판(접두사 없음): 사용일·사용 횟수만 뺀 sha. 영수증에 남아 있는 옛 값과 비교할 때만 쓴다.
+static NSString *LegacyNeutral(NSData *data) { return data ? YBHash(UsageNeutral(data)) : nil; }
+// 2판("v2:"): 사용 기록을 빼고, 파일 참조 표기도 맞춘다. 같은 파일을 `file:///Users/Shared/Renewed%20Vision%20Media/…`(PP6가 다시 저장한 꼴)와
+// `/Users/Shared/Renewed Vision Media/…`(평문 경로)로 적은 두 문서는 같은 값이 된다(10-05 실기: 이 차이 하나로 같은 찬양이 "이력 없음"으로 잡힘).
+static NSString *NeutralHash(NSData *data) {
+    NSData *neutral = UsageNeutral(data); if (!neutral) return nil;
+    NSString *xml = Text(neutral);
+    if (xml) {
+        static NSRegularExpression *pattern; static dispatch_once_t once;
+        dispatch_once(&once, ^{ pattern = [NSRegularExpression regularExpressionWithPattern:@"(=\\s*[\"'])file://(?:localhost)?(/[^\"'<>]*)" options:0 error:NULL]; });
+        NSMutableString *out = [xml mutableCopy];
+        for (NSTextCheckingResult *match in [[pattern matchesInString:xml options:0 range:NSMakeRange(0, xml.length)] reverseObjectEnumerator]) {
+            NSString *path = [xml substringWithRange:[match rangeAtIndex:2]];
+            NSString *decoded = path.stringByRemovingPercentEncoding ?: path;
+            [out replaceCharactersInRange:match.range withString:[[xml substringWithRange:[match rangeAtIndex:1]] stringByAppendingString:decoded.precomposedStringWithCanonicalMapping]];
+        }
+        neutral = [out dataUsingEncoding:NSUTF8StringEncoding];
+    }
+    return [@"v2:" stringByAppendingString:YBHash(neutral)];
+}
+// 영수증에 적힌 값(1판 또는 2판)과 이 바이트가 같은 내용인가
+static BOOL SameNeutral(NSData *data, NSString *stored) {
+    if (!data || !stored.length) return NO;
+    return [stored hasPrefix:@"v2:"] ? [NeutralHash(data) isEqual:stored] : [LegacyNeutral(data) isEqual:stored];
+}
 // {lastDateUsed, usedCount} (있는 것만)
 static NSDictionary *UsageOf(NSData *data) {
     NSString *xml = Text(data); if (!xml) return @{};
@@ -321,10 +345,10 @@ static BOOL ImageExists(NSString *path) {
                 }
                 if (macEdited) {
                     NSData *bytes = YBReadSafeFile(self.root, path, NULL);
-                    NSString *neutral = NeutralHash(bytes), *base = knownDoc[@"neutral"];
+                    NSString *neutral = NeutralHash(bytes), *base = knownDoc[@"neutral"];   // base는 1판 또는 2판
                     // 1차 영수증에는 neutral이 없다. 서버가 그대로면 그 버전 바이트로 한 번 계산한다.
                     if (!base && serverSame) { @try { base = NeutralHash([self.server download:doc]); } @catch (NSException *e) {} }
-                    if (neutral && [neutral isEqual:base]) {
+                    if (neutral && SameNeutral(bytes, base)) {
                         // 사용 기록만 바뀜: 그대로 취급하고 사용일만 서버에 알린다. 서버가 바뀌었으면 받되 백업·보관본은 만들지 않는다.
                         NSMutableDictionary *entry = [@{@"path": path, @"id": doc[@"id"], @"sha": localHash, @"neutral": neutral, @"size": @(size), @"mtime": @(mtime), @"version": knownDoc[@"version"], @"serverSame": @(serverSame)} mutableCopy];
                         [entry addEntriesFromDictionary:UsageOf(bytes)];
@@ -332,7 +356,7 @@ static BOOL ImageExists(NSString *path) {
                         if (!serverSame) [documents addObject:doc];
                         continue;
                     }
-                    if (neutral && [knownDoc[@"replaced"] isEqual:neutral]) { [documents addObject:doc]; [reverted addObject:path]; continue; }   // PP6가 옛 내용을 다시 씀
+                    if (neutral && SameNeutral(bytes, knownDoc[@"replaced"])) { [documents addObject:doc]; [reverted addObject:path]; continue; }   // PP6가 옛 내용을 다시 씀
                     if (serverSame) { [macOnly addObject:path]; continue; }   // Mac에서만 고침: 올리기
                 }
                 [documents addObject:doc];

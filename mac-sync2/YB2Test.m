@@ -378,6 +378,21 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         for (NSDictionary *cue in YBPlaylistNode(YBReadPlaylist(playlistURL), @"N2")[@"items"]) if ([cue[@"attrs"][@"filePath"] hasSuffix:@"봉헌.pro6"]) offeringCue = cue[@"attrs"][@"filePath"];
         Check(offeringCue != nil, @"service order still applied");
 
+        // 25. 이미지 참조 표기만 다른 첫 대조: PP6가 다시 저장한 `file://…%20…`과 서버의 평문 경로는 같은 내용이다(정리 창에 올리지 않고 영수증에 적는다).
+        //     경로 자체가 다르면 여전히 다른 내용이다.
+        NSString *urlForm = @"<media source=\"file:///Users/Shared/Renewed%20Vision%20Media/Images/%EC%B0%AC%EC%96%91%20%EB%B0%B0%EA%B2%BD.jpg\"/>";
+        NSString *plainForm = @"<media source=\"/Users/Shared/Renewed Vision Media/Images/찬양 배경.jpg\"/>";
+        NSString *otherForm = @"<media source=\"/Users/Shared/Renewed Vision Media/Images/다른 배경.jpg\"/>";
+        Check([Doc([@"경로 찬양" stringByAppendingString:urlForm]) writeToFile:Local(@"경로 찬양") atomically:YES], @"mac copy with a file URL image");
+        Check([Doc([@"경로 다름" stringByAppendingString:urlForm]) writeToFile:Local(@"경로 다름") atomically:YES], @"mac copy with another image");
+        [web upload:Doc([@"경로 찬양" stringByAppendingString:plainForm]) path:@"경로 찬양.pro6" previous:nil];
+        [web upload:Doc([@"경로 다름" stringByAppendingString:otherForm]) path:@"경로 다름.pro6" previous:nil];
+        Sync();
+        full = [engine fullCheck];
+        NSArray *collided = [full[@"collisions"] valueForKey:@"path"];
+        Check(![collided containsObject:@"경로 찬양.pro6"] && [engine.receipt document:@"경로 찬양.pro6"] != nil, [NSString stringWithFormat:@"file URL and plain path are the same content: %@", collided]);
+        Check([collided containsObject:@"경로 다름.pro6"], [NSString stringWithFormat:@"a different image path still differs: %@", collided]);
+
         // 7. PP6가 켜져 있으면 적용하지 않는다.
         engine.presenterRunning = ^BOOL { return YES; };
         BOOL refused = NO; @try { [engine apply:@[n1]]; } @catch (NSException *e) { refused = [e.reason containsString:@"ProPresenter"]; }

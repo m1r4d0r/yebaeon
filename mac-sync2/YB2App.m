@@ -20,6 +20,7 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) NSWindow *window;
 @property(nonatomic) NSTextField *connectionLabel, *rootLabel, *playlistLabel, *statusLabel, *presenterLabel;
 @property(nonatomic) NSTableView *table;
+@property(nonatomic) NSTextField *detailLabel;
 @property(nonatomic) NSButton *compareButton, *applyButton, *reviewButton;
 // 정리 창: 전체 확인과 비교가 만든 목록. 아무도 안 눌러도 아무 일도 생기지 않는다.
 @property(nonatomic) NSWindow *organizer;
@@ -106,7 +107,11 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     [content addSubview:self.connectionLabel]; [content addSubview:self.rootLabel]; [content addSubview:self.playlistLabel];
     [content addSubview:rootChange]; [content addSubview:playlistChange];
 
-    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 52, w - 32, h - 140)]; self.tableScroll = scroll;
+    // 표 아래: 고른 줄의 자세한 설명(문서 이름별로 무엇을 하는지)
+    self.detailLabel = Label(@"줄을 누르면 문서별 자세한 설명이 여기에 나옵니다.", NSMakeRect(16, 48, w - 32, 60), 11);
+    self.detailLabel.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin; self.detailLabel.lineBreakMode = NSLineBreakByWordWrapping;
+    self.detailLabel.selectable = YES; self.detailLabel.textColor = NSColor.secondaryLabelColor; [content addSubview:self.detailLabel];
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 114, w - 32, h - 202)]; self.tableScroll = scroll;
     scroll.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; scroll.hasVerticalScroller = YES; scroll.borderType = NSBezelBorder;
     self.table = [[NSTableView alloc] initWithFrame:scroll.bounds];
     self.table.dataSource = self; self.table.delegate = self; self.table.rowHeight = 22; self.table.allowsMultipleSelection = NO;
@@ -557,9 +562,9 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     });
 }
 - (void)buildOrganizer {
-    NSRect frame = NSMakeRect(0, 0, 860, 480);
+    NSRect frame = NSMakeRect(0, 0, 980, 480);
     self.organizer = [[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
-    self.organizer.title = @"예배온 Sync 2 · 정리"; self.organizer.releasedWhenClosed = NO; self.organizer.minSize = NSMakeSize(760, 360);
+    self.organizer.title = @"예배온 Sync 2 · 정리"; self.organizer.releasedWhenClosed = NO; self.organizer.minSize = NSMakeSize(940, 360);
     NSView *content = self.organizer.contentView; CGFloat w = frame.size.width, h = frame.size.height;
     NSTextField *help = Label(@"전체 확인과 비교가 찾은 것입니다. 여기 있는 것은 쌓여 있어도 안전하며, 버튼을 누를 때만 Mac·서버가 바뀝니다.", NSMakeRect(16, h - 30, w - 32, 18), 12);
     [content addSubview:help];
@@ -576,7 +581,8 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     NSArray *actions = @[@[@"diff", @"차이 보기"], @[@"server", @"서버 것으로"], @[@"mac", @"Mac 것 올리기"], @[@"number", @"번호 붙여 둘 다 두기"], @[@"trash", @"서버 휴지통으로"], @[@"image", @"이미지 받기"], @[@"web", @"웹에서 보기"]];
     NSMutableDictionary *buttons = [NSMutableDictionary dictionary]; CGFloat x = 16;
     for (NSArray *spec in actions) {
-        NSButton *button = Button(spec[1], NSMakeRect(x, 50, [spec[1] length] * 13 + 28, 28), self, @selector(organizerAction:));
+        NSButton *button = Button(spec[1], NSMakeRect(x, 50, 80, 28), self, @selector(organizerAction:));
+        [button sizeToFit]; NSRect fit = button.frame; fit.size.width += 8; fit.origin.y = 50; button.frame = fit;
         button.identifier = spec[0]; button.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin; button.enabled = NO;
         [content addSubview:button]; buttons[spec[0]] = button; x += button.frame.size.width + 6;
     }
@@ -700,7 +706,11 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
         if ([action isEqual:@"server"] || [action isEqual:@"mac"]) [self compareNow:nil];
     }];
 }
-- (void)tableViewSelectionDidChange:(NSNotification *)note { if (note.object == self.organizerTable) [self refreshOrganizerButtons]; }
+- (void)tableViewSelectionDidChange:(NSNotification *)note {
+    if (note.object == self.organizerTable) { [self refreshOrganizerButtons]; return; }
+    NSInteger index = self.table.selectedRow;
+    self.detailLabel.stringValue = index >= 0 && index < (NSInteger)self.rows.count ? DetailText(self.rows[index]) : @"";
+}
 
 #pragma mark - 메뉴 막대·설정
 
@@ -869,7 +879,9 @@ static NSString *DetailText(NSDictionary *row) {
         [cell setTextColor:Checkable(row) ? [NSColor colorWithCalibratedRed:0.10 green:0.35 blue:0.75 alpha:1] : [status isEqual:@"hold"] ? [NSColor colorWithCalibratedRed:0.75 green:0.35 blue:0.10 alpha:1] : NSColor.disabledControlTextColor];
     }
 }
-- (BOOL)tableView:(NSTableView *)table shouldSelectRow:(NSInteger)index { return table == self.organizerTable; }
+- (BOOL)tableView:(NSTableView *)table shouldSelectRow:(NSInteger)index { return YES; }
+// 체크 칸은 줄을 고르지 않아도 누를 수 있어야 한다.
+- (BOOL)tableView:(NSTableView *)table shouldTrackCell:(NSCell *)cell forTableColumn:(NSTableColumn *)column row:(NSInteger)row { return YES; }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)app {
     if (self.busy) { self.statusLabel.stringValue = @"작업 중에는 종료할 수 없습니다. 끝난 뒤 다시 종료해 주세요."; return NSTerminateCancel; }
