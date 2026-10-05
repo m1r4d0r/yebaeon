@@ -76,6 +76,7 @@
 - (BOOL)fullCheckDue;
 // 정리 창 버튼. 모두 사용자가 누를 때만 돈다.
 - (void)trashOnServer:(NSString *)path;          // Mac에서 지운 문서를 서버 휴지통으로
+- (void)trashOnMac:(NSString *)path;             // 강제 동작: Mac 파일을 macOS 휴지통으로(백업 사본)
 - (void)takeServer:(NSString *)path;             // 같은 이름 다른 내용: 서버 것으로(Mac 것은 백업·서버 보관본)
 - (void)takeMac:(NSString *)path;                // 같은 이름 다른 내용: Mac 것을 서버 새 버전으로
 - (NSString *)keepBothNumbered:(NSString *)path; // 같은 이름 다른 내용: Mac 파일에 번호를 붙여 둘 다 둔다. 반환: 새 경로

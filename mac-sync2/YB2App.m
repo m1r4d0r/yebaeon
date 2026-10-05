@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import "YB2Engine.h"
 #import "YB2Server.h"
+#import "YB2Receipt.h"
 #import "YB2Update.h"
 #import "YBDocumentComparison.h"
 #import "PP6Core.h"
@@ -16,7 +17,7 @@ static NSString *const kResidentKey = @"residentMode";
 static NSString *const kAgentLabel = @"org.yebaeon.sync2";
 static const NSTimeInterval kResidentInterval = 15 * 60;
 
-@interface YB2App : NSObject <NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate>
+@interface YB2App : NSObject <NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate, NSMenuDelegate>
 @property(nonatomic) NSWindow *window;
 @property(nonatomic) NSTextField *connectionLabel, *rootLabel, *playlistLabel, *statusLabel, *presenterLabel;
 @property(nonatomic) NSTableView *table;
@@ -119,7 +120,8 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 114, w - 32, h - 202)]; self.tableScroll = scroll;
     scroll.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; scroll.hasVerticalScroller = YES; scroll.borderType = NSBezelBorder;
     self.table = [[NSTableView alloc] initWithFrame:scroll.bounds];
-    self.table.dataSource = self; self.table.delegate = self; self.table.rowHeight = 22; self.table.allowsMultipleSelection = NO;
+    self.table.dataSource = self; self.table.delegate = self;
+    NSMenu *force = [NSMenu new]; force.delegate = self; force.autoenablesItems = NO; self.table.menu = force;   // 오른쪽 클릭: 문서별 강제 동작 self.table.rowHeight = 22; self.table.allowsMultipleSelection = NO;
     self.table.columnAutoresizingStyle = NSTableViewLastColumnOnlyAutoresizingStyle;
     NSArray *columns = @[@[@"checked", @"적용", @44], @[@"name", @"예배", @200], @[@"status", @"바뀐 것", @300], @[@"updated", @"서버 저장", @200]];
     for (NSArray *spec in columns) {
@@ -669,6 +671,58 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     self.organizerStatus = Label(@"", NSMakeRect(156, 20, w - 172, 18), 12); self.organizerStatus.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
     [content addSubview:check]; [content addSubview:self.organizerStatus];
 }
+#pragma mark - 오른쪽 클릭 강제 동작
+
+// 권장과 상관없이 문서 하나에 할 수 있는 동작. 실제로 불가능한 것(파일이 없음 등)만 끈다.
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+    if (menu != self.table.menu) return;
+    [menu removeAllItems];
+    NSInteger index = self.table.clickedRow;
+    if (index < 0 || index >= (NSInteger)self.rows.count) return;
+    NSDictionary *row = self.rows[index];
+    NSMutableOrderedSet *paths = [NSMutableOrderedSet orderedSet];
+    for (NSString *key in @[@"serviceDocuments", @"macDeletedDocuments", @"missingLocal", @"macOnlyDocuments", @"macChangedDocuments"]) for (id path in row[key]) if ([path isKindOfClass:NSString.class]) [paths addObject:path];
+    for (NSDictionary *doc in row[@"documents"]) if ([doc[@"path"] isKindOfClass:NSString.class]) [paths addObject:doc[@"path"]];
+    NSMenuItem *head = [menu addItemWithTitle:[NSString stringWithFormat:@"강제 동작 · %@ (권장과 상관없이 실행)", row[@"name"] ?: @""] action:nil keyEquivalent:@""]; head.enabled = NO;
+    if (!paths.count) { NSMenuItem *none = [menu addItemWithTitle:@"이 예배에 문서가 없습니다" action:nil keyEquivalent:@""]; none.enabled = NO; return; }
+    [menu addItem:NSMenuItem.separatorItem];
+    for (NSString *path in [paths.array sortedArrayUsingSelector:@selector(localizedStandardCompare:)]) {
+        BOOL mac = [self.engine hasLocalDocument:path];
+        NSDictionary *entry = [self.engine.receipt ledger:path]; NSString *state = entry[@"state"];
+        BOOL server = [entry[@"id"] length] > 0, active = server && ![state isEqual:@"trashed"];
+        NSString *where = [NSString stringWithFormat:@"%@ · %@", mac ? @"Mac 있음" : @"Mac 없음", !server ? @"서버 없음" : active ? @"서버 있음" : @"서버 휴지통"];
+        NSMenuItem *docItem = [menu addItemWithTitle:[NSString stringWithFormat:@"%@  (%@)", path.stringByDeletingPathExtension, where] action:nil keyEquivalent:@""];
+        NSMenu *actions = [NSMenu new]; actions.autoenablesItems = NO;
+        for (NSArray *spec in @[@[@"diff", @"차이 보기", @(mac && server)], @[@"server", @"서버 것 받기 (Mac 파일을 서버 것으로)", @(active)],
+                                @[@"mac", @"Mac 것 올리기 (서버를 Mac 것으로)", @(mac && server)], @[@"trashServer", @"서버 휴지통으로", @(active)],
+                                @[@"trashMac", @"Mac에서 지우기 (macOS 휴지통)", @(mac)], @[@"web", @"웹에서 보기", @(server)]]) {
+            NSMenuItem *item = [actions addItemWithTitle:spec[1] action:@selector(forceDocument:) keyEquivalent:@""];
+            item.target = self; item.enabled = [spec[2] boolValue] && !self.busy; item.representedObject = @{@"action": spec[0], @"path": path};
+        }
+        docItem.submenu = actions;
+    }
+}
+- (void)forceDocument:(NSMenuItem *)sender {
+    NSString *action = sender.representedObject[@"action"], *path = sender.representedObject[@"path"], *name = path.stringByDeletingPathExtension;
+    if ([action isEqual:@"diff"]) { [self showDiffForPath:path]; return; }
+    if ([action isEqual:@"web"]) { NSString *link = [self.engine webLink:path]; if (link) [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:link]]; return; }
+    NSDictionary *words = @{@"server": @"Mac 파일을 서버 것으로 바꿉니다. 지금 Mac 파일은 백업 폴더와 서버 보관본에 남습니다.",
+                            @"mac": @"Mac 파일을 서버의 새 버전으로 올립니다. 그전 서버 내용은 이력에 남습니다.",
+                            @"trashServer": @"서버 문서를 서버 휴지통으로 옮깁니다. 웹 휴지통에서 꺼낼 수 있습니다. 이 문서를 쓰는 서버 예배 순서는 Studio에서 따로 정리해 주세요.",
+                            @"trashMac": @"Mac 파일을 macOS 휴지통으로 옮깁니다. 백업 폴더에도 사본을 남깁니다. 서버 것은 그대로입니다."};
+    NSAlert *confirm = [NSAlert new]; confirm.messageText = [NSString stringWithFormat:@"강제 동작 · %@", name];
+    confirm.informativeText = [words[action] stringByAppendingString:@"\n\nSync가 권하는 동작과 다를 수 있습니다. 진행할까요?"];
+    [confirm addButtonWithTitle:@"진행"]; [confirm addButtonWithTitle:@"취소"];
+    if ([confirm runModal] != NSAlertFirstButtonReturn) return;
+    [self runOrganizer:@"강제 동작 중" task:^id{
+        if ([action isEqual:@"server"]) [self.engine takeServer:path];
+        else if ([action isEqual:@"mac"]) [self.engine takeMac:path];
+        else if ([action isEqual:@"trashServer"]) [self.engine trashOnServer:path];
+        else if ([action isEqual:@"trashMac"]) [self.engine trashOnMac:path];
+        return @YES;
+    } done:^(id result) { [self compareNow:nil]; }];
+}
+
 - (void)windowWillClose:(NSNotification *)note {
     if (note.object != self.organizer || !self.organizerDirty) return;
     self.organizerDirty = NO; [self compareNow:nil];
@@ -771,12 +825,9 @@ static NSString *ActionHint(NSString *action, NSString *list) {
         [self compareNow:nil];
     }];
 }
-- (void)organizerAction:(NSButton *)sender {
-    NSArray *items = [self selectedReviews]; NSDictionary *item = items.firstObject; NSString *path = item[@"path"], *action = sender.identifier;
-    if (!item) return;
-    if ([action isEqual:@"web"]) { NSString *link = [self.engine webLink:path]; if (link) [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:link]]; return; }
-    if ([action isEqual:@"diff"]) {
-        [self runOrganizer:@"차이 준비 중" task:^id{
+// 문서 차이 창(정리 창 [차이 보기]와 오른쪽 클릭 메뉴)
+- (void)showDiffForPath:(NSString *)path {
+    [self runOrganizer:@"차이 준비 중" task:^id{
             NSData *local = YBReadSafeFile(self.root, path, NULL), *remote = [self.engine serverBytes:path];
             NSDictionary *a = local ? PP6ParseDocumentData(local, path, @[], @{}, @[], @{}, YES) : nil, *b = remote ? PP6ParseDocumentData(remote, path, @[], @{}, @[], @{}, YES) : nil;
             YBRequire(![a[@"parseError"] length] && ![b[@"parseError"] length], @"문서 내용을 분석하지 못했습니다.");
@@ -790,8 +841,12 @@ static NSString *ActionHint(NSString *action, NSString *list) {
             alert.accessoryView = comparison;
             [alert addButtonWithTitle:@"닫기"]; [alert runModal];
         }];
-        return;
-    }
+}
+- (void)organizerAction:(NSButton *)sender {
+    NSArray *items = [self selectedReviews]; NSDictionary *item = items.firstObject; NSString *path = item[@"path"], *action = sender.identifier;
+    if (!item) return;
+    if ([action isEqual:@"web"]) { NSString *link = [self.engine webLink:path]; if (link) [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:link]]; return; }
+    if ([action isEqual:@"diff"]) { [self showDiffForPath:path]; return; }
     NSDictionary *words = @{@"server": @"서버 것으로 바꿀까요? Mac 것은 백업 폴더와 서버 보관본에 남습니다.", @"mac": @"Mac 것을 서버의 새 버전으로 올릴까요? 서버의 그전 내용은 이력에 남습니다.",
                             @"number": @"Mac 파일에 번호를 붙여(예: 이름 2) 둘 다 둘까요? 재생목록 참조도 고치고, 원래 이름에는 서버 것을 받습니다.", @"trash": @"서버 휴지통으로 옮길까요? 웹 휴지통에서 꺼낼 수 있습니다.", @"image": @"서버에서 이 이미지를 받아 그 자리에 둘까요?",
                             @"import": @"그림을 PP6 미디어 폴더 YebaeOn/으로 복사하고 문서 안 경로를 바꿀까요? 바꾸기 전 문서는 백업 폴더에 남고, 서버와 맞춰 본 문서는 서버에도 올립니다.",

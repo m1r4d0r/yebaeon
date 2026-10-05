@@ -427,6 +427,7 @@ static BOOL ImageExists(NSString *path) {
                 if ([path isKindOfClass:NSString.class] && ![self statPath:path size:NULL mtime:NULL]) [missingLocal addObject:path];
             }
             row[@"documents"] = documents; row[@"macChangedDocuments"] = macChanged;
+            row[@"serviceDocuments"] = [plan[@"documents"] valueForKey:@"path"] ?: @[];   // 이 예배의 모든 문서(오른쪽 클릭 강제 동작용)
             row[@"missingServer"] = @(missingServer); row[@"missingLocal"] = missingLocal;
             if (orderChanged || documents.count) row[@"status"] = @"receive";
             else if (images.count) { row[@"status"] = @"receive"; row[@"imagesOnly"] = @YES; }
@@ -930,6 +931,14 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     YBWriteSafeFile(self.root, path, data, current ? mode : 0644, ^{ YBRequire(!self.presenterRunning(), @"ProPresenter가 실행됐습니다. 중단했습니다."); });
     long long size = 0, mtime = 0; [self statPath:path size:&size mtime:&mtime];
     [self.receipt rememberDocument:path version:doc[@"version"] sha:doc[@"sha256"] size:size mtime:mtime neutral:NeutralHash(data) replaced:current ? NeutralHash(current) : nil];
+}
+// 오른쪽 클릭 강제 동작: Mac 파일을 macOS 휴지통으로(백업 폴더에 사본). 영수증은 남겨 다음 비교에 "Mac에서 지운 문서"로 보인다.
+- (void)trashOnMac:(NSString *)path {
+    YBRequire(!self.presenterRunning(), @"ProPresenter를 종료한 뒤 해 주세요.");
+    NSString *disk = [self diskPath:path]; YBRequire(disk != nil, @"Mac에 그 문서가 없습니다.");
+    NSData *bytes = YBReadSafeFile(self.root, path, NULL);
+    if (bytes) YBWriteSafeFile([self documentsBackup:@"mac-trash"], path, bytes, 0600, nil);
+    YBRequire(self.trashItem(disk) != nil, @"Mac 파일을 휴지통으로 옮기지 못했습니다.");
 }
 // 같은 이름, 다른 내용: [서버 것으로]
 - (void)takeServer:(NSString *)path {

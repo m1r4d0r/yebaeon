@@ -467,6 +467,11 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
             Check([[web request:[@"/api/documents/" stringByAppendingString:numberedID] method:@"GET" body:nil headers:nil][@"document"][@"state"] isEqual:@"trashed"] && [engine numberedLog].count == 0, @"numbered copy trashed on the server and log cleared");
         }
 
+        // 30. 오른쪽 클릭 강제 동작: Mac에서 지우기는 macOS 휴지통으로 옮기고 백업을 남긴다(서버는 그대로).
+        Check([Doc(@"강제 지움") writeToFile:Local(@"강제 지움") atomically:YES], @"document to trash on the mac");
+        [engine trashOnMac:@"강제 지움.pro6"];
+        Check(![NSFileManager.defaultManager fileExistsAtPath:Local(@"강제 지움")] && [NSFileManager.defaultManager fileExistsAtPath:[trashBin stringByAppendingPathComponent:@"강제 지움.pro6"]], @"forced mac trash moves the file to the trash");
+
         // 7. PP6가 켜져 있으면 적용하지 않는다.
         engine.presenterRunning = ^BOOL { return YES; };
         BOOL refused = NO; @try { [engine apply:@[n1]]; } @catch (NSException *e) { refused = [e.reason containsString:@"ProPresenter"]; }
