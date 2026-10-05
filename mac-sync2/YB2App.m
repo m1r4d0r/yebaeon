@@ -86,7 +86,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     [self.window center];
     NSView *content = self.window.contentView; CGFloat w = frame.size.width, h = frame.size.height;
 
-    self.connectionLabel = Label(@"서버 연결 확인 중", NSMakeRect(16, h - 32, w - 32, 18), 12);
+    self.connectionLabel = Label(@"서버 연결 확인 중", NSMakeRect(16, h - 32, w - 380, 18), 12);
     self.rootLabel = Label(@"", NSMakeRect(16, h - 54, w - 120, 18), 12);
     self.playlistLabel = Label(@"", NSMakeRect(16, h - 76, w - 120, 18), 12);
     NSButton *rootChange = Button(@"변경…", NSMakeRect(w - 96, h - 58, 80, 24), self, @selector(chooseRoot:));
@@ -116,10 +116,13 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     self.applyButton.keyEquivalent = @"\r"; self.applyButton.enabled = NO;
     [content addSubview:self.statusLabel]; [content addSubview:self.presenterLabel]; [content addSubview:self.compareButton]; [content addSubview:self.applyButton];
     // "확인 필요 n · 정리 열기" 한 줄. n=0이면 숨긴다.
-    self.reviewButton = Button(@"", NSMakeRect(w - 260, h - 34, 244, 24), self, @selector(showOrganizer:));
+    self.reviewButton = Button(@"", NSMakeRect(w - 356, h - 34, 244, 24), self, @selector(showOrganizer:));
     self.reviewButton.bezelStyle = NSBezelStyleRecessed; self.reviewButton.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin; self.reviewButton.hidden = YES;
     [content addSubview:self.reviewButton];
+    NSButton *studio = Button(@"Studio 열기", NSMakeRect(w - 106, h - 34, 90, 24), self, @selector(openStudio:));
+    studio.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin; [content addSubview:studio];
 }
+- (void)openStudio:(id)sender { [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:kOrigin]]; }
 - (void)buildMenu {
     NSMenu *bar = [NSMenu new]; NSMenuItem *appItem = [NSMenuItem new]; [bar addItem:appItem];
     NSMenu *app = [NSMenu new];
@@ -131,6 +134,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     NSMenu *tools = [NSMenu new]; tools.title = @"도구";
     [tools addItemWithTitle:@"다시 비교" action:@selector(compareNow:) keyEquivalent:@"r"];
     [tools addItemWithTitle:@"정리…" action:@selector(showOrganizer:) keyEquivalent:@"o"];
+    [tools addItemWithTitle:@"예배온 Studio 열기" action:@selector(openStudio:) keyEquivalent:@"s"];
     [tools addItemWithTitle:@"백업 폴더 열기" action:@selector(openBackups:) keyEquivalent:@""];
     [tools addItem:NSMenuItem.separatorItem];
     [tools addItemWithTitle:@"상주 확인 (15분마다)" action:@selector(toggleResident:) keyEquivalent:@""];
@@ -622,6 +626,7 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     [menu addItemWithTitle:@"예배온 Sync 2 창 열기" action:@selector(showWindow:) keyEquivalent:@""];
     [menu addItemWithTitle:@"지금 확인" action:@selector(compareNow:) keyEquivalent:@""];
     [menu addItemWithTitle:@"정리…" action:@selector(showOrganizer:) keyEquivalent:@""];
+    [menu addItemWithTitle:@"예배온 Studio 열기" action:@selector(openStudio:) keyEquivalent:@""];
     [menu addItem:NSMenuItem.separatorItem];
     [menu addItemWithTitle:@"예배온 Sync 2 종료" action:@selector(terminate:) keyEquivalent:@""];
     for (NSMenuItem *item in menu.itemArray) if (item.action != @selector(terminate:)) item.target = self;
