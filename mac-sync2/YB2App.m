@@ -16,7 +16,7 @@ static NSString *const kResidentKey = @"residentMode";
 static NSString *const kAgentLabel = @"org.yebaeon.sync2";
 static const NSTimeInterval kResidentInterval = 15 * 60;
 
-@interface YB2App : NSObject <NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate>
+@interface YB2App : NSObject <NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate>
 @property(nonatomic) NSWindow *window;
 @property(nonatomic) NSTextField *connectionLabel, *rootLabel, *playlistLabel, *statusLabel, *presenterLabel;
 @property(nonatomic) NSTableView *table;
@@ -26,6 +26,7 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) NSWindow *organizer;
 @property(nonatomic) NSTableView *organizerTable;
 @property(nonatomic) NSTextField *organizerStatus, *organizerTitle, *organizerHint;
+@property(nonatomic) BOOL organizerDirty;   // 정리 창에서 Mac·서버를 바꿨다: 닫을 때 다시 비교
 @property(nonatomic) NSMutableArray *organizerRows;    // {list, title, path, detail, item}
 @property(nonatomic) NSDictionary *organizerButtons;   // 동작 이름 → 버튼
 @property(nonatomic) YB2Server *server;
@@ -37,7 +38,7 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) BOOL checking;
 // 업데이트: 새 빌드가 있을 때만 표 위에 노란 줄. [지금 설치]를 눌러야 바뀐다.
 @property(nonatomic) NSScrollView *tableScroll;
-@property(nonatomic) NSBox *updateBar;
+@property(nonatomic) NSView *updateBar;
 @property(nonatomic) NSTextField *updateLabel;
 @property(nonatomic) NSButton *updateButton;
 @property(nonatomic) NSDictionary *pendingRelease;           // 서버의 새 빌드(지금보다 새로울 때만)
@@ -138,18 +139,20 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     NSButton *studio = Button(@"Studio 열기", NSMakeRect(w - 106, h - 34, 90, 24), self, @selector(openStudio:));
     studio.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin; [content addSubview:studio];
     // 새 버전 줄(표 바로 위). 보일 때만 표를 그만큼 줄인다.
-    self.updateBar = [[NSBox alloc] initWithFrame:NSMakeRect(16, h - 122, w - 32, 34)]; self.updateBar.contentViewMargins = NSZeroSize;
-    self.updateBar.boxType = NSBoxCustom; self.updateBar.fillColor = [NSColor colorWithCalibratedRed:1 green:0.965 blue:0.8 alpha:1];
-    self.updateBar.borderColor = [NSColor colorWithCalibratedRed:0.9 green:0.81 blue:0.42 alpha:1]; self.updateBar.cornerRadius = 4; self.updateBar.titlePosition = NSNoTitle;
+    // 새 버전 줄: 노란 바탕(NSBox)은 뒤에 깔고, 글·버튼은 바탕 밖의 보통 칸에 둔다(NSBox 안에 두면 위아래가 잘린다).
+    self.updateBar = [[NSView alloc] initWithFrame:NSMakeRect(16, h - 124, w - 32, 36)];
     self.updateBar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin; self.updateBar.hidden = YES;
-    // 버튼이 칸 안에 다 보이도록 안쪽 여백 없이 높이 34에 28짜리 버튼을 가운데 둔다.
-    NSView *bar = self.updateBar.contentView; CGFloat bw = w - 32;
-    self.updateLabel = Label(@"", NSMakeRect(10, 8, bw - 230, 18), 12); self.updateLabel.autoresizingMask = NSViewWidthSizable;
+    NSBox *backdrop = [[NSBox alloc] initWithFrame:self.updateBar.bounds];
+    backdrop.boxType = NSBoxCustom; backdrop.fillColor = [NSColor colorWithCalibratedRed:1 green:0.965 blue:0.8 alpha:1];
+    backdrop.borderColor = [NSColor colorWithCalibratedRed:0.9 green:0.81 blue:0.42 alpha:1]; backdrop.cornerRadius = 4; backdrop.titlePosition = NSNoTitle;
+    backdrop.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; [self.updateBar addSubview:backdrop];
+    CGFloat bw = w - 32;
+    self.updateLabel = Label(@"", NSMakeRect(10, 9, bw - 230, 18), 12); self.updateLabel.autoresizingMask = NSViewWidthSizable;
     self.updateLabel.lineBreakMode = NSLineBreakByTruncatingTail;
-    NSButton *later = Button(@"나중에", NSMakeRect(bw - 210, 3, 86, 28), self, @selector(dismissUpdate:));
-    self.updateButton = Button(@"지금 설치", NSMakeRect(bw - 118, 3, 110, 28), self, @selector(installUpdate:));
+    NSButton *later = Button(@"나중에", NSMakeRect(bw - 210, 4, 86, 28), self, @selector(dismissUpdate:));
+    self.updateButton = Button(@"지금 설치", NSMakeRect(bw - 118, 4, 110, 28), self, @selector(installUpdate:));
     later.autoresizingMask = self.updateButton.autoresizingMask = NSViewMinXMargin;
-    [bar addSubview:self.updateLabel]; [bar addSubview:later]; [bar addSubview:self.updateButton];
+    [self.updateBar addSubview:self.updateLabel]; [self.updateBar addSubview:later]; [self.updateBar addSubview:self.updateButton];
     [content addSubview:self.updateBar];
 }
 #pragma mark - 업데이트
@@ -175,7 +178,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 - (void)refreshUpdateBar {
     BOOL show = self.pendingRelease && [self.pendingRelease[@"build"] integerValue] != self.dismissedBuild;
     if (show != !self.updateBar.hidden) {
-        NSRect frame = self.tableScroll.frame; frame.size.height += show ? -38 : 38; self.tableScroll.frame = frame;
+        NSRect frame = self.tableScroll.frame; frame.size.height += show ? -40 : 40; self.tableScroll.frame = frame;
         self.updateBar.hidden = !show;
     }
     NSString *notes = [self.pendingRelease[@"notes"] length] ? [@" · " stringByAppendingString:self.pendingRelease[@"notes"]] : @"";
@@ -356,6 +359,14 @@ static BOOL IsPresenter(NSRunningApplication *app) {
 
 // [적용]으로 고를 수 있는 줄. Mac 파일을 바꾸는 줄(받기·빼기·문서 정리)은 PP6가 꺼져 있어야 한다.
 static BOOL Checkable(NSDictionary *row) { return [@[@"receive", @"mac", @"trash", @"actions", @"macNew"] containsObject:row[@"status"] ?: @""]; }
+// 받을 것이 "이력 없음" 문서뿐인 줄: [적용]으로는 아무것도 바뀌지 않는다(Mac 파일을 지키고 정리 창으로 보낸다). 체크를 꺼 두고 정리 창으로 안내한다.
+static BOOL NoHistoryOnly(NSDictionary *row) {
+    if (![row[@"status"] isEqual:@"receive"] || [row[@"orderChanged"] boolValue] || [row[@"macDeleted"] boolValue] || [row[@"serverNew"] boolValue]) return NO;
+    if ([row[@"images"] count] || [row[@"macOnlyDocuments"] count] || [row[@"revertedOrder"] boolValue] || [row[@"revertedDocuments"] count]) return NO;
+    NSUInteger unknown = 0;
+    for (NSString *path in row[@"macChangedDocuments"]) if ([row[@"macChangedReasons"][path] isEqual:@"technical"]) unknown++;
+    return unknown > 0 && unknown == [row[@"documents"] count];
+}
 static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"actions"] containsObject:row[@"status"] ?: @""] || [row[@"images"] count]; }
 
 - (void)setBusy:(BOOL)busy {
@@ -375,14 +386,14 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
 }
 - (void)refreshApplyButton {
     NSUInteger checked = 0, receive = 0;
-    for (NSDictionary *row in self.rows) if ([row[@"checked"] boolValue]) { checked++; if (ChangesMac(row)) receive++; }
+    for (NSDictionary *row in self.rows) if ([row[@"checked"] boolValue] && !NoHistoryOnly(row)) { checked++; if (ChangesMac(row)) receive++; }
     // 올리기는 PP6가 켜져 있어도 된다(Mac 파일을 바꾸지 않는다). 받기는 PP6를 닫아야 한다.
     self.applyButton.enabled = !self.busy && checked > 0 && (receive == 0 || !YBPresenterRunning());
     self.applyButton.title = checked ? [NSString stringWithFormat:@"%lu개 적용·올리기", (unsigned long)checked] : @"적용·올리기";
 }
 - (void)refreshStatusItem {
     NSUInteger waiting = 0, hold = 0;
-    for (NSDictionary *row in self.rows) { if (Checkable(row) && !([row[@"macDeleted"] boolValue])) waiting++; else if ([row[@"status"] isEqual:@"hold"]) hold++; }
+    for (NSDictionary *row in self.rows) { if (Checkable(row) && !([row[@"macDeleted"] boolValue]) && !NoHistoryOnly(row)) waiting++; else if ([row[@"status"] isEqual:@"hold"] || NoHistoryOnly(row)) hold++; }
     NSString *title = self.busy ? @"예배온 확인 중" : waiting ? [NSString stringWithFormat:@"예배온 대기 %lu", (unsigned long)waiting] : hold ? [NSString stringWithFormat:@"예배온 보류 %lu", (unsigned long)hold] : @"예배온 최신";
     self.statusItem.button.title = self.pendingRelease ? [title stringByAppendingString:@" · 새 버전"] : title;
     NSString *state = self.busy ? @"확인 중" : waiting ? [NSString stringWithFormat:@"받을·올릴 것 %lu", (unsigned long)waiting] : hold ? [NSString stringWithFormat:@"보류 %lu", (unsigned long)hold] : @"모두 같음";
@@ -392,12 +403,13 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
 - (void)showRows:(NSArray *)result {
     [self.rows removeAllObjects];
     // Mac에서 지운 예배는 기본 체크 꺼짐(되살리지 않는다). 나머지 고를 수 있는 줄은 켜 둔다.
-    for (NSDictionary *row in result) { NSMutableDictionary *m = [row mutableCopy]; m[@"checked"] = @(Checkable(row) && ![row[@"macDeleted"] boolValue]); [self.rows addObject:m]; }
+    for (NSDictionary *row in result) { NSMutableDictionary *m = [row mutableCopy]; m[@"checked"] = @(Checkable(row) && ![row[@"macDeleted"] boolValue] && !NoHistoryOnly(row)); [self.rows addObject:m]; }
     [self.table reloadData];
     NSUInteger receive = 0, mac = 0, hold = 0, trash = 0;
     for (NSDictionary *row in self.rows) {
         NSString *status = row[@"status"];
-        if ([status isEqual:@"receive"] && ![row[@"macDeleted"] boolValue]) receive++;
+        if (NoHistoryOnly(row)) hold++;
+        else if ([status isEqual:@"receive"] && ![row[@"macDeleted"] boolValue]) receive++;
         else if ([status isEqual:@"mac"] || [status isEqual:@"macNew"]) mac++;
         else if ([status isEqual:@"trash"]) trash++;
         else if ([status isEqual:@"actions"]) trash += [row[@"renames"] count] + [row[@"trashes"] count];
@@ -407,7 +419,7 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
     if (receive) [parts addObject:[NSString stringWithFormat:@"받을 예배 %lu개", (unsigned long)receive]];
     if (mac) [parts addObject:[NSString stringWithFormat:@"올릴 예배 %lu개", (unsigned long)mac]];
     if (trash) [parts addObject:[NSString stringWithFormat:@"서버 정리 %lu개", (unsigned long)trash]];
-    if (hold) [parts addObject:[NSString stringWithFormat:@"보류 %lu개", (unsigned long)hold]];
+    if (hold) [parts addObject:[NSString stringWithFormat:@"정리 창에서 정할 것 %lu개", (unsigned long)hold]];
     self.statusLabel.stringValue = parts.count ? [parts componentsJoinedByString:@" · "] : @"모두 같음";
     self.connectionLabel.stringValue = [NSString stringWithFormat:@"연결됨%@ · %@", self.server.deviceToken ? @" (장치 열쇠)" : @"", kOrigin];
     [self refreshApplyButton]; [self refreshStatusItem]; [self refreshReview];
@@ -495,8 +507,17 @@ static NSString *Summary(NSDictionary *result) {
 - (void)applyNow:(id)sender {
     if (self.busy) return;
     NSMutableArray *selected = [NSMutableArray array];
-    for (NSDictionary *row in self.rows) if ([row[@"checked"] boolValue] && Checkable(row)) [selected addObject:row];
-    if (!selected.count) return;
+    NSMutableArray *organizerOnly = [NSMutableArray array];
+    for (NSDictionary *row in self.rows) if ([row[@"checked"] boolValue] && Checkable(row)) [NoHistoryOnly(row) ? organizerOnly : selected addObject:row];
+    NSString *organizerNote = organizerOnly.count ? [NSString stringWithFormat:@"%@: 이력 없는 문서뿐이라 [적용]으로는 바뀌지 않습니다. 정리 창에서 서버 것 받기·Mac 것 올리기로 정해 주세요.", [[organizerOnly valueForKey:@"name"] componentsJoinedByString:@", "]] : nil;
+    if (!selected.count) {
+        if (organizerNote) {
+            NSAlert *alert = [NSAlert new]; alert.messageText = @"정리 창에서 정할 것"; alert.informativeText = organizerNote;
+            [alert addButtonWithTitle:@"정리 창 열기"]; [alert addButtonWithTitle:@"닫기"];
+            if ([alert runModal] == NSAlertFirstButtonReturn) [self showOrganizer:nil];
+        }
+        return;
+    }
     self.busy = YES; self.statusLabel.stringValue = @"올리기·적용 중";
     dispatch_async(self.work, ^{
         NSDictionary *result = nil; NSException *error = nil;
@@ -505,6 +526,7 @@ static NSString *Summary(NSDictionary *result) {
             self.busy = NO;
             if (error) { [self alert:@"적용하지 못함" text:error.reason]; [self compareNow:nil]; return; }
             NSString *text = Summary(result);
+            if (organizerNote) text = [text stringByAppendingFormat:@"%@%@", text.length ? @"\n" : @"", organizerNote];
             [self alert:@"완료" text:text.length ? text : @"바뀐 것이 없습니다."];
             [self compareNow:nil];
         });
@@ -602,7 +624,7 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
 - (void)buildOrganizer {
     NSRect frame = NSMakeRect(0, 0, 980, 480);
     self.organizer = [[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
-    self.organizer.title = @"예배온 Sync 2 · 정리"; self.organizer.releasedWhenClosed = NO; self.organizer.minSize = NSMakeSize(940, 360);
+    self.organizer.title = @"예배온 Sync 2 · 정리"; self.organizer.delegate = self; self.organizer.releasedWhenClosed = NO; self.organizer.minSize = NSMakeSize(940, 360);
     NSView *content = self.organizer.contentView; CGFloat w = frame.size.width, h = frame.size.height;
     NSTextField *help = Label(@"할 일만 모았습니다. 버튼을 누를 때만 Mac·서버가 바뀝니다.", NSMakeRect(16, h - 30, w - 32, 18), 12);
     help.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin; [content addSubview:help];
@@ -617,11 +639,14 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     }
     scroll.documentView = self.organizerTable; [content addSubview:scroll];
     // 고른 항목 칸: 이름, 그 종류에 맞는 버튼만, 누르면 무엇이 바뀌는지 한 줄
-    NSBox *box = [[NSBox alloc] initWithFrame:NSMakeRect(16, 52, w - 32, 92)];
-    box.boxType = NSBoxCustom; box.borderType = NSLineBorder; box.cornerRadius = 5; box.borderColor = [NSColor colorWithCalibratedWhite:0.78 alpha:1];
-    box.fillColor = [NSColor colorWithCalibratedWhite:0.97 alpha:1]; box.contentViewMargins = NSZeroSize; box.titlePosition = NSNoTitle;
-    box.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin; [content addSubview:box];
-    NSView *inner = box.contentView; CGFloat bw = w - 32;
+    // 바탕(NSBox)은 뒤에 깔고 이름·버튼은 보통 칸에 둔다(NSBox 안의 버튼은 잘린다).
+    NSView *inner = [[NSView alloc] initWithFrame:NSMakeRect(16, 52, w - 32, 92)];
+    inner.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin; [content addSubview:inner];
+    NSBox *box = [[NSBox alloc] initWithFrame:inner.bounds];
+    box.boxType = NSBoxCustom; box.cornerRadius = 5; box.borderColor = [NSColor colorWithCalibratedWhite:0.78 alpha:1];
+    box.fillColor = [NSColor colorWithCalibratedWhite:0.97 alpha:1]; box.titlePosition = NSNoTitle;
+    box.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; [inner addSubview:box];
+    CGFloat bw = w - 32;
     self.organizerTitle = Label(@"", NSMakeRect(12, 64, bw - 24, 18), 13); self.organizerTitle.autoresizingMask = NSViewWidthSizable; [inner addSubview:self.organizerTitle];
     self.organizerHint = Label(@"", NSMakeRect(12, 6, bw - 24, 16), 11); self.organizerHint.textColor = NSColor.secondaryLabelColor; self.organizerHint.autoresizingMask = NSViewWidthSizable; [inner addSubview:self.organizerHint];
     NSArray *actions = @[@[@"diff", @"차이 보기"], @[@"server", @"서버 것 받기"], @[@"mac", @"Mac 것 올리기"], @[@"number", @"둘 다 두기"], @[@"trash", @"서버 휴지통으로"], @[@"image", @"이미지 받기"], @[@"import", @"그림 가져오기"], @[@"removeNumbered", @"번호 사본 지우기"], @[@"web", @"웹에서 보기"]];
@@ -636,14 +661,21 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     self.organizerStatus = Label(@"", NSMakeRect(156, 20, w - 172, 18), 12); self.organizerStatus.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
     [content addSubview:check]; [content addSubview:self.organizerStatus];
 }
+- (void)windowWillClose:(NSNotification *)note {
+    if (note.object != self.organizer || !self.organizerDirty) return;
+    self.organizerDirty = NO; [self compareNow:nil];
+}
 - (void)showOrganizer:(id)sender {
     if (!self.organizer) [self buildOrganizer];
     [self reloadOrganizer];
     [self.organizer makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
 }
 - (void)reloadOrganizer {
+    NSInteger keep = self.organizerTable.selectedRow;
     self.organizerRows = [[self reviewItems] mutableCopy];
     [self.organizerTable reloadData];
+    // 처리한 줄이 빠지면 같은 자리의 다음 줄을 고른다(이어서 처리)
+    if (keep >= 0 && self.organizerRows.count) [self.organizerTable selectRowIndexes:[NSIndexSet indexSetWithIndex:MIN((NSUInteger)keep, self.organizerRows.count - 1)] byExtendingSelection:NO];
     NSDictionary *check = [self.engine lastFullCheck], *last = [self.engine lastApply];
     NSString *at = check[@"at"] ? LocalTime(check[@"at"]) : @"아직 없음";
     NSString *counts = check[@"at"] ? [NSString stringWithFormat:@" · 처음 대조로 같음 %@ · 확인 필요 %lu", check[@"remembered"] ?: @"-", (unsigned long)[check[@"collisions"] count] + [check[@"macDeleted"] count]] : @"";
@@ -786,7 +818,8 @@ static NSString *ActionHint(NSString *action, NSString *list) {
         return failures;
     } done:^(NSArray *failures) {
         if (failures.count) [self alert:[NSString stringWithFormat:@"확인할 것 %lu개", (unsigned long)failures.count] text:[failures componentsJoinedByString:@"\n"]];
-        if ([action isEqual:@"server"] || [action isEqual:@"mac"]) [self compareNow:nil];
+        // 데일리 창 비교는 정리 창을 닫을 때 한 번 한다(정리 중에는 버튼을 잠그지 않는다).
+        self.organizerDirty = YES;
     }];
 }
 - (void)tableViewSelectionDidChange:(NSNotification *)note {
@@ -910,7 +943,7 @@ static NSString *StatusText(NSDictionary *row) {
     if (plain) [parts addObject:[NSString stringWithFormat:@"받기 %lu", (unsigned long)plain]];
     if ([row[@"macOnlyDocuments"] count]) [parts addObject:[NSString stringWithFormat:@"올리기 %lu", (unsigned long)[row[@"macOnlyDocuments"] count]]];
     if (both) [parts addObject:[NSString stringWithFormat:@"양쪽 수정 %lu", (unsigned long)both]];
-    if (unknown) [parts addObject:[NSString stringWithFormat:@"이력 없음 %lu", (unsigned long)unknown]];
+    if (unknown) [parts addObject:NoHistoryOnly(row) ? [NSString stringWithFormat:@"이력 없음 %lu · 정리 창에서 정하기", (unsigned long)unknown] : [NSString stringWithFormat:@"이력 없음 %lu", (unsigned long)unknown]];
     if ([row[@"revertedOrder"] boolValue] || [row[@"revertedDocuments"] count]) [parts addObject:@"되돌림 다시 적용"];
     if ([row[@"images"] count]) [parts addObject:[NSString stringWithFormat:@"이미지 %lu", (unsigned long)[row[@"images"] count]]];
     return [parts componentsJoinedByString:@" · "];
@@ -959,7 +992,7 @@ static NSString *DetailText(NSDictionary *row) {
     if ([column.identifier isEqual:@"checked"]) [cell setEnabled:!self.busy && Checkable(row)];
     if ([column.identifier isEqual:@"status"] && [cell isKindOfClass:NSTextFieldCell.class]) {
         NSString *status = row[@"status"];
-        [cell setTextColor:Checkable(row) ? [NSColor colorWithCalibratedRed:0.10 green:0.35 blue:0.75 alpha:1] : [status isEqual:@"hold"] ? [NSColor colorWithCalibratedRed:0.75 green:0.35 blue:0.10 alpha:1] : NSColor.disabledControlTextColor];
+        [cell setTextColor:Checkable(row) && !NoHistoryOnly(row) ? [NSColor colorWithCalibratedRed:0.10 green:0.35 blue:0.75 alpha:1] : [status isEqual:@"hold"] ? [NSColor colorWithCalibratedRed:0.75 green:0.35 blue:0.10 alpha:1] : NSColor.disabledControlTextColor];
     }
 }
 - (BOOL)tableView:(NSTableView *)table shouldSelectRow:(NSInteger)index { return YES; }
