@@ -905,6 +905,12 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     [self.receipt transaction:^{ [self.receipt setLedger:path id:entry[@"id"] version:entry[@"version"] sha:entry[@"sha"] state:@"trashed"]; [self.receipt forgetDocument:path]; }];
     [self dropFromFullCheck:@"macDeleted" path:path];
 }
+// 백업 폴더 안 documents/ (쓰기 전에 만든다)
+- (NSString *)documentsBackup:(NSString *)kind {
+    NSString *folder = [[self backupFolder:kind] stringByAppendingPathComponent:@"documents"];
+    [NSFileManager.defaultManager createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:NULL];
+    return folder;
+}
 - (NSString *)backupFolder:(NSString *)kind {
     NSDateFormatter *stamp = [NSDateFormatter new]; stamp.dateFormat = @"yyyyMMdd-HHmmss"; stamp.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
     NSString *folder = [self backupRoot:[NSString stringWithFormat:@"%@-%@", [stamp stringFromDate:NSDate.date], kind]];
@@ -916,7 +922,9 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     NSData *data = [self.server download:doc];
     mode_t mode = 0644; NSData *current = YBReadSafeFile(self.root, path, &mode);
     if (current) {
-        YBWriteSafeFile([folder stringByAppendingPathComponent:@"documents"], path, current, 0600, nil);
+        NSString *documents = [folder stringByAppendingPathComponent:@"documents"];
+        [NSFileManager.defaultManager createDirectoryAtPath:documents withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:NULL];
+        YBWriteSafeFile(documents, path, current, 0600, nil);
         @try { [self.server request:[NSString stringWithFormat:@"/api/sync/revisions?kind=doc&id=%@&baseVersion=0&reason=technical", Query(doc[@"id"])] method:@"POST" body:current headers:@{@"X-YebaeOn-Sync": @"2", @"Content-Type": @"application/xml; charset=utf-8"}]; } @catch (NSException *e) {}
     }
     YBWriteSafeFile(self.root, path, data, current ? mode : 0644, ^{ YBRequire(!self.presenterRunning(), @"ProPresenter가 실행됐습니다. 중단했습니다."); });
@@ -1259,7 +1267,7 @@ static NSArray *MediaPaths(NSData *document) {
     NSData *changed = [out dataUsingEncoding:NSUTF8StringEncoding];
     NSDictionary *known = [self.receipt document:path], *entry = [self.receipt ledger:path];
     BOOL inSync = known && entry && [known[@"version"] isEqual:entry[@"version"]] && [known[@"sha"] isEqual:YBHash(bytes)];
-    YBWriteSafeFile([[self backupFolder:@"external"] stringByAppendingPathComponent:@"documents"], path, bytes, 0600, nil);
+    YBWriteSafeFile([self documentsBackup:@"external"], path, bytes, 0600, nil);
     YBWriteSafeFile(self.root, path, changed, mode, ^{ YBRequire(!self.presenterRunning(), @"ProPresenter가 실행됐습니다. 중단했습니다."); });
     BOOL uploaded = NO;
     if (inSync) {
@@ -1288,7 +1296,7 @@ static NSArray *MediaPaths(NSData *document) {
     NSString *disk = [self diskPath:target];
     if (disk) {
         NSData *bytes = YBReadSafeFile(self.root, target, NULL);
-        if (bytes) YBWriteSafeFile([[self backupFolder:@"numbered-remove"] stringByAppendingPathComponent:@"documents"], target, bytes, 0600, nil);
+        if (bytes) YBWriteSafeFile([self documentsBackup:@"numbered-remove"], target, bytes, 0600, nil);
         YBRequire(self.trashItem(disk) != nil, @"Mac 파일을 휴지통으로 옮기지 못했습니다.");
     }
     NSDictionary *entry = [self.receipt ledger:target];
