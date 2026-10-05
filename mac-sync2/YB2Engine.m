@@ -1213,6 +1213,90 @@ static NSArray *MediaPaths(NSData *document) {
     }
     return paths.array;
 }
+#pragma mark - 정리 창: 외부 참조 가져오기·번호 사본 지우기
+
+// 외부 참조 그림을 `YebaeOn/<문서이름>-<n>.<확장자>`로 복사하고 문서 안 경로를 바꾼다. 원래 그림은 그대로 둔다.
+// 서버와 맞춰 본 문서(영수증 버전 = 장부 버전, 바이트 그대로)는 그림·문서를 서버에도 올린다. 아니면 Mac만 바꾸고 정리 창 "같은 이름"으로 보낸다.
+// 반환 {copied, missing, uploaded}
+- (NSDictionary *)importExternal:(NSDictionary *)item {
+    YBRequire(!self.presenterRunning(), @"ProPresenter를 종료한 뒤 해 주세요.");
+    NSString *path = item[@"path"]; mode_t mode = 0644;
+    NSData *bytes = YBReadSafeFile(self.root, path, &mode); YBRequire(bytes != nil, @"Mac 파일을 읽지 못했습니다.");
+    NSString *xml = Text(bytes); YBRequire(xml != nil, @"문서를 글자로 읽지 못했습니다.");
+    NSSet *images = [NSSet setWithArray:@[@"jpg", @"jpeg", @"png", @"gif", @"tif", @"tiff", @"bmp", @"heic", @"psd", @"pdf"]];
+    NSString *folder = [kMediaRoot stringByAppendingString:@"YebaeOn"], *stem = path.stringByDeletingPathExtension.lastPathComponent;
+    NSMutableDictionary *moved = [NSMutableDictionary dictionary]; NSMutableArray *missing = [NSMutableArray array];
+    NSUInteger number = 1;
+    for (NSString *reference in item[@"references"]) {
+        if (![images containsObject:reference.pathExtension.lowercaseString]) continue;   // 동영상 등은 그대로 둔다
+        NSString *source = nil;
+        for (NSString *candidate in @[reference, reference.decomposedStringWithCanonicalMapping]) if ([NSFileManager.defaultManager fileExistsAtPath:candidate]) { source = candidate; break; }
+        if (!source) { [missing addObject:reference]; continue; }
+        NSData *data = [NSData dataWithContentsOfFile:source]; if (!data) { [missing addObject:reference]; continue; }
+        NSString *target = nil;
+        for (; number < 1000 && !target; number++) {
+            NSString *candidate = [folder stringByAppendingPathComponent:[NSString stringWithFormat:@"%@-%lu.%@", stem, (unsigned long)number, reference.pathExtension.lowercaseString]].precomposedStringWithCanonicalMapping;
+            NSData *existing = [NSData dataWithContentsOfFile:candidate];
+            if (!existing) target = candidate; else if ([existing isEqual:data]) target = candidate;   // 같은 그림이 이미 있으면 그대로 쓴다
+        }
+        YBRequire(target != nil, @"그림을 둘 이름을 찾지 못했습니다.");
+        [NSFileManager.defaultManager createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:NULL];
+        if (![NSFileManager.defaultManager fileExistsAtPath:target]) YBRequire([data writeToFile:target options:NSDataWritingWithoutOverwriting error:NULL], @"그림을 복사하지 못했습니다.");
+        moved[reference.precomposedStringWithCanonicalMapping] = target;
+    }
+    if (!moved.count) { if (!missing.count) [self dropFromFullCheck:@"external" path:path]; return @{@"copied": @0, @"missing": missing, @"uploaded": @NO}; }
+    // 문서 안 경로 바꾸기: file:// 꼴은 file:// 꼴로, 평문 경로는 평문으로
+    NSRegularExpression *pattern = [NSRegularExpression regularExpressionWithPattern:@"(file://(?:localhost)?/[^\"'<>]+|/(?:Users|Volumes|Applications|Library)/[^\"'<>]+\\.[A-Za-z0-9]{2,5})" options:0 error:NULL];
+    NSMutableString *out = [xml mutableCopy];
+    for (NSTextCheckingResult *match in [[pattern matchesInString:xml options:0 range:NSMakeRange(0, xml.length)] reverseObjectEnumerator]) {
+        NSString *raw = [xml substringWithRange:match.range], *value = [raw stringByReplacingOccurrencesOfString:@"&amp;" withString:@"&"];
+        BOOL url = [value hasPrefix:@"file:"];
+        if (url) value = [NSURL URLWithString:value].path ?: [value substringFromIndex:7].stringByRemovingPercentEncoding ?: value;
+        NSString *target = moved[value.precomposedStringWithCanonicalMapping]; if (!target) continue;
+        NSString *written = url ? [NSURL fileURLWithPath:target].absoluteString : [target stringByReplacingOccurrencesOfString:@"&" withString:@"&amp;"];
+        [out replaceCharactersInRange:match.range withString:written];
+    }
+    NSData *changed = [out dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *known = [self.receipt document:path], *entry = [self.receipt ledger:path];
+    BOOL inSync = known && entry && [known[@"version"] isEqual:entry[@"version"]] && [known[@"sha"] isEqual:YBHash(bytes)];
+    YBWriteSafeFile([[self backupFolder:@"external"] stringByAppendingPathComponent:@"documents"], path, bytes, 0600, nil);
+    YBWriteSafeFile(self.root, path, changed, mode, ^{ YBRequire(!self.presenterRunning(), @"ProPresenter가 실행됐습니다. 중단했습니다."); });
+    BOOL uploaded = NO;
+    if (inSync) {
+        [self uploadMediaFor:changed];
+        NSDictionary *saved = [self.server upload:changed path:path previous:[self serverDocument:entry[@"id"]]];
+        long long size = 0, mtime = 0; [self statPath:path size:&size mtime:&mtime];
+        [self.receipt transaction:^{
+            [self.receipt rememberDocument:path version:saved[@"version"] sha:saved[@"sha256"] size:size mtime:mtime neutral:NeutralHash(changed) replaced:nil];
+            [self.receipt setLedger:path id:saved[@"id"] version:saved[@"version"] sha:saved[@"sha256"] state:@"active"];
+        }];
+        uploaded = YES;
+    } else if (entry) [self addCollisions:@[path]];
+    if (!missing.count) [self dropFromFullCheck:@"external" path:path];
+    return @{@"copied": @(moved.count), @"missing": missing, @"uploaded": @(uploaded)};
+}
+// 번호 붙임 기록 하나 정리: Mac의 번호 파일은 macOS 휴지통(백업 사본 남김), 서버 문서는 서버 휴지통으로. 재생목록이 가리키면 하지 않는다.
+- (void)removeNumbered:(NSDictionary *)item {
+    YBRequire(!self.presenterRunning(), @"ProPresenter를 종료한 뒤 해 주세요.");
+    NSString *target = item[@"target"]; YBRequire(target.length > 0, @"번호 붙인 이름이 없습니다.");
+    NSData *playlist = YBReadPlaylist(self.playlistURL);
+    NSString *text = Text(playlist) ?: @"", *name = target.lastPathComponent;
+    for (NSString *form in @[name.precomposedStringWithCanonicalMapping, name.decomposedStringWithCanonicalMapping,
+                              [name.precomposedStringWithCanonicalMapping stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet] ?: @"",
+                              [name.decomposedStringWithCanonicalMapping stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet] ?: @""])
+        YBRequire(!form.length || [text rangeOfString:[@"/" stringByAppendingString:form]].location == NSNotFound, [NSString stringWithFormat:@"Mac 재생목록이 ‘%@’를 아직 쓰고 있습니다. 순서에서 뺀 뒤 다시 해 주세요.", target.stringByDeletingPathExtension]);
+    NSString *disk = [self diskPath:target];
+    if (disk) {
+        NSData *bytes = YBReadSafeFile(self.root, target, NULL);
+        if (bytes) YBWriteSafeFile([[self backupFolder:@"numbered-remove"] stringByAppendingPathComponent:@"documents"], target, bytes, 0600, nil);
+        YBRequire(self.trashItem(disk) != nil, @"Mac 파일을 휴지통으로 옮기지 못했습니다.");
+    }
+    NSDictionary *entry = [self.receipt ledger:target];
+    if ([entry[@"id"] length] && ![entry[@"state"] isEqual:@"trashed"]) [self trashOnServer:target];
+    [self.receipt forgetDocument:target];
+    NSArray *log = [[self numberedLog] filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"target != %@", target]];
+    [self.receipt setValue:[[NSString alloc] initWithData:JSONData(log) encoding:NSUTF8StringEncoding] forKey:@"numbered"];
+}
 - (NSUInteger)uploadMediaFor:(NSData *)document { return [[self uploadMediaForDocuments:document ? @[document] : @[]][@"registered"] unsignedIntegerValue]; }
 // 여러 문서의 이미지를 한꺼번에: Mac 안에서 목록·sha를 먼저 만들고, 서버에 있는지는 100개씩 묻고, 없는 것만 4개씩 올리고, 경로표는 200개씩 등록한다.
 // 반환: {uploaded, registered, skipped}

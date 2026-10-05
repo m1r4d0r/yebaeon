@@ -435,6 +435,38 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         for (NSDictionary *group in parsed[@"groups"]) for (NSDictionary *slide in group[@"slides"]) [perSlide addObject:[NSString stringWithFormat:@"%lu/%lu", (unsigned long)[slide[@"texts"] count], (unsigned long)[slide[@"media"] count]]];
         Check([perSlide isEqual:@[@"1/1", @"1/0", @"1/1"]], [NSString stringWithFormat:@"each slide reads only its own elements: %@ %@", perSlide, parsed[@"parseError"] ?: @""]);
 
+        // 28. 외부 참조 그림 가져오기: 그림을 YebaeOn/<문서이름>-1.png로 복사하고 문서 경로를 바꿔 서버에도 올린다. 원래 그림은 그대로.
+        if (withImage) {
+            NSString *outside = [area stringByAppendingPathComponent:@"바탕화면/포스터.png"];
+            [NSFileManager.defaultManager createDirectoryAtPath:outside.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:NULL];
+            Check([[NSData dataWithBytes:png length:sizeof png] writeToFile:outside atomically:YES], @"outside image");
+            NSString *docName = [NSString stringWithFormat:@"외부 그림 %@", [NSUUID.UUID.UUIDString substringToIndex:6]];
+            Check([Doc([NSString stringWithFormat:@"<RVImageElement source=\"%@\"/>", [NSURL fileURLWithPath:outside].absoluteString]) writeToFile:Local(docName) atomically:YES], @"document with an outside image");
+            [engine uploadNew];
+            NSString *docPath = [docName stringByAppendingString:@".pro6"];
+            NSDictionary *imported = [engine importExternal:@{@"path": docPath, @"references": @[outside.precomposedStringWithCanonicalMapping]}];
+            NSString *copied = [NSString stringWithFormat:@"/Users/Shared/Renewed Vision Media/YebaeOn/%@-1.png", docName];
+            NSString *serverText = [[NSString alloc] initWithData:[engine serverBytes:docPath] encoding:NSUTF8StringEncoding];
+            Check([imported[@"copied"] integerValue] == 1 && [imported[@"uploaded"] boolValue] && [NSFileManager.defaultManager fileExistsAtPath:copied] && [NSFileManager.defaultManager fileExistsAtPath:outside], [NSString stringWithFormat:@"outside image copied: %@", imported]);
+            Check([serverText containsString:@"YebaeOn/"] && ![serverText containsString:@"%EB%B0%94%ED%83%95"] && ![serverText containsString:outside], [NSString stringWithFormat:@"server copy points at the copied image: %@", serverText]);
+            NSArray *paths = [web request:@"/api/media/paths" method:@"GET" body:nil headers:nil][@"paths"];
+            Check([[paths valueForKey:@"path"] containsObject:copied.precomposedStringWithCanonicalMapping], @"copied image registered");
+            [NSFileManager.defaultManager removeItemAtPath:copied error:NULL];
+            [NSFileManager.defaultManager removeItemAtPath:copied.decomposedStringWithCanonicalMapping error:NULL];
+        }
+
+        // 29. 번호 사본 지우기: 23번의 `광고 보관 2`를 Mac 휴지통·서버 휴지통으로 보내고 기록을 지운다. 재생목록이 가리키면 하지 않는다.
+        NSDictionary *numberedItem = [engine numberedLog].firstObject;
+        NSString *playlistText = [[NSString alloc] initWithData:YBReadPlaylist(playlistURL) encoding:NSUTF8StringEncoding] ?: @"";
+        BOOL referenced = [playlistText containsString:@"광고 보관 2"] || [playlistText containsString:[@"광고 보관 2" stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]];
+        BOOL removeRefused = NO; @try { [engine removeNumbered:numberedItem]; } @catch (NSException *e) { removeRefused = [e.reason containsString:@"재생목록"]; }
+        if (referenced) Check(removeRefused && [NSFileManager.defaultManager fileExistsAtPath:Local(@"광고 보관 2")], @"numbered copy still used by the playlist is kept");
+        else {
+            NSString *numberedID = [engine.receipt ledger:@"광고 보관 2.pro6"][@"id"];
+            Check(!removeRefused && ![NSFileManager.defaultManager fileExistsAtPath:Local(@"광고 보관 2")] && [NSFileManager.defaultManager fileExistsAtPath:Local(@"광고 보관")], @"numbered copy moved to the Mac trash, original kept");
+            Check([[web request:[@"/api/documents/" stringByAppendingString:numberedID] method:@"GET" body:nil headers:nil][@"document"][@"state"] isEqual:@"trashed"] && [engine numberedLog].count == 0, @"numbered copy trashed on the server and log cleared");
+        }
+
         // 7. PP6가 켜져 있으면 적용하지 않는다.
         engine.presenterRunning = ^BOOL { return YES; };
         BOOL refused = NO; @try { [engine apply:@[n1]]; } @catch (NSException *e) { refused = [e.reason containsString:@"ProPresenter"]; }
