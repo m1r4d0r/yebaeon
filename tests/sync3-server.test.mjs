@@ -194,3 +194,16 @@ test('media paths and the R2 ledger follow the change log',{timeout:90000},async
  assert.equal((await read(await call(`/sync/changes?since=${head}&limit=500`))).changes.length,200,'unchanged paths write no log');
  assert.equal((await reg([...many,many[0]])).status,400);
 });
+
+test('Sync 2 app update: latest build and download, only after CI publishes',{timeout:60000},async t=>{
+ const {mf,read,person}=await fixture(t);const {call}=await person('교회 Mac');
+ assert.equal((await call('/sync/app')).status,404);
+ const zip=Buffer.from('PK\u0003\u0004 test zip'),sha=createHash('sha256').update(zip).digest('hex'),bucket=await mf.getR2Bucket('FILES');
+ await bucket.put('apps/sync2/YebaeOn-Sync-24.zip',zip);
+ await bucket.put('apps/sync2/latest.json',JSON.stringify({build:24,sha256:sha,size:zip.length,key:'apps/sync2/YebaeOn-Sync-24.zip',notes:'시험',createdAt:'2026-10-05T00:00:00Z'}));
+ assert.deepEqual(await read(await call('/sync/app')),{build:24,sha256:sha,size:zip.length,notes:'시험',createdAt:'2026-10-05T00:00:00Z'});
+ const r=await call('/sync/app/download');assert.equal(r.status,200);assert.equal(r.headers.get('X-Yebaeon-SHA256'),sha);
+ assert.deepEqual(Buffer.from(await r.arrayBuffer()),zip);
+ await bucket.put('apps/sync2/latest.json',JSON.stringify({build:25,sha256:sha,size:1,key:'../x'}));
+ assert.equal((await call('/sync/app')).status,404,'a malformed manifest is not offered');
+});

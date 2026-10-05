@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import "YB2Engine.h"
 #import "YB2Server.h"
+#import "YB2Update.h"
 #import "YBDocumentComparison.h"
 #import "PP6Core.h"
 
@@ -32,7 +33,16 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) YB2Engine *engine;
 @property(nonatomic) NSMutableArray *rows;           // compare 결과 + @"checked"
 @property(nonatomic) BOOL busy;
-@property(nonatomic) BOOL checking;               // 전체 확인이 뒤에서 도는 중(데일리 창은 잠그지 않는다)
+@property(nonatomic) BOOL checking;
+// 업데이트: 새 빌드가 있을 때만 표 위에 노란 줄. [지금 설치]를 눌러야 바뀐다.
+@property(nonatomic) NSScrollView *tableScroll;
+@property(nonatomic) NSBox *updateBar;
+@property(nonatomic) NSTextField *updateLabel;
+@property(nonatomic) NSButton *updateButton;
+@property(nonatomic) NSDictionary *pendingRelease;           // 서버의 새 빌드(지금보다 새로울 때만)
+@property(nonatomic) NSInteger dismissedBuild;        // [나중에]를 누른 빌드(이번 실행 동안 숨김)
+@property(nonatomic) NSDate *lastUpdateCheck;
+@property(nonatomic) NSMenuItem *statusUpdateItem;               // 전체 확인이 뒤에서 도는 중(데일리 창은 잠그지 않는다)
 @property(nonatomic) NSUInteger startupAttempt;
 @property(nonatomic) dispatch_queue_t work;
 @end
@@ -95,7 +105,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     [content addSubview:self.connectionLabel]; [content addSubview:self.rootLabel]; [content addSubview:self.playlistLabel];
     [content addSubview:rootChange]; [content addSubview:playlistChange];
 
-    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 52, w - 32, h - 140)];
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 52, w - 32, h - 140)]; self.tableScroll = scroll;
     scroll.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; scroll.hasVerticalScroller = YES; scroll.borderType = NSBezelBorder;
     self.table = [[NSTableView alloc] initWithFrame:scroll.bounds];
     self.table.dataSource = self; self.table.delegate = self; self.table.rowHeight = 22; self.table.allowsMultipleSelection = NO;
@@ -121,7 +131,74 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     [content addSubview:self.reviewButton];
     NSButton *studio = Button(@"Studio 열기", NSMakeRect(w - 106, h - 34, 90, 24), self, @selector(openStudio:));
     studio.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin; [content addSubview:studio];
+    // 새 버전 줄(표 바로 위). 보일 때만 표를 그만큼 줄인다.
+    self.updateBar = [[NSBox alloc] initWithFrame:NSMakeRect(16, h - 120, w - 32, 32)];
+    self.updateBar.boxType = NSBoxCustom; self.updateBar.fillColor = [NSColor colorWithCalibratedRed:1 green:0.965 blue:0.8 alpha:1];
+    self.updateBar.borderColor = [NSColor colorWithCalibratedRed:0.9 green:0.81 blue:0.42 alpha:1]; self.updateBar.cornerRadius = 4; self.updateBar.titlePosition = NSNoTitle;
+    self.updateBar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin; self.updateBar.hidden = YES;
+    NSView *bar = self.updateBar.contentView; CGFloat bw = w - 40;
+    self.updateLabel = Label(@"", NSMakeRect(6, 5, bw - 220, 18), 12); self.updateLabel.autoresizingMask = NSViewWidthSizable;
+    NSButton *later = Button(@"나중에", NSMakeRect(bw - 206, 0, 80, 26), self, @selector(dismissUpdate:));
+    self.updateButton = Button(@"지금 설치", NSMakeRect(bw - 120, 0, 110, 26), self, @selector(installUpdate:));
+    later.autoresizingMask = self.updateButton.autoresizingMask = NSViewMinXMargin;
+    [bar addSubview:self.updateLabel]; [bar addSubview:later]; [bar addSubview:self.updateButton];
+    [content addSubview:self.updateBar];
 }
+#pragma mark - 업데이트
+
+// 시작 때·상주 확인 때(6시간에 한 번)·메뉴에서 버전만 묻는다. 설치는 [지금 설치]로만.
+- (void)checkUpdate:(BOOL)force {
+    if (!force && self.lastUpdateCheck && -self.lastUpdateCheck.timeIntervalSinceNow < 6 * 3600) return;
+    self.lastUpdateCheck = NSDate.date;
+    YB2Server *server = self.server;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSDictionary *release = nil; NSException *error = nil;
+        @try { release = [YB2Update latest:server]; } @catch (NSException *e) { error = e; }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (error) { if (force) [self alert:@"업데이트 확인 실패" text:error.reason]; return; }
+            self.pendingRelease = [release[@"build"] integerValue] > [YB2Update currentBuild] ? release : nil;
+            if (force && !self.pendingRelease) [self alert:@"최신 버전입니다" text:[NSString stringWithFormat:@"지금 빌드 %ld", (long)[YB2Update currentBuild]]];
+            if (force) self.dismissedBuild = 0;
+            [self refreshUpdateBar];
+        });
+    });
+}
+- (void)checkUpdateNow:(id)sender { [self checkUpdate:YES]; }
+- (void)refreshUpdateBar {
+    BOOL show = self.pendingRelease && [self.pendingRelease[@"build"] integerValue] != self.dismissedBuild;
+    if (show != !self.updateBar.hidden) {
+        NSRect frame = self.tableScroll.frame; frame.size.height += show ? -38 : 38; self.tableScroll.frame = frame;
+        self.updateBar.hidden = !show;
+    }
+    NSString *notes = [self.pendingRelease[@"notes"] length] ? [@" · " stringByAppendingString:self.pendingRelease[@"notes"]] : @"";
+    self.updateLabel.stringValue = self.pendingRelease ? [NSString stringWithFormat:@"새 버전 있음 · 빌드 %@ (지금 빌드 %ld)%@", self.pendingRelease[@"build"], (long)[YB2Update currentBuild], notes] : @"";
+    NSString *blocked = self.busy ? @"작업 중" : self.checking ? @"전체 확인 중" : YBPresenterRunning() ? @"PP6를 닫은 뒤" : nil;
+    self.updateButton.enabled = self.pendingRelease && !blocked;
+    self.updateButton.toolTip = blocked ? [blocked stringByAppendingString:@" 설치할 수 있습니다."] : nil;
+    self.statusUpdateItem.hidden = !self.pendingRelease;
+    self.statusUpdateItem.title = self.pendingRelease ? [NSString stringWithFormat:@"새 버전 설치… (빌드 %@)", self.pendingRelease[@"build"]] : @"";
+    [self refreshStatusItem];
+}
+- (void)dismissUpdate:(id)sender { self.dismissedBuild = [self.pendingRelease[@"build"] integerValue]; [self refreshUpdateBar]; }
+- (void)installUpdate:(id)sender {
+    NSDictionary *release = self.pendingRelease;
+    if (!release) return;
+    if (self.busy || self.checking || YBPresenterRunning()) { [self alert:@"지금은 설치할 수 없습니다" text:@"적용·올리기·전체 확인이 끝나고 PP6를 닫은 뒤 다시 눌러 주세요."]; return; }
+    [self showWindow:nil];
+    NSAlert *confirm = [NSAlert new]; confirm.messageText = [NSString stringWithFormat:@"빌드 %@로 바꿀까요?", release[@"build"]];
+    confirm.informativeText = @"새 버전을 받아 앱을 바꾸고 다시 켭니다. 지금 앱은 백업 폴더에 남습니다. 영수증·백업·설정은 그대로입니다.";
+    [confirm addButtonWithTitle:@"지금 설치"]; [confirm addButtonWithTitle:@"취소"];
+    if ([confirm runModal] != NSAlertFirstButtonReturn) return;
+    NSString *backupRoot = [[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/YebaeOn Sync 2"] stringByAppendingPathComponent:@"app-backups"];
+    YB2Server *server = self.server;
+    [self runOrganizer:@"새 버전 설치 중" task:^id{
+        return [YB2Update install:release server:server backupRoot:backupRoot progress:^(NSString *message) { dispatch_async(dispatch_get_main_queue(), ^{ self.statusLabel.stringValue = message; }); }];
+    } done:^(NSString *path) {
+        [YB2Update relaunch:path];
+        [NSApp terminate:nil];
+    }];
+}
+
 - (void)openStudio:(id)sender { [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:kOrigin]]; }
 - (void)buildMenu {
     NSMenu *bar = [NSMenu new]; NSMenuItem *appItem = [NSMenuItem new]; [bar addItem:appItem];
@@ -139,6 +216,9 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     [tools addItem:NSMenuItem.separatorItem];
     [tools addItemWithTitle:@"상주 확인 (15분마다)" action:@selector(toggleResident:) keyEquivalent:@""];
     [tools addItemWithTitle:@"로그인 시 실행" action:@selector(toggleLoginItem:) keyEquivalent:@""];
+    [tools addItem:NSMenuItem.separatorItem];
+    [tools addItemWithTitle:@"업데이트 확인" action:@selector(checkUpdateNow:) keyEquivalent:@""];
+    NSMenuItem *version = [tools addItemWithTitle:[NSString stringWithFormat:@"버전: 빌드 %ld", (long)[YB2Update currentBuild]] action:nil keyEquivalent:@""]; version.enabled = NO;
     toolsItem.submenu = tools;
     NSApp.mainMenu = bar;
 }
@@ -214,7 +294,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 - (void)startupCompare {
     if (self.busy) return;
     [self runCycleForce:YES upload:NO completion:^(NSException *error) {
-        if (!error) { [self runFullCheckIfDue]; return; }
+        if (!error) { [self runFullCheckIfDue]; [self checkUpdate:NO]; return; }
         if ([error.reason hasPrefix:@"HTTP 401"]) { dispatch_async(dispatch_get_main_queue(), ^{ [self handleLoginRequired]; }); return; }
         if ([error.reason hasPrefix:@"HTTP "]) { dispatch_async(dispatch_get_main_queue(), ^{ self.statusLabel.stringValue = error.reason; }); return; }
         NSArray *delays = @[@10, @20, @40, @80, @160, @300];
@@ -233,6 +313,7 @@ static BOOL IsPresenter(NSRunningApplication *app) {
     return [app.localizedName.lowercaseString hasPrefix:@"propresenter"] || [app.bundleIdentifier.lowercaseString containsString:@"propresenter"];
 }
 - (void)residentTick {
+    [self checkUpdate:NO];
     if (!self.resident || self.busy) return;
     [self runCycleForce:NO upload:NO completion:^(NSException *error) {
         if ([error.reason hasPrefix:@"HTTP 401"]) dispatch_async(dispatch_get_main_queue(), ^{ [self handleLoginRequired]; });
@@ -268,11 +349,13 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
     [self refreshApplyButton];
     [self refreshStatusItem];
     if (self.organizer) [self refreshOrganizerButtons];
+    if (self.updateBar) [self refreshUpdateBar];
 }
 - (void)refreshPresenterState {
     BOOL running = YBPresenterRunning();
-    self.presenterLabel.stringValue = running ? @"PP6 실행 중 · 닫으면 적용" : @"PP6 꺼져 있음";
+    self.presenterLabel.stringValue = running ? @"PP6 실행 중" : @"PP6 꺼져 있음";
     [self refreshApplyButton];
+    if (self.pendingRelease) [self refreshUpdateBar];
 }
 - (void)refreshApplyButton {
     NSUInteger checked = 0, receive = 0;
@@ -285,7 +368,7 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
     NSUInteger waiting = 0, hold = 0;
     for (NSDictionary *row in self.rows) { if (Checkable(row) && !([row[@"macDeleted"] boolValue])) waiting++; else if ([row[@"status"] isEqual:@"hold"]) hold++; }
     NSString *title = self.busy ? @"예배온 확인 중" : waiting ? [NSString stringWithFormat:@"예배온 대기 %lu", (unsigned long)waiting] : hold ? [NSString stringWithFormat:@"예배온 보류 %lu", (unsigned long)hold] : @"예배온 최신";
-    self.statusItem.button.title = title;
+    self.statusItem.button.title = self.pendingRelease ? [title stringByAppendingString:@" · 새 버전"] : title;
 }
 - (void)showRows:(NSArray *)result {
     [self.rows removeAllObjects];
@@ -627,6 +710,7 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     [menu addItemWithTitle:@"지금 확인" action:@selector(compareNow:) keyEquivalent:@""];
     [menu addItemWithTitle:@"정리…" action:@selector(showOrganizer:) keyEquivalent:@""];
     [menu addItemWithTitle:@"예배온 Studio 열기" action:@selector(openStudio:) keyEquivalent:@""];
+    self.statusUpdateItem = [menu addItemWithTitle:@"새 버전 설치…" action:@selector(installUpdate:) keyEquivalent:@""]; self.statusUpdateItem.hidden = YES;
     [menu addItem:NSMenuItem.separatorItem];
     [menu addItemWithTitle:@"예배온 Sync 2 종료" action:@selector(terminate:) keyEquivalent:@""];
     for (NSMenuItem *item in menu.itemArray) if (item.action != @selector(terminate:)) item.target = self;

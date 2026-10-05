@@ -12,6 +12,13 @@
 - 전체 확인: 시작 때 지난 확인에서 7일 지났으면 한 번. 서버 요청 없이 디스크·장부 사본·영수증만 본다. 외부 참조는 지난 점검 뒤 수정시각이 바뀐 문서만 읽는다.
 - 이 폴더만으로 빌드된다. 기반 `YBCore`(검증·안전 파일 접근·서버 연결), 재생목록 `YBPlaylistIO`·`YBPlaylistFormat`, 차이 창 `YBDocumentComparison`·`YBAppUI`·`PP6Core`, 아이콘 `assets/SyncIcon-1024.png`.
 
+## 업데이트
+
+- main에서 Mac 검사를 통과한 빌드만 CI가 서버(R2 `apps/sync2/`)에 올린다. 빌드 번호 = workflow 실행 번호(`CFBundleVersion`).
+- 앱은 시작 때와 상주 확인 때(6시간에 한 번) `GET /api/sync/app`으로 번호만 묻는다. 새 빌드가 있으면 표 위에 노란 줄과 [지금 설치]. 설치는 사람이 누를 때만 하고, 작업 중·전체 확인 중·PP6 실행 중에는 막는다.
+- [지금 설치]: ZIP 받기 → 크기·sha 확인 → 풀기 → 번들 식별자·빌드 번호 확인 → 지금 앱을 `~/Library/Application Support/YebaeOn Sync 2/app-backups/`로 옮김(최근 3개) → 새 앱을 제자리에 → 다시 켜기.
+- 창 오른쪽 위 [Studio 열기], `도구` 메뉴 "업데이트 확인"·"버전: 빌드 n".
+
 ## 2차 규칙 (재설계안 5.1·6.2·6.3·7.3)
 
 - 사용 기록만 바뀜: 사용일·사용 횟수(`lastDateUsed`·`usedCount`)를 뺀 sha가 영수증과 같으면 그대로로 보고, 사용일만 `/api/sync/usage`로 알린다. 버전을 만들지 않는다.
