@@ -50,7 +50,10 @@
     editor.markDirty(); await checkpointDraft(); update();
     return true;
   }
+  // 문서를 서버에 쓰는 모든 요청(저장·일괄 저장·사본·새 문서·PPT 가져오기·복원)은 PP6 필수 구조 중 빠진 것을 채워 보낸다(PP6.repairXML).
+  const documentWrite = (path, options) => /^\/documents(?:\/[^/?]+)?(?:\?|$)/.test(path) && ['PUT', 'POST'].includes(options.method) && typeof options.body === 'string' && /xml/.test(options.headers?.['Content-Type'] || '');
   async function api(path, options = {}) {
+    if (documentWrite(path, options) && window.PP6?.repairXML) options = { ...options, body: window.PP6.repairXML(options.body) };
     const response = await fetch('/api' + path, { credentials: 'same-origin', cache: 'no-store', ...options });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));

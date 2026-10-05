@@ -96,12 +96,12 @@
    message(`${made.length}${unit} 준비됨${replace?` · ${target.name}의 슬라이드 ${target.slides}장을 이 ${made.length}장으로 바꿉니다`:''} · 썸네일을 누르면 크게 볼 수 있어요.${score?`\n악보 분리 ${separated}장 · 통 이미지 ${made.length-separated}장`:''}${margins?`\n${margins}${unit}은 비율이 슬라이드와 달라 남는 곳이 검은색입니다.`:''}${notes.length?'\n'+notes.join('\n'):''}`);
   }catch(e){invalidate();message('변환 실패: '+e.message);}finally{lock(false);}}
  $('pptPreview').onclick=preview;$('pptReviewed').onchange=()=>lock(busy);
- function imageElement(src,w,h){return `<RVImageElement UUID="${P.uuid()}" source="${src}" scaleBehavior="0" opacity="1" rotation="0" drawingShadow="false" format="PNG"><RVRect3D rvXMLIvarName="position">{0 0 0 ${w} ${h}}</RVRect3D></RVImageElement>`;}
+ const imageElement=(src,w,h)=>P.imageElementXML({source:src,rect:{x:0,y:0,w,h},scale:'0'});
  function documentName(value){const name=value.trim().normalize('NFC').replace(/\.pro6$/i,'');if(!name||/[\\/\x00-\x1f\x7f]/.test(name)||name.length>145)throw Error('문서 이름을 확인해 주세요. 폴더 구분 문자는 사용할 수 없습니다.');return name;}
- const slideXML=(o,src,label)=>`<RVDisplaySlide UUID="${P.uuid()}" label="${label}" enabled="true" drawingBackgroundColor="${o.separated?'false':'true'}" backgroundColor="${o.separated?'1 1 1 1':'0 0 0 1'}"><array rvXMLIvarName="displayElements">${imageElement(src,size.width,size.height)}</array><array rvXMLIvarName="cues"/></RVDisplaySlide>`;
+ const slideXML=(o,src,label)=>P.slideXML({label:String(label),drawingBackgroundColor:!o.separated,backgroundColor:o.separated?'1 1 1 1':'0 0 0 1',elements:imageElement(src,size.width,size.height)});
  async function prepare(){const name=documentName($('pptName').value),category=$('pptCategory').value;if(!category)throw Error('카테고리를 골라 주세요.');const assets=new Map();let slides='';
   for(const o of outputs){const sha256=await hash(o.image);assets.set(sha256,{sha256,blob:o.image});slides+=slideXML(o,'file:///YebaeOn-Media/'+sha256+'.png',o.index+1);}
-  const xml=`<RVPresentationDocument UUID="${P.uuid()}" versionNumber="600" width="${size.width}" height="${size.height}" category="${escape(category)}" lastDateUsed="" usedCount="0" yebaeonImport="${category===SCORE&&source.kind==='ppt'?'score':'full'}"><array rvXMLIvarName="groups"><RVSlideGrouping UUID="${P.uuid()}" name="기본"><array rvXMLIvarName="slides">${slides}</array></RVSlideGrouping></array></RVPresentationDocument>`;
+  const xml=P.documentXML({width:size.width,height:size.height,category,groups:[{name:'기본',slides}]});
   return {path:name+'.pro6',xml,assets:[...assets.values()],owner:C.worker(),appendTarget:$('pptAppend').checked?L.selectedPlaylist()?.key:null};}
  // 서버가 정한 교회 Mac 경로(`/Users/Shared/Renewed Vision Media/YebaeOn/<문서이름>-<n>.png`)를 받아 준비 표시 `file:///YebaeOn-Media/<sha>.png`를 바꾼다.
  const fileURL=path=>'file://'+path.split('/').map(p=>encodeURIComponent(p).replace(/'/g,'%27')).join('/');

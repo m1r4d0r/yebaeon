@@ -9,14 +9,14 @@
  function filename(value){value=value.trim().normalize('NFC').replace(/\.pro6$/i,'');if(!value||/[\\/\x00-\x1f\x7f]/.test(value)||value.length>155)throw new Error('문서 이름은 폴더 구분 없이 1~155자로 입력해 주세요.');return value+'.pro6';}
  function blankDocument(category){
    const rtf=P.textRTF('',{font:'NanumGothicOTF',size:110,bold:true,color:'rgb(255,255,255)',align:'center'});
-   return `<RVPresentationDocument UUID="${P.uuid()}" versionNumber="600" width="1920" height="1080" category="${escape(category)}" lastDateUsed="" usedCount="0"><array rvXMLIvarName="groups"><RVSlideGrouping UUID="${P.uuid()}" name="기본"><array rvXMLIvarName="slides"><RVDisplaySlide UUID="${P.uuid()}" label="" enabled="true" drawingBackgroundColor="true" backgroundColor="0 0 0 1"><array rvXMLIvarName="displayElements"><RVTextElement UUID="${P.uuid()}" opacity="1" verticalAlignment="0" drawingFill="false" drawingShadow="false"><RVRect3D rvXMLIvarName="position">{80 90 0 1760 900}</RVRect3D><NSString rvXMLIvarName="RTFData">${rtf}</NSString></RVTextElement></array><array rvXMLIvarName="cues"/></RVDisplaySlide></array></RVSlideGrouping></array></RVPresentationDocument>`;
+   return P.documentXML({category,groups:[{name:'기본',slides:P.slideXML({drawingBackgroundColor:true,elements:P.textElementXML({rect:{x:80,y:90,w:1760,h:900},rtf})})}]});
  }
  function copyDocument(xml,category){
    const model=P.parse(xml,'복제.pro6'),root=model.doc.documentElement,map=P.refreshIDs(root);
    // PP6 arrangements can store UUID references as string elements as well as
    // attributes. Rewrite exact UUIDs only; media paths and lyric RTF stay intact.
    for(const node of P.all(root,'NSString'))if(map.has(node.textContent))node.textContent=map.get(node.textContent);
-   root.setAttribute('UUID',root.getAttribute('UUID')||P.uuid());root.setAttribute('category',category);
+   if(!root.hasAttribute('uuid')&&!root.hasAttribute('UUID'))root.setAttribute('uuid',P.uuid());root.setAttribute('category',category);
    root.setAttribute('lastDateUsed','');root.setAttribute('usedCount','0');
    return P.serialize(model);
  }
