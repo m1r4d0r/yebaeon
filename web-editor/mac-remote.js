@@ -80,7 +80,7 @@
      el('button',{textContent:'마지막 적용 되돌리기',disabled:!s.lastApplyAt,title:s.lastApplyAt?when(s.lastApplyAt)+' 적용':'되돌릴 적용 없음',onclick:()=>send('undo',undefined,'교회 Mac의 마지막 적용을 되돌릴까요? 적용 뒤 다시 바뀐 파일은 건너뜁니다. PP6가 켜져 있으면 Mac이 하지 않습니다.')}),
      el('button',{textContent:'지원 끝내기',onclick:endSupport})),
     el('form',{class:'mac-note',onsubmit:e=>{e.preventDefault();if(text.value.trim())send('message',{text:text.value.trim()}).then(()=>{text.value='';});}},text,el('button',{textContent:'안내 보내기'})));
-  }else support.append(el('span',{textContent:'원격 조작은 교회 Mac의 Sync에서 [원격 지원 시작…](메뉴 막대 예배온 메뉴 또는 도구 메뉴)을 누르면 30분 동안 열립니다. 관리자 비밀번호가 필요합니다.'}));
+  }else support.append(el('span',{textContent:'원격 조작은 교회 Mac의 Sync에서 도구 메뉴 › [원격 지원 시작…]을 누르면 30분 동안 열립니다. 관리자 비밀번호가 필요합니다.'}));
   body.append(support,el('p',{id:'macMessage',class:'dialog-message',role:'status',textContent:note}));
 
   // 예배

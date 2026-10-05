@@ -1010,7 +1010,6 @@ static NSString *ActionHint(NSString *action, NSString *list) {
     [menu addItem:NSMenuItem.separatorItem];
     [menu addItemWithTitle:@"예배온 Sync 2 창 열기" action:@selector(showWindow:) keyEquivalent:@""];
     [menu addItemWithTitle:@"예배온 Studio 열기" action:@selector(openStudio:) keyEquivalent:@""];
-    [menu addItemWithTitle:@"원격 지원 시작…" action:@selector(toggleSupport:) keyEquivalent:@""];
     [menu addItem:NSMenuItem.separatorItem];
     self.statusUpdateItem = [menu addItemWithTitle:@"새 버전 설치…" action:@selector(installUpdate:) keyEquivalent:@""]; self.statusUpdateItem.hidden = YES;
     [menu addItemWithTitle:@"업데이트 확인" action:@selector(checkUpdateNow:) keyEquivalent:@""];
@@ -1208,7 +1207,7 @@ static NSString *DetailText(NSDictionary *row) {
 #pragma mark - 현황·원격 지원
 
 // 현황: 비교·작업이 끝날 때와 PP6를 켜고 끌 때 서버에 한 줄로 올린다. 내용이 같으면 한 시간에 한 번만 보낸다.
-// 원격 지원: Mac 앞에서 [원격 지원 시작…]을 누르면 30분 동안 10초마다 원격 명령을 묻는다. 지원 시간이 아니면 묻지 않는다.
+// 원격 지원: Mac 앞에서 도구 메뉴 › [원격 지원 시작…]을 누르면 30분 동안 10초마다 원격 명령을 묻는다. 지원 시간이 아니면 묻지 않는다.
 // 명령은 이 창·정리 창·오른쪽 클릭 강제 동작과 같은 동작뿐이고 확인 창 없이 실행해 결과를 보고한다.
 // Mac 파일을 바꾸는 명령은 PP6가 켜져 있으면 하지 않는다. 대상은 지금 비교 결과·정리 창 목록에 있는 것만 받는다.
 static const NSInteger kSupportMinutes = 30;
