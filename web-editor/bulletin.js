@@ -165,40 +165,45 @@
  async function sermonTarget(i){const E=work.extra.find(e=>e.services.includes(i));if(E){const doc=await extraDoc(E);return doc?{id:doc.id,name:base(doc.name)}:null;}if(!work.main.services.includes(i))return null;const doc=await docFromPlaylist(n=>/^2부/.test(n.replace(/\s/g,'')),work.main.doc);return doc?{id:doc.id,name:base(doc.name)}:null;}
  async function extraDoc(E){const found=await findDoc(E.doc);return found.length===1?found[0]:null;}
  let reviewOps=null;
- function stepReview(root){if(staged){const g=group('적용 미리보기','아직 서버에 저장하지 않았습니다');for(const r of staged.values()){const d=el('div','bulletin-staged'+(r.ok?'':' bad'));d.append(el('strong',null,r.label),el('small',null,r.text));if(r.ok)d.append(preview(r));g.append(d);}root.append(g);}
-  if(work.results){const g=group('적용 결과');const ul=el('ul','bulletin-results');for(const r of work.results)ul.append(el('li',r.ok?'ok':'bad',`${r.label} · ${r.text}`));g.append(ul);if(work.results.some(r=>!r.ok))g.append(el('p','bulletin-note','실패한 항목만 ‘다시 적용’으로 다시 할 수 있습니다. 다른 사람이 먼저 저장했다면 최신 내용을 확인한 뒤 다시 적용하세요.'));root.append(g);}
-  const head=el('div','bulletin-review-head'),date=el('input');date.type='date';date.value=work.date||'';date.setAttribute('aria-label','주보 날짜');date.onchange=()=>{work.date=date.value;pickTargets();reviewOps=null;staged=null;save();render();};const dl=el('label');dl.append('주보 날짜',date);head.append(dl,el('p','bulletin-note','‘미리 보기’로 바뀐 모습을 확인한 뒤 ‘적용’을 누르면 저장하고 창을 닫습니다. 빼고 싶은 항목은 체크를 끄세요.'));root.append(head);
+ function stepReview(root){if(staged){const g=group('미리 보기','아직 Studio에도 서버에도 넘기지 않았습니다');for(const r of staged.values()){const d=el('div','bulletin-staged'+(r.ok?'':' bad'));d.append(el('strong',null,r.label),el('small',null,r.text));if(r.ok)d.append(preview(r));g.append(d);}root.append(g);}
+  if(work.results){const g=group('적용 결과');const ul=el('ul','bulletin-results');for(const r of work.results)ul.append(el('li',r.ok?'ok':'bad',`${r.label} · ${r.text}`));g.append(ul);if(work.results.some(r=>!r.ok))g.append(el('p','bulletin-note','실패한 항목만 ‘다시 미리 보기’로 다시 할 수 있습니다. 적용한 항목은 Studio에서 재생목록을 열어 ‘서버 저장’을 눌러야 서버에 갑니다.'));root.append(g);}
+  const head=el('div','bulletin-review-head'),date=el('input');date.type='date';date.value=work.date||'';date.setAttribute('aria-label','주보 날짜');date.onchange=()=>{work.date=date.value;pickTargets();reviewOps=null;staged=null;save();render();};const dl=el('label');dl.append('주보 날짜',date);head.append(dl,el('p','bulletin-note','‘미리 보기’로 바뀐 모습을 확인한 뒤 ‘적용’을 누르면 Studio에 저장 필요 상태로 넘기고 창을 닫습니다. 서버 저장은 Studio에서 합니다. 빼고 싶은 항목은 체크를 끄세요.'));root.append(head);
   const list=el('div','bulletin-review');root.append(list);list.append(el('p','bulletin-note','바뀌는 것을 계산하는 중…'));
   (reviewOps||(reviewOps=operations())).then(ops=>{list.replaceChildren();for(const o of ops){if(!(o.key in work.include))work.include[o.key]=!o.skip&&!o.lines.some(l=>l[0]==='bad');const d=el('div','bulletin-op'+(work.include[o.key]?'':' off')),lab=el('label'),cb=el('input');cb.type='checkbox';cb.checked=work.include[o.key];cb.disabled=o.lines.some(l=>l[0]==='bad')||o.kind==='error';cb.onchange=()=>{work.include[o.key]=cb.checked;staged=null;save();render();};
     lab.append(cb,o.label,el('small',null,o.sub||''));const ul=el('ul');for(const [c,t] of o.lines)ul.append(el('li',c,t));d.append(lab,ul);list.append(d);}foot();}).catch(e=>{list.replaceChildren(el('p','bulletin-note bad',e.message));});}
- // 적용은 두 단계다. ‘적용’은 바뀐 문서와 순서를 이 창에서만 만들어 보여 주고, ‘서버에 저장’을 눌러야 서버에 쓴다.
- // 저장할 때는 서버의 최신 버전을 다시 읽어 같은 변경을 만든다(같은 문서를 여러 항목이 고칠 수 있다).
+ // 적용은 두 단계다. ‘미리 보기’는 바뀐 문서와 순서를 이 창에서만 만들어 보여 주고, ‘적용’은 그것을 Studio의 미저장 문서·순서(브라우저 초안)로 넘긴다.
+ // 서버에는 쓰지 않는다. 서버에는 Studio에서 재생목록을 열어 ‘서버 저장’을 누를 때 간다.
+ // 적용할 때는 서버의 최신 버전을 다시 읽어 같은 변경을 만든다. 같은 문서를 여러 항목이 고치면 chain으로 앞 항목의 결과 위에 잇는다.
  let staged=null;
- async function rewrite(id,transform,layout='side'){if(C.pendingDocuments([id]).length)throw Error('이 문서에 저장하지 않은 변경이 있습니다. 먼저 저장하세요.');
-  const doc=(await(await C.api('/documents/'+id)).json()).document,data=await(await C.api(`/documents/${id}/content?version=${doc.version}`)).arrayBuffer();
-  const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),n=>n.toString(16).padStart(2,'0')).join('');if(hash!==doc.sha256)throw Error('문서 원본 확인에 실패했습니다.');
-  const before=new TextDecoder('utf-8',{fatal:true}).decode(data),r=await transform(before,doc.name);
-  return {text:r.notes.length?r.notes.join(' · '):'바뀐 슬라이드 확인',preview:{kind:'document',before,xml:r.xml,name:doc.name,layout},
-   async write(){const saved=await(await C.api('/documents/'+id,{method:'PUT',headers:{'Content-Type':'application/xml; charset=utf-8','If-Match':`"${doc.version}"`},body:r.xml})).json();return (saved.unchanged?'이미 같은 내용':'버전 '+saved.document.version+' 저장')+(r.notes.length?' · '+r.notes.join(' · '):'');}};}
+ async function rewrite(id,transform,layout='side',chain=null){const prior=chain?.get(id);if(!prior&&C.pendingDocuments([id]).length)throw Error('이 문서에 서버에 저장하지 않은 변경이 있습니다. Studio에서 먼저 서버 저장하세요.');
+  let doc,original;if(prior)({doc,original}=prior);else{doc=(await(await C.api('/documents/'+id)).json()).document;const data=await(await C.api(`/documents/${id}/content?version=${doc.version}`)).arrayBuffer();
+   const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data)),n=>n.toString(16).padStart(2,'0')).join('');if(hash!==doc.sha256)throw Error('문서 원본 확인에 실패했습니다.');original=new TextDecoder('utf-8',{fatal:true}).decode(data);}
+  const before=prior?prior.xml:original,r=await transform(before,doc.name);chain?.set(id,{doc,original,xml:r.xml});
+  return {text:r.notes.length?r.notes.join(' · '):'바뀐 슬라이드 확인',preview:{kind:'document',before,xml:r.xml,name:doc.name,layout}};}
  async function applyPlaylist(o){const p=await plan(o.target,true);if(!p.playlist.editable)throw Error('이 순서는 편집할 수 없습니다.');const i=o.service,pick=id=>{const s=get(id);return s.skip||s.locked?null:{choice:s.choice};};
-  const r=PL.songPlan(names(p),i,{songs:work.songs[i].map(pick).filter(Boolean),after:pick(work.after[i]),offering:pick(work.offer[i]),sermon:await sermonTarget(i)});if(!r.changed)return {text:'바뀌는 것 없음',write:async()=>'바뀌는 것 없음'};
-  const items=r.rows.map(x=>x.action==='keep'?{id:p.items[x.index].id,...p.items[x.index].documentId?{documentId:p.items[x.index].documentId}:{}}:{documentId:x.document.id});
-  const [library,node]=o.target.split('/');
+  const r=PL.songPlan(names(p),i,{songs:work.songs[i].map(pick).filter(Boolean),after:pick(work.after[i]),offering:pick(work.offer[i]),sermon:await sermonTarget(i)});if(!r.changed)return {text:'바뀌는 것 없음',stage:async()=>'바뀌는 것 없음'};
+  const items=r.rows.map(x=>x.action==='keep'?structuredClone(p.items[x.index]):{kind:'document',name:base(x.document.name),document:x.document,documentId:x.document.id,path:x.document.path,issue:x.document.available===false?'missing':null,sharedWith:[]});
   return {text:`순서 ${items.length}개`,preview:{kind:'playlist',before:names(p).map((name,index)=>({name,removed:r.removed.some(x=>x.index===index),replaced:r.rows.some(x=>x.action==='replace'&&x.index===index)})),rows:r.rows.map(x=>({name:x.name,changed:x.action!=='keep'}))},
-   async write(){await(await C.api(`/playlists/${library}?`+new URLSearchParams({node,includeIndexed:'1'}),{method:'PATCH',headers:{'Content-Type':'application/json','If-Match':`"${p.library.version}"`},body:JSON.stringify({items,baseNodeHash:p.playlist.sha256})})).json();plans.delete(o.target);return `순서 ${items.length}개 저장`;}};}
- function stageOp(o,need){if(o.kind==='prayer')return rewrite(o.doc,(xml,name)=>D.prayer(xml,name,o.person));if(o.kind==='sermon')return rewrite(o.doc,async(xml,name)=>D.sermon(xml,name,o.data,await need()),'stack');if(o.kind==='simple')return rewrite(o.doc,async(xml,name)=>D.titlePassage(xml,name,o.data,await need(),{made:!!o.weekday}));return applyPlaylist(o);}
+   async stage(){await L.stageDraft(p,items);plans.delete(o.target);return `순서 ${items.length}개 · 저장 필요`;}};}
+ function stageOp(o,need,chain){if(o.kind==='prayer')return rewrite(o.doc,(xml,name)=>D.prayer(xml,name,o.person),'side',chain);if(o.kind==='sermon')return rewrite(o.doc,async(xml,name)=>D.sermon(xml,name,o.data,await need()),'stack',chain);if(o.kind==='simple')return rewrite(o.doc,async(xml,name)=>D.titlePassage(xml,name,o.data,await need(),{made:!!o.weekday}),'side',chain);return applyPlaylist(o);}
+ // 문서마다 그 문서가 든 재생목록 키들. 그 목록에 ‘저장 필요’를 붙인다.
+ async function docMarks(){const m=new Map();for(const [k,p] of plans){let data;try{data=await p;}catch{continue;}for(const x of data.items)if(x.documentId){if(!m.has(x.documentId))m.set(x.documentId,new Set());m.get(x.documentId).add(k);}}return m;}
  async function todoOps(){const ops=await reviewOps;const todo=ops.filter(o=>work.include[o.key]&&!work.results?.some(r=>r.key===o.key&&r.ok));if(!todo.length)throw Error('적용할 항목이 없습니다.');return [...todo.filter(o=>o.kind!=='playlist'),...todo.filter(o=>o.kind==='playlist')];}
- async function apply(){if(L.state().dirty)throw Error('Studio에서 열린 순서의 변경사항을 먼저 저장하세요.');const todo=await todoOps();
-  let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const next=new Map();
+ async function apply(){const todo=await todoOps();
+  let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const next=new Map(),chain=new Map();
   for(const [n,o] of todo.entries()){message(`${n+1}/${todo.length} ${o.label} 만드는 중…`);
-   try{next.set(o.key,{key:o.key,label:o.label,ok:true,op:o,...await stageOp(o,need)});}catch(e){next.set(o.key,{key:o.key,label:o.label,ok:false,text:e.message});}}
-  staged=next;message([...next.values()].every(r=>r.ok)?'바뀐 내용을 확인하고 ‘적용’을 누르세요. 아직 서버에는 아무것도 저장하지 않았습니다.':'만들지 못한 항목이 있습니다. 나머지는 확인한 뒤 적용할 수 있습니다.');render();}
- async function commit(){if(L.state().dirty)throw Error('Studio에서 열린 순서의 변경사항을 먼저 저장하세요.');const results=(work.results||[]).filter(r=>r.ok);
-  let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());
-  const ready=[...staged.values()];for(const [n,r] of ready.entries()){if(!r.ok){results.push({key:r.key,label:r.label,ok:false,text:r.text});continue;}message(`${n+1}/${ready.length} ${r.label} 저장 중…`);
-   try{if(r.op.kind==='playlist')plans.delete(r.op.target);const fresh=await stageOp(r.op,need);results.push({key:r.key,label:r.label,ok:true,text:await fresh.write()});}catch(e){results.push({key:r.key,label:r.label,ok:false,text:e.message});}}
-  staged=null;work.results=results;save();const open=L.selectedPlaylist();if(open&&!L.state().dirty&&results.some(r=>r.ok)){const [library,node]=open.key.split('/');await L.openNode(library,node);}
-  if(results.every(r=>r.ok)){dialog.close();YebaeonEditor.status('주보 내용을 적용해 서버에 저장했습니다. 열려 있던 문서는 다시 열어 확인하세요.');render();return;}message('일부 항목을 적용하지 못했습니다. 결과를 확인하세요.');render();}
+   try{next.set(o.key,{key:o.key,label:o.label,ok:true,op:o,...await stageOp(o,need,chain)});}catch(e){next.set(o.key,{key:o.key,label:o.label,ok:false,text:e.message});}}
+  staged=next;message([...next.values()].every(r=>r.ok)?'바뀐 내용을 확인하고 ‘적용’을 누르세요. 적용해도 서버에는 Studio에서 ‘서버 저장’을 누를 때 갑니다.':'만들지 못한 항목이 있습니다. 나머지는 확인한 뒤 적용할 수 있습니다.');render();}
+ async function commit(){const results=(work.results||[]).filter(r=>r.ok);
+  let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const chain=new Map(),docs=[],lists=[];
+  const ready=[...staged.values()];for(const [n,r] of ready.entries()){if(!r.ok){results.push({key:r.key,label:r.label,ok:false,text:r.text});continue;}message(`${n+1}/${ready.length} ${r.label} 만드는 중…`);
+   try{if(r.op.kind==='playlist')plans.delete(r.op.target);const fresh=await stageOp(r.op,need,chain);(r.op.kind==='playlist'?lists:docs).push({r,fresh});}catch(e){results.push({key:r.key,label:r.label,ok:false,text:e.message});}}
+  const marks=await docMarks(),failed=new Map();
+  for(const [id,c] of chain){try{await C.stageDocument(c.doc,c.original,c.xml,[...(marks.get(id)||[])]);}catch(e){failed.set(id,e.message);}}
+  for(const {r,fresh} of docs)results.push(failed.has(r.op.doc)?{key:r.key,label:r.label,ok:false,text:failed.get(r.op.doc)}:{key:r.key,label:r.label,ok:true,text:fresh.text+' · 저장 필요'});
+  for(const {r,fresh} of lists){try{results.push({key:r.key,label:r.label,ok:true,text:await fresh.stage()});}catch(e){results.push({key:r.key,label:r.label,ok:false,text:e.message});}}
+  staged=null;work.results=results;save();await L.refreshPending();
+  if(results.every(r=>r.ok)){dialog.close();YebaeonEditor.status('주보 내용을 Studio에 적용했습니다. 서버에는 아직 저장하지 않았습니다. ‘저장 필요’가 붙은 재생목록을 열어 ‘서버 저장’을 누르세요.');render();return;}message('일부 항목을 적용하지 못했습니다. 결과를 확인하세요.');render();}
  // 바뀌기 전과 뒤를 실제 모양으로 보여 준다. 설교처럼 긴 문서는 위(전)·아래(후) 두 줄을 가로로 넘기고, 나머지는 나란히 둔다.
  function thumbs(xml,name){const model=PP6.parse(xml,name),strip=el('div','bulletin-thumbs');for(const slide of PP6.slides(model)){const c=document.createElement('canvas');c.width=192;c.height=Math.round(192*model.height/model.width);strip.append(c);PP6Render.draw(c,model,slide,new Map()).catch(()=>{});}if(!strip.children.length)strip.append(el('small',null,'슬라이드 없음'));return strip;}
  function side(title,body){const box=el('div','bulletin-compare-side');box.append(el('strong',null,title),body);return box;}
@@ -218,7 +223,7 @@
  function render(){if(rendering){again=true;return;}rendering=true;try{draw();}finally{rendering=false;}if(again){again=false;render();}}
  function draw(){start.setName(work?`${work.file}${work.date?' · '+work.date.slice(5).replace('-','/'):''}`:'');steps();const root=$('bulletinWork');root.replaceChildren();
   $('bulletinMain').classList.toggle('single',!work||work.step==='review');
-  if(!work){root.append(el('p','bulletin-empty','위의 ‘파일 추가’나 ‘드롭박스에서 가져오기’로 HWP 주보를 여세요. 찬양·기도·주일말씀·주중말씀을 미리 채워 두고, 마지막에 한 번 승인하면 저장합니다.'));}
+  if(!work){root.append(el('p','bulletin-empty','위의 ‘파일 추가’나 ‘드롭박스에서 가져오기’로 HWP 주보를 여세요. 찬양·기도·주일말씀·주중말씀을 미리 채워 두고, 마지막에 적용하면 Studio에 저장 필요 상태로 넘깁니다.'));}
   else ({song:stepSong,prayer:stepPrayer,sermon:stepSermon,weekday:stepWeekday,review:stepReview})[work.step](root);
   source();sheet();foot();if(work&&work.step!=='review')message(mobile()?'':'칸을 고르고 왼쪽 주보에서 낱말이나 ¶(줄 전체)를 누르세요.');}
  function save(){if(!work)return;try{sessionStorage.setItem(recoveryKey,JSON.stringify({author:C.worker(),work,seq}));}catch{message('브라우저에 작업을 보존하지 못했습니다. 이 창을 닫으면 다시 채워야 합니다.');}}
