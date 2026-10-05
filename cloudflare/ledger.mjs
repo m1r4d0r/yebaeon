@@ -62,7 +62,16 @@ export async function mediaPathsRoute(request, env, user) {
       const rows = keys.length ? (await db.prepare(`SELECT path,sha256,size,state FROM yebaeon_media_paths WHERE path IN (${keys.map(() => '?').join(',')})`).bind(...keys).all()).results : [];
       return json({ paths: rows });
     }
-    const after = new URL(request.url).searchParams.get('after') || '';
+    // ?folder=Images|YebaeOn: Studio 미디어 창의 서버 그림 목록. 그 폴더의 경로 범위만 읽는다(ImportedImages는 읽지 않음). 쪽마다 최대 60행.
+    const params = new URL(request.url).searchParams, folder = params.get('folder');
+    if (folder !== null) {
+      if (!['Images', 'YebaeOn'].includes(folder)) throw new HttpError(400, 'invalid_media_folder', '이미지 폴더를 확인해 주세요.');
+      const base = MEDIA_ROOT + folder + '/', after = params.get('after') || base, q = (params.get('q') || '').normalize('NFC').trim();
+      if (after.length > 1024 || q.length > 80 || !after.startsWith(base)) throw new HttpError(400, 'invalid_cursor', '목록 위치를 확인해 주세요.');
+      const rows = (await db.prepare("SELECT path,sha256,size FROM yebaeon_media_paths WHERE path>? AND path<? AND state='active' AND (?='' OR instr(lower(substr(path,?)),lower(?))>0) ORDER BY path LIMIT 61").bind(after, MEDIA_ROOT + folder + '0', q, base.length + 1, q).all()).results;
+      return json({ paths: rows.slice(0, 60), next: rows.length > 60 ? rows[59].path : null });
+    }
+    const after = params.get('after') || '';
     if (after.length > 1024) throw new HttpError(400, 'invalid_cursor', '목록 위치를 확인해 주세요.');
     const rows = (await db.prepare("SELECT path,sha256,size,state FROM yebaeon_media_paths WHERE path>? ORDER BY path LIMIT 501").bind(after).all()).results;
     return json({ paths: rows.slice(0, 500), next: rows.length > 500 ? rows[499].path : null });

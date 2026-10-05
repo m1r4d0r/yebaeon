@@ -61,7 +61,7 @@ export async function mediaRoute(request,env,user,hash,action){
     if(!asset)throw new HttpError(404,'media_not_found','서버에 이미지가 없습니다.');
     const object=await env.FILES.get(asset.objectKey);if(!object)throw new HttpError(503,'media_unavailable','서버 이미지 원본을 읽지 못했습니다.');
     if(object.size!==asset.size)throw new HttpError(503,'media_size_mismatch','서버 이미지 크기 확인에 실패했습니다.');
-    const responseHeaders={...headers,'Content-Type':asset.contentType,'Content-Length':String(asset.size),'X-Yebaeon-SHA256':asset.sha256,'Cache-Control':'private, no-store'};
+    const responseHeaders={...headers,'Content-Type':asset.contentType,'Content-Length':String(asset.size),'X-Yebaeon-SHA256':asset.sha256,'Cache-Control':'private, max-age=31536000, immutable'};
     return request.method==='HEAD'?new Response(null,{headers:responseHeaders}):new Response(object.body,{headers:responseHeaders});
   }
   if(action==='protection'){

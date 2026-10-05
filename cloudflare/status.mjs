@@ -26,7 +26,10 @@ export async function statusRoute(request, env) {
   if(detailed){
     const documentHistory=await query('document-history',`SELECT COUNT(*) AS count, COALESCE(SUM(v.size),0) AS bytes FROM yebaeon_versions v JOIN yebaeon_documents d ON d.id=v.document_id WHERE v.version<>d.current_version`,true);
     const playlistHistory=await query('playlist-history',`SELECT COUNT(*) AS count, COALESCE(SUM(v.size),0) AS bytes FROM yebaeon_playlist_versions v JOIN yebaeon_playlists p ON p.id=v.library_id WHERE v.version<>p.current_version`,true);
-    storage={currentDocuments:{count:totals.documents,bytes:totals.bytes},currentPlaylists:playlists,documentHistory,playlistHistory,trackedBytes:totals.bytes+playlists.bytes+documentHistory.bytes+playlistHistory.bytes};
+    // 이미지: 바이트는 sha 하나에 한 번(중복 경로는 한 번만), 폴더별은 경로 수와 그 경로들이 가리키는 크기.
+    const images=await query('media-summary','SELECT COUNT(*) AS count, COALESCE(SUM(size),0) AS bytes FROM yebaeon_media_assets',true);
+    const folders=await query('media-folders',`SELECT CASE WHEN path>='/Users/Shared/Renewed Vision Media/Images/' AND path<'/Users/Shared/Renewed Vision Media/Images0' THEN 'Images' WHEN path>='/Users/Shared/Renewed Vision Media/ImportedImages/' AND path<'/Users/Shared/Renewed Vision Media/ImportedImages0' THEN 'ImportedImages' WHEN path>='/Users/Shared/Renewed Vision Media/YebaeOn/' AND path<'/Users/Shared/Renewed Vision Media/YebaeOn0' THEN 'YebaeOn' ELSE 'other' END AS folder, COUNT(*) AS count, COALESCE(SUM(size),0) AS bytes FROM yebaeon_media_paths WHERE state='active' GROUP BY folder ORDER BY folder`);
+    storage={currentDocuments:{count:totals.documents,bytes:totals.bytes},currentPlaylists:playlists,documentHistory,playlistHistory,images,imageFolders:folders,trackedBytes:totals.bytes+playlists.bytes+documentHistory.bytes+playlistHistory.bytes+images.bytes};
   }
   console.log(JSON.stringify({event:'d1-read-cost',route:detailed?'status-details':'status',queries:costs}));
   return json({ ...totals,...catalog,playlists:playlists.count,...(storage?{storage}:{}),recent,sync,observedAt:new Date().toISOString() });

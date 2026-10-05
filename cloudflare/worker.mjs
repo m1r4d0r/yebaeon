@@ -18,6 +18,7 @@ import { playlistsRoute } from './playlists.mjs';
 import { documentsRoute } from './documents.mjs';
 import { indexSearch } from './document-search.mjs';
 import { mediaReferencesRoute, mediaRoute } from './media-assets.mjs';
+import { favoritesRoute } from './favorites.mjs';
 import { HttpError, headers, json, method, sameOrigin } from './http.mjs';
 export default {
   async fetch(request, env) {
@@ -38,7 +39,7 @@ export default {
       const admin = /^\/api\/admin(\/trash)?$/.exec(pathname), categories = /^\/api\/categories(?:\/([^/]{1,40}))?$/.exec(pathname), editing = pathname === '/api/editing';
       const appUpdate = /^\/api\/sync\/app(\/download)?$/.exec(pathname);
       const sync2 = /^\/api\/sync\/(devices|changes|manifest|usage|revisions|ledger)(?:\/([0-9a-f-]{32,36})(?:\/(applied|content|resolve))?)?$/.exec(pathname);
-      if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && pathname !== '/api/inventory' && !resource && !route && !playlist && !media && !mediaReferences && !mediaPaths && !admin && !categories && !editing && !dropbox && !sync2 && !appUpdate) throw new HttpError(404, 'not_found', '없는 요청입니다.');
+      if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && pathname !== '/api/inventory' && !resource && !route && !playlist && !media && !mediaReferences && !mediaPaths && !admin && !categories && !editing && pathname !== '/api/favorites' && !dropbox && !sync2 && !appUpdate) throw new HttpError(404, 'not_found', '없는 요청입니다.');
       if (!configured(env)) {
         if (pathname === '/api/session' && request.method === 'GET') return json({ authenticated: false, ready: false });
         throw new HttpError(503, 'setup_required', '서버의 공용 비밀번호 설정이 아직 완료되지 않았습니다.');
@@ -61,6 +62,7 @@ export default {
       if (admin) return admin[1] ? await emptyTrashRoute(request, env, user) : await adminRoute(request, env, user);
       if (categories) return await categoriesRoute(request, env, user, categories[1]);
       if (editing) return await editingRoute(request, env, user);
+      if (pathname === '/api/favorites') return await favoritesRoute(request, env, user);
       if (mediaPaths) return await mediaPathsRoute(request, env, user);
       if (route || playlist) await refreshCategories(env.DB);
       if(dropbox)return await dropboxRoute(request,env,dropbox[1]);

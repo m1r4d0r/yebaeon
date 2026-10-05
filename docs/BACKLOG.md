@@ -56,7 +56,8 @@
 ## 교회 자료
 
 - 정리본 2,902와 Mac 2,884의 차이 기록 (확인)
-- 이미지: 교회 Mac `Images`·`ImportedImages` 복사 → PC에서 `bulk-media.mjs scan/upload` → 서버 3차 뒤 `--register`. 교신 폴더는 `Images`·`ImportedImages`·`YebaeOn` 세 개 (미완)
+- 이미지 일괄 업로드(`Images`·`ImportedImages` → `bulk-media.mjs scan/upload --register`) 완료(사용자 확인 10-05). 서버 그림 수·용량은 현황판 `저장소 자세히`에서 본다
+- Studio 미디어 미리보기 그림(320px 썸네일): 지금은 원본을 브라우저 캐시로 한 번만 받는다. Images 약 600개·300~400MB 기준 썸네일은 장당 15~30KB, 합계 약 10~20MB. 필요하면 처음 본 브라우저가 만들어 R2에 올리는 방식으로(결정 대기)
 - 삭제 5 처리, 보관 7은 마지막. 성탄절 등 보관 원본 누락 기록 (미완)
 - 템플릿 6종 Mac·서버 반영, 미결 25개 카테고리 확정 (미완)
 - 대표 예배를 PP6에서 확인 (미완)
