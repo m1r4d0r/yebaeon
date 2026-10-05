@@ -148,7 +148,7 @@
  // 열 때는 읽기만, 고치기 시작하면 한 줄 쓰고, 저장하거나 다른 문서로 가면 지운다.
  const editing={doc:{id:null,written:false},node:{id:null,written:false}};
  async function release(kind){const e=editing[kind];if(e.id&&e.written){e.written=false;try{await fetch('/api/editing',{method:'DELETE',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({kind,entity:e.id})});}catch(_){}}}
- function notice(kind,others){if(!others?.length)return;const who=others[0];const text=`${who.author}님이 ${ago(who.at)}부터 이 ${kind==='doc'?'문서':'재생목록'}를 편집 중입니다. 늦게 저장한 쪽은 저장되지 않고 초안으로 남습니다.`;if(kind==='doc')status(text);else $('playlistsMessage').textContent=text;}
+ function notice(kind,others){if(!others?.length)return;const who=others[0];const text=`${who.author}님이 ${ago(who.at)}부터 이 ${kind==='doc'?'문서':'재생목록'}를 편집 중입니다. ${kind==='doc'?'늦게 저장한 쪽은 최신 버전 불러오기나 사본 저장을 고릅니다.':'늦게 저장한 쪽의 순서로 덮어쓰고, 무엇이 바뀌었는지 알려 줍니다.'}`;if(kind==='doc')status(text);else $('playlistsMessage').textContent=text;}
  async function opened(kind,id){await release(kind);editing[kind]={id,written:false};if(!id)return;try{notice(kind,(await(await C.api('/editing?'+new URLSearchParams({kind,entity:id}))).json()).others);}catch(_){}}
  async function started(kind,id){const e=editing[kind];if(!id||e.id!==id||e.written)return;e.written=true;try{notice(kind,(await(await C.api('/editing',json('POST',{kind,entity:id}))).json()).others);}catch(_){}}
  window.addEventListener('yebaeonclouddocument',e=>{const doc=e.detail?.doc;opened('doc',doc&&doc.available!==false?doc.id:null);});

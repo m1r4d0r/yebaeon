@@ -18,21 +18,24 @@
  }
  let locked=[],focusBefore=null;
  function lock(value){busy=value;if(value){focusBefore=document.activeElement;locked=[...document.querySelectorAll('main,.topbar,.responsive-nav,dialog,#biblePanel,#mediaDrawer')].map(element=>[element,element.inert]);for(const [element] of locked)element.inert=true;}else{for(const [element,inert] of locked)element.inert=inert;locked=[];focusBefore?.focus();}update();}
- document.addEventListener('keydown',event=>{if(busy){event.preventDefault();event.stopImmediatePropagation();}},true);
+ document.addEventListener('keydown',event=>{if(busy&&!event.target.closest?.('#choiceDialog')){event.preventDefault();event.stopImmediatePropagation();}},true);
  // 문서를 먼저, 순서를 나중에 올린다. 문서 하나가 실패해도 나머지 문서는 저장하고, 실패한 것은 브라우저 초안에 남는다.
+ // 문서 충돌은 그 자리에서 최신 불러오기·사본 저장·나중에를 고르고, 순서 충돌은 덮어쓴 뒤 무엇이 바뀌었는지 마지막에 한꺼번에 보여 준다.
  async function saveAll(){if(busy||!C.needUser())return;
-  failed=false;lock(true);let done=0,total=0;const errors=[];
+  failed=false;lock(true);let done=0,total=0;const errors=[],notes=[];L.takeReports();
   try{
    await C.checkpointDraft();await L.checkpoint();await L.refreshPending();
    const w=work();total=w.docs.length+w.lists.length+(w.current?1:0);if(!total)return;let n=0;
-   for(const record of w.docs){E.status(`서버 저장 ${++n}/${total} · ${base(record.name)}`);try{await C.saveRecord(record);done++;}catch(error){errors.push(`${base(record.name)}: ${error.message}`);}}
+   for(const record of w.docs){E.status(`서버 저장 ${++n}/${total} · ${base(record.name)}`);try{await C.saveRecord(record);done++;}catch(error){if(error.status===409&&error.code==='version_conflict'){try{notes.push(await C.resolveConflict(record));done++;continue;}catch(choice){error=choice;}}errors.push(`${base(record.name)}: ${error.message}`);}}
    // 문서가 하나라도 실패하면 순서는 올리지 않는다(순서가 가리킬 문서 내용이 아직 서버에 없을 수 있다).
    if(errors.length)errors.push('문서 저장 실패로 순서는 저장하지 않았습니다.');
    else{
    for(const record of w.lists){E.status(`서버 저장 ${++n}/${total} · ${record.name} 순서`);try{await L.saveRecord(record);done++;}catch(error){errors.push(`${record.name} 순서: ${error.message}`);}}
    if(w.current){E.status(`서버 저장 ${++n}/${total} · ${L.selectedPlaylist()?.name||''} 순서`);if(await L.save({refresh:false}))done++;else errors.push(`${L.selectedPlaylist()?.name||''} 순서: ${$('playlistsMessage').textContent||'저장 실패'}`);}
    }
-   failed=errors.length>0;
+   failed=errors.length>0;const reports=L.takeReports();
+   if(reports.length)notes.push(...reports.map(r=>`${r.name}: ${r.who} 저장한 순서를 덮어썼습니다.\n  ${r.lines.join('\n  ')}`));
+   if(notes.length)await C.choose(failed?'저장 결과 (일부 실패)':'저장 결과',notes.join('\n\n')+(failed?'\n\n저장하지 못한 것: '+errors.join(' / '):''),[['ok','확인','primary']]);
    E.status(failed?`${done}/${total}개 저장 · 실패 ${errors.length}개 — ${errors.join(' / ')} 남은 변경은 브라우저 초안에 보존됩니다.`:`${done}개 서버 저장 완료`);
   }catch(error){failed=true;E.status(`${done}/${total}개 저장 후 멈춤 · ${error.message} 남은 변경은 브라우저 초안에 보존됩니다.`);}
   finally{lock(false);await L.refreshPending();await window.YebaeonSyncLights.refresh();}
