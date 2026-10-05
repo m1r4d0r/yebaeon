@@ -84,6 +84,7 @@
 - (NSString *)webLink:(NSString *)path;
 - (BOOL)hasLocalDocument:(NSString *)path;       // 문서 폴더에 그 파일이 있나(NFC·NFD 모두)          // Studio에서 그 문서 열기
 - (NSData *)serverBytes:(NSString *)path;        // 차이 창용 서버 바이트
++ (NSData *)comparableBytes:(NSData *)data;      // 차이 창용: 사용 기록·파일 참조 표기·자모 조합을 맞춘 비교용 바이트
 // 마지막 적용 기록({id, at, applied:[…]}) 또는 nil. 되돌리면 그 다음 것이 아니라 nil이 된다(한 단계만).
 - (NSDictionary *)lastApply;
 // 마지막 적용을 되돌린다. 적용 뒤 바뀐 파일은 건너뛴다. PP6가 꺼져 있어야 한다. 반환: {restored:[…], skipped:[…]}

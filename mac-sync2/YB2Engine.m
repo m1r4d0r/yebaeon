@@ -63,28 +63,44 @@ static NSData *UsageNeutral(NSData *data) {
 }
 // 1판(접두사 없음): 사용일·사용 횟수만 뺀 sha. 영수증에 남아 있는 옛 값과 비교할 때만 쓴다.
 static NSString *LegacyNeutral(NSData *data) { return data ? YBHash(UsageNeutral(data)) : nil; }
-// 2판("v2:"): 사용 기록을 빼고, 파일 참조 표기도 맞춘다. 같은 파일을 `file:///Users/Shared/Renewed%20Vision%20Media/…`(PP6가 다시 저장한 꼴)와
-// `/Users/Shared/Renewed Vision Media/…`(평문 경로)로 적은 두 문서는 같은 값이 된다(10-05 실기: 이 차이 하나로 같은 찬양이 "이력 없음"으로 잡힘).
-static NSString *NeutralHash(NSData *data) {
+// 파일 참조 표기 맞추기: 같은 파일을 `file:///Users/Shared/Renewed%20Vision%20Media/…`(PP6가 다시 저장한 꼴)와
+// `/Users/Shared/Renewed Vision Media/…`(평문 경로)로 적은 두 문서를 같은 글로 만든다.
+static NSString *PlainFileReferences(NSString *xml) {
+    static NSRegularExpression *pattern; static dispatch_once_t once;
+    dispatch_once(&once, ^{ pattern = [NSRegularExpression regularExpressionWithPattern:@"(=\\s*[\"'])file://(?:localhost)?(/[^\"'<>]*)" options:0 error:NULL]; });
+    NSMutableString *out = [xml mutableCopy];
+    for (NSTextCheckingResult *match in [[pattern matchesInString:xml options:0 range:NSMakeRange(0, xml.length)] reverseObjectEnumerator]) {
+        NSString *path = [xml substringWithRange:[match rangeAtIndex:2]];
+        NSString *decoded = path.stringByRemovingPercentEncoding ?: path;
+        [out replaceCharactersInRange:match.range withString:[[xml substringWithRange:[match rangeAtIndex:1]] stringByAppendingString:decoded.precomposedStringWithCanonicalMapping]];
+    }
+    return out;
+}
+// 2판("v2:"): 사용 기록을 빼고 파일 참조 표기를 맞춘 sha. 영수증에 남아 있는 2판 값과 비교할 때만 쓴다.
+static NSString *NeutralHashV2(NSData *data) {
     NSData *neutral = UsageNeutral(data); if (!neutral) return nil;
     NSString *xml = Text(neutral);
-    if (xml) {
-        static NSRegularExpression *pattern; static dispatch_once_t once;
-        dispatch_once(&once, ^{ pattern = [NSRegularExpression regularExpressionWithPattern:@"(=\\s*[\"'])file://(?:localhost)?(/[^\"'<>]*)" options:0 error:NULL]; });
-        NSMutableString *out = [xml mutableCopy];
-        for (NSTextCheckingResult *match in [[pattern matchesInString:xml options:0 range:NSMakeRange(0, xml.length)] reverseObjectEnumerator]) {
-            NSString *path = [xml substringWithRange:[match rangeAtIndex:2]];
-            NSString *decoded = path.stringByRemovingPercentEncoding ?: path;
-            [out replaceCharactersInRange:match.range withString:[[xml substringWithRange:[match rangeAtIndex:1]] stringByAppendingString:decoded.precomposedStringWithCanonicalMapping]];
-        }
-        neutral = [out dataUsingEncoding:NSUTF8StringEncoding];
-    }
+    if (xml) neutral = [PlainFileReferences(xml) dataUsingEncoding:NSUTF8StringEncoding];
     return [@"v2:" stringByAppendingString:YBHash(neutral)];
 }
-// 영수증에 적힌 값(1판 또는 2판)과 이 바이트가 같은 내용인가
+// 비교용 글: 사용 기록을 빼고, 파일 참조 표기를 맞추고, 한글 자모 조합(NFD·NFC)을 NFC로 맞춘다.
+// macOS 파일 이름에서 온 경로는 자모가 풀린 꼴(NFD)일 수 있어, 같은 경로가 바이트로는 다르게 적힌다.
+static NSData *ComparableBytes(NSData *data) {
+    NSData *neutral = UsageNeutral(data); if (!neutral) return nil;
+    NSString *xml = Text(neutral); if (!xml) return neutral;
+    return [PlainFileReferences(xml).precomposedStringWithCanonicalMapping dataUsingEncoding:NSUTF8StringEncoding];
+}
+// 3판("v3:"): 비교용 글의 sha. 새로 적는 영수증 값은 이것이다.
+static NSString *NeutralHash(NSData *data) {
+    NSData *comparable = ComparableBytes(data);
+    return comparable ? [@"v3:" stringByAppendingString:YBHash(comparable)] : nil;
+}
+// 영수증에 적힌 값(1·2·3판)과 이 바이트가 같은 내용인가
 static BOOL SameNeutral(NSData *data, NSString *stored) {
     if (!data || !stored.length) return NO;
-    return [stored hasPrefix:@"v2:"] ? [NeutralHash(data) isEqual:stored] : [LegacyNeutral(data) isEqual:stored];
+    if ([stored hasPrefix:@"v3:"]) return [NeutralHash(data) isEqual:stored];
+    if ([stored hasPrefix:@"v2:"]) return [NeutralHashV2(data) isEqual:stored];
+    return [LegacyNeutral(data) isEqual:stored];
 }
 // {lastDateUsed, usedCount} (있는 것만)
 static NSDictionary *UsageOf(NSData *data) {
@@ -345,7 +361,7 @@ static BOOL ImageExists(NSString *path) {
                 }
                 if (macEdited) {
                     NSData *bytes = YBReadSafeFile(self.root, path, NULL);
-                    NSString *neutral = NeutralHash(bytes), *base = knownDoc[@"neutral"];   // base는 1판 또는 2판
+                    NSString *neutral = NeutralHash(bytes), *base = knownDoc[@"neutral"];   // base는 1·2·3판 중 하나
                     // 1차 영수증에는 neutral이 없다. 서버가 그대로면 그 버전 바이트로 한 번 계산한다.
                     if (!base && serverSame) { @try { base = NeutralHash([self.server download:doc]); } @catch (NSException *e) {} }
                     if (neutral && SameNeutral(bytes, base)) {
@@ -837,7 +853,7 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
         if (imageFill.count >= 1000) break;
     }
     NSString *at = [[NSISO8601DateFormatter new] stringFromDate:NSDate.date];
-    return @{@"result": @{@"at": at, @"macDeleted": macDeleted, @"collisions": collisions, @"external": external, @"imageFill": imageFill}, @"remember": remember, @"newest": @(newest)};
+    return @{@"result": @{@"at": at, @"remembered": @(remember.count), @"macDeleted": macDeleted, @"collisions": collisions, @"external": external, @"imageFill": imageFill}, @"remember": remember, @"newest": @(newest)};
 }
 // 전체 확인 결과와 처음 대조로 같다고 본 문서의 영수증을 한 번에 적는다. 그 사이 영수증이 생긴 문서는 건드리지 않는다.
 - (NSDictionary *)saveFullCheck:(NSDictionary *)scan {
@@ -962,6 +978,7 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     YBRequire([data writeToFile:path options:NSDataWritingWithoutOverwriting error:NULL], @"이미지를 쓰지 못했습니다.");
     [self dropFromFullCheck:@"imageFill" path:path];
 }
++ (NSData *)comparableBytes:(NSData *)data { return ComparableBytes(data); }
 - (NSData *)serverBytes:(NSString *)path {
     NSDictionary *entry = [self.receipt ledger:path]; YBRequire([entry[@"id"] length] > 0, @"서버 장부에 없는 문서입니다.");
     return [self.server download:[self serverDocument:entry[@"id"]]];

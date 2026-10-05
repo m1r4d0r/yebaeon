@@ -43,7 +43,7 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) NSDictionary *pendingRelease;           // 서버의 새 빌드(지금보다 새로울 때만)
 @property(nonatomic) NSInteger dismissedBuild;        // [나중에]를 누른 빌드(이번 실행 동안 숨김)
 @property(nonatomic) NSDate *lastUpdateCheck;
-@property(nonatomic) NSMenuItem *statusUpdateItem, *statusLineItem;
+@property(nonatomic) NSMenuItem *statusUpdateItem, *statusLineItem, *appUpdateItem;
 @property(nonatomic) NSDate *lastCycleAt;             // 마지막으로 서버를 확인한 때(메뉴 막대 상태 줄)               // 전체 확인이 뒤에서 도는 중(데일리 창은 잠그지 않는다)
 @property(nonatomic) NSUInteger startupAttempt;
 @property(nonatomic) dispatch_queue_t work;
@@ -70,7 +70,7 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 - (void)rebuildEngine {
     self.engine = [[YB2Engine alloc] initWithServer:self.server root:self.root playlist:self.playlistURL profile:self.profile];
     __weak YB2App *weak = self;
-    self.engine.progress = ^(NSString *message) { dispatch_async(dispatch_get_main_queue(), ^{ weak.statusLabel.stringValue = message; }); };
+    self.engine.progress = ^(NSString *message) { dispatch_async(dispatch_get_main_queue(), ^{ weak.statusLabel.stringValue = message; if (weak.checking) weak.organizerStatus.stringValue = message; }); };
     self.rootLabel.stringValue = [@"문서 폴더  " stringByAppendingString:self.root];
     self.playlistLabel.stringValue = [@"재생목록  " stringByAppendingString:self.playlistURL.path];
 }
@@ -181,8 +181,10 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     NSString *blocked = self.busy ? @"작업 중" : self.checking ? @"전체 확인 중" : YBPresenterRunning() ? @"PP6를 닫은 뒤" : nil;
     self.updateButton.enabled = self.pendingRelease && !blocked;
     self.updateButton.toolTip = blocked ? [blocked stringByAppendingString:@" 설치할 수 있습니다."] : nil;
-    self.statusUpdateItem.hidden = !self.pendingRelease;
-    self.statusUpdateItem.title = self.pendingRelease ? [NSString stringWithFormat:@"새 버전 설치… (빌드 %@)", self.pendingRelease[@"build"]] : @"";
+    for (NSMenuItem *item in @[self.statusUpdateItem ?: [NSMenuItem new], self.appUpdateItem ?: [NSMenuItem new]]) {
+        item.hidden = !self.pendingRelease;
+        item.title = self.pendingRelease ? [NSString stringWithFormat:@"새 버전 설치… (빌드 %@)", self.pendingRelease[@"build"]] : @"";
+    }
     [self refreshStatusItem];
 }
 - (void)dismissUpdate:(id)sender { self.dismissedBuild = [self.pendingRelease[@"build"] integerValue]; [self refreshUpdateBar]; }
@@ -208,7 +210,14 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 - (void)openStudio:(id)sender { [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:kOrigin]]; }
 - (void)buildMenu {
     NSMenu *bar = [NSMenu new]; NSMenuItem *appItem = [NSMenuItem new]; [bar addItem:appItem];
+    // 프로그램 이름 메뉴: 버전·업데이트·Studio는 메뉴 막대 아이콘 메뉴와 같은 것을 여기에도 둔다(아이콘 메뉴는 창이 닫혀 있을 때 쓴다).
     NSMenu *app = [NSMenu new];
+    NSMenuItem *version = [app addItemWithTitle:[NSString stringWithFormat:@"버전: 빌드 %ld", (long)[YB2Update currentBuild]] action:nil keyEquivalent:@""]; version.enabled = NO;
+    [app addItemWithTitle:@"업데이트 확인" action:@selector(checkUpdateNow:) keyEquivalent:@""];
+    self.appUpdateItem = [app addItemWithTitle:@"새 버전 설치…" action:@selector(installUpdate:) keyEquivalent:@""]; self.appUpdateItem.hidden = !self.pendingRelease;
+    [app addItem:NSMenuItem.separatorItem];
+    [app addItemWithTitle:@"예배온 Studio 열기" action:@selector(openStudio:) keyEquivalent:@""];
+    [app addItem:NSMenuItem.separatorItem];
     [app addItemWithTitle:@"로그아웃" action:@selector(logout:) keyEquivalent:@""];
     [app addItem:NSMenuItem.separatorItem];
     [app addItemWithTitle:@"예배온 Sync 2 종료" action:@selector(terminate:) keyEquivalent:@"q"];
@@ -501,19 +510,39 @@ static NSString *Summary(NSDictionary *result) {
 #pragma mark - 정리 창
 
 // 파일 바이트에서 처음 다른 곳(앞뒤 60자). 슬라이드 내용이 같은데 다르다고 나올 때 원인을 찾는 데 쓴다.
-static NSString *FirstDifference(NSData *local, NSData *remote) {
+static NSString *DifferenceText(NSString *label, NSData *local, NSData *remote) {
     NSString *a = local ? [[NSString alloc] initWithData:local encoding:NSUTF8StringEncoding] : @"", *b = remote ? [[NSString alloc] initWithData:remote encoding:NSUTF8StringEncoding] : @"";
-    if (!a || !b) return @"파일 첫 차이: 글자로 읽을 수 없음";
-    if ([a isEqual:b]) return @"파일 바이트가 같습니다.";
+    if (!a || !b) return [label stringByAppendingString:@": 글자로 읽을 수 없음"];
+    if ([a isEqual:b]) return [label stringByAppendingString:@": 같음"];
     NSUInteger i = 0, n = MIN(a.length, b.length);
     while (i < n && [a characterAtIndex:i] == [b characterAtIndex:i]) i++;
     NSUInteger start = i > 60 ? i - 60 : 0;
     NSString *(^cut)(NSString *) = ^NSString *(NSString *text) { return start >= text.length ? @"(끝)" : [[text substringWithRange:NSMakeRange(start, MIN(140, text.length - start))] stringByReplacingOccurrencesOfString:@"\n" withString:@"⏎"]; };
-    return [NSString stringWithFormat:@"파일 첫 차이(%lu번째 글자, 크기 Mac %lu · 서버 %lu)\nMac: …%@\n서버: …%@", (unsigned long)i, (unsigned long)local.length, (unsigned long)remote.length, cut(a), cut(b)];
+    return [NSString stringWithFormat:@"%@(%lu번째 글자, 크기 Mac %lu · 서버 %lu)\nMac: …%@\n서버: …%@", label, (unsigned long)i, (unsigned long)local.length, (unsigned long)remote.length, cut(a), cut(b)];
+}
+// 파일 그대로의 첫 차이와, Sync가 같은지 판단할 때 쓰는 비교용 글의 첫 차이
+static NSString *FirstDifference(NSData *local, NSData *remote) {
+    if (local && remote && [local isEqual:remote]) return @"파일 바이트가 같습니다.";
+    return [NSString stringWithFormat:@"%@\n\n%@", DifferenceText(@"파일 첫 차이", local, remote),
+            DifferenceText(@"사용 기록·경로 표기·자모 조합을 맞춘 뒤 첫 차이", [YB2Engine comparableBytes:local], [YB2Engine comparableBytes:remote])];
+}
+// 서버·영수증의 UTC 시각(ISO 8601)을 이 Mac의 시간대로: 2026-10-05 18:38
+static NSString *LocalTime(NSString *iso) {
+    if (!iso.length) return @"";
+    static NSDateFormatter *output; static NSISO8601DateFormatter *plain, *fractional; static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        output = [NSDateFormatter new]; output.dateFormat = @"yyyy-MM-dd HH:mm"; output.timeZone = NSTimeZone.localTimeZone;
+        plain = [NSISO8601DateFormatter new];
+        fractional = [NSISO8601DateFormatter new]; fractional.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
+    });
+    NSString *text = [iso stringByReplacingOccurrencesOfString:@" " withString:@"T"];
+    if (![text hasSuffix:@"Z"] && [text rangeOfString:@"+"].location == NSNotFound) text = [text stringByAppendingString:@"Z"];
+    NSDate *date = [plain dateFromString:text] ?: [fractional dateFromString:text];
+    return date ? [output stringFromDate:date] : [iso stringByReplacingOccurrencesOfString:@"T" withString:@" "];
 }
 
 
-static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"Mac에서 지움", *const kListArchived = @"서버에서 보관됨",
+static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"Mac에서 지움",
                 *const kListCollision = @"같은 이름, 다른 내용", *const kListExternal = @"외부 참조", *const kListImage = @"이미지 보충", *const kListNumbered = @"번호 붙임";
 - (NSArray *)reviewItems {
     NSMutableArray *items = [NSMutableArray array];
@@ -522,19 +551,24 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
         if ([status isEqual:@"hold"] && [row[@"nodeID"] length]) [items addObject:@{@"list": kListHold, @"title": row[@"name"] ?: @"", @"detail": row[@"reason"] ?: @""}];
         for (NSDictionary *hold in row[@"actionHolds"]) [items addObject:@{@"list": kListHold, @"title": hold[@"path"], @"path": hold[@"path"], @"detail": hold[@"reason"] ?: @""}];
         if ([row[@"macDeleted"] boolValue]) [items addObject:@{@"list": kListMacDeleted, @"title": row[@"name"] ?: @"", @"detail": @"예배 · 데일리 창에서 체크하면 다시 받습니다"}];
-        if ([status isEqual:@"archived"]) [items addObject:@{@"list": kListArchived, @"title": row[@"name"] ?: @"", @"detail": [row[@"reason"] stringByAppendingString:@" · Mac에 그대로 둡니다"]}];
     }
     NSDictionary *check = [self.engine lastFullCheck];
     for (NSDictionary *item in check[@"macDeleted"]) [items addObject:@{@"list": kListMacDeleted, @"title": item[@"path"], @"path": item[@"path"], @"detail": @"문서 · 서버에는 사용 중", @"item": item}];
     for (NSDictionary *item in check[@"collisions"]) [items addObject:@{@"list": kListCollision, @"title": item[@"path"], @"path": item[@"path"], @"detail": @"Mac과 서버의 내용이 다르고 같은 이력이 없음", @"item": item}];
-    for (NSDictionary *item in check[@"external"]) [items addObject:@{@"list": kListExternal, @"title": item[@"path"], @"path": item[@"path"], @"detail": [item[@"references"] componentsJoinedByString:@", "] ?: @"", @"item": item}];
+    // 외부 참조: 동영상은 아직 정리하지 않으므로 이미지 등만 보여 준다.
+    NSSet *videos = [NSSet setWithArray:@[@"mov", @"mp4", @"m4v", @"avi", @"wmv", @"mpg", @"mpeg", @"mkv", @"flv", @"webm", @"3gp", @"mts", @"m2ts"]];
+    for (NSDictionary *item in check[@"external"]) {
+        NSArray *references = [item[@"references"] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSString *reference, NSDictionary *b) {
+            return ![videos containsObject:reference.pathExtension.lowercaseString]; }]];
+        if (references.count) [items addObject:@{@"list": kListExternal, @"title": item[@"path"], @"path": item[@"path"], @"detail": [references componentsJoinedByString:@", "], @"item": item}];
+    }
     for (NSDictionary *item in check[@"imageFill"]) [items addObject:@{@"list": kListImage, @"title": [item[@"path"] lastPathComponent], @"path": item[@"path"], @"detail": @"서버에 있고 이 Mac에 없음", @"item": item}];
-    for (NSDictionary *item in [self.engine numberedLog]) [items addObject:@{@"list": kListNumbered, @"title": item[@"path"], @"path": item[@"target"], @"detail": [NSString stringWithFormat:@"Mac 파일 → %@ · %@", item[@"target"], item[@"at"]]}];
+    for (NSDictionary *item in [self.engine numberedLog]) [items addObject:@{@"list": kListNumbered, @"title": item[@"path"], @"path": item[@"target"], @"detail": [NSString stringWithFormat:@"Mac 파일 → %@ · %@", item[@"target"], LocalTime(item[@"at"])]}];
     return items;
 }
 - (void)refreshReview {
     NSUInteger count = 0;
-    for (NSDictionary *item in [self reviewItems]) if (![item[@"list"] isEqual:kListArchived] && ![item[@"list"] isEqual:kListNumbered]) count++;
+    for (NSDictionary *item in [self reviewItems]) if (![item[@"list"] isEqual:kListNumbered]) count++;
     self.reviewButton.hidden = count == 0;
     self.reviewButton.title = [NSString stringWithFormat:@"확인 필요 %lu · 정리 열기", (unsigned long)count];
     if (self.organizer.visible) [self reloadOrganizer];
@@ -602,8 +636,9 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     self.organizerRows = [[self reviewItems] mutableCopy];
     [self.organizerTable reloadData];
     NSDictionary *check = [self.engine lastFullCheck], *last = [self.engine lastApply];
-    NSString *at = check[@"at"] ? [check[@"at"] stringByReplacingOccurrencesOfString:@"T" withString:@" "] : @"아직 없음";
-    self.organizerStatus.stringValue = [NSString stringWithFormat:@"지난 전체 확인 %@%@", at, last ? [NSString stringWithFormat:@" · 되돌릴 수 있는 적용 %@", [last[@"at"] stringByReplacingOccurrencesOfString:@"T" withString:@" "]] : @""];
+    NSString *at = check[@"at"] ? LocalTime(check[@"at"]) : @"아직 없음";
+    NSString *counts = check[@"at"] ? [NSString stringWithFormat:@" · 처음 대조로 같음 %@ · 확인 필요 %lu", check[@"remembered"] ?: @"-", (unsigned long)[check[@"collisions"] count] + [check[@"macDeleted"] count]] : @"";
+    if (!self.checking) self.organizerStatus.stringValue = [NSString stringWithFormat:@"지난 전체 확인 %@%@%@", at, counts, last ? [NSString stringWithFormat:@" · 되돌릴 수 있는 적용 %@", LocalTime(last[@"at"])] : @""];
     [self refreshOrganizerButtons];
 }
 - (NSDictionary *)selectedReview {
@@ -648,7 +683,7 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     NSDictionary *last = [self.engine lastApply];
     if (!last) { [self alert:@"되돌릴 적용이 없습니다" text:@"가장 최근 적용 하나만 되돌릴 수 있고, 이미 되돌렸으면 다시 할 수 없습니다."]; return; }
     NSAlert *confirm = [NSAlert new]; confirm.messageText = @"마지막 적용을 되돌릴까요?";
-    confirm.informativeText = [NSString stringWithFormat:@"%@\n%@\n\n적용 뒤 다시 바뀐 파일은 건너뜁니다. 적용 때 새로 받은 문서는 macOS 휴지통으로 옮깁니다. PP6를 종료해 주세요.", [last[@"at"] stringByReplacingOccurrencesOfString:@"T" withString:@" "], [last[@"applied"] componentsJoinedByString:@", "]];
+    confirm.informativeText = [NSString stringWithFormat:@"%@\n%@\n\n적용 뒤 다시 바뀐 파일은 건너뜁니다. 적용 때 새로 받은 문서는 macOS 휴지통으로 옮깁니다. PP6를 종료해 주세요.", LocalTime(last[@"at"]), [last[@"applied"] componentsJoinedByString:@", "]];
     [confirm addButtonWithTitle:@"되돌리기"]; [confirm addButtonWithTitle:@"취소"];
     if ([confirm runModal] != NSAlertFirstButtonReturn) return;
     [self runOrganizer:@"되돌리는 중" task:^id{ return [self.engine undoLastApply]; } done:^(NSDictionary *result) {
@@ -668,11 +703,14 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
             NSData *local = YBReadSafeFile(self.root, path, NULL), *remote = [self.engine serverBytes:path];
             NSDictionary *a = local ? PP6ParseDocumentData(local, path, @[], @{}, @[], @{}, YES) : nil, *b = remote ? PP6ParseDocumentData(remote, path, @[], @{}, @[], @{}, YES) : nil;
             YBRequire(![a[@"parseError"] length] && ![b[@"parseError"] length], @"문서 내용을 분석하지 못했습니다.");
-            return @{@"local": a ?: @{}, @"remote": b ?: @{}, @"bytes": FirstDifference(local, remote)};
+            return @{@"local": a ?: @{}, @"remote": b ?: @{}, @"bytes": FirstDifference(local, remote), @"localFile": local ?: NSNull.null, @"remoteFile": remote ?: NSNull.null};
         } done:^(NSDictionary *result) {
             NSAlert *alert = [NSAlert new]; alert.messageText = [@"문서 비교 · " stringByAppendingString:path];
             alert.informativeText = [@"슬라이드를 골라 양쪽 내용을 보세요. 정하는 것은 정리 창 버튼으로 합니다.\n\n" stringByAppendingString:result[@"bytes"]];
-            alert.accessoryView = [[YBDocumentComparison alloc] initWithLocal:result[@"local"] remote:result[@"remote"]];
+            YBDocumentComparison *comparison = [[YBDocumentComparison alloc] initWithLocal:result[@"local"] remote:result[@"remote"]];
+            comparison.localFile = [result[@"localFile"] isKindOfClass:NSData.class] ? result[@"localFile"] : nil;
+            comparison.remoteFile = [result[@"remoteFile"] isKindOfClass:NSData.class] ? result[@"remoteFile"] : nil;
+            alert.accessoryView = comparison;
             [alert addButtonWithTitle:@"닫기"]; [alert runModal];
         }];
         return;
@@ -861,7 +899,7 @@ static NSString *DetailText(NSDictionary *row) {
     if ([identifier isEqual:@"name"]) return row[@"name"];
     if ([identifier isEqual:@"status"]) return StatusText(row);
     NSString *at = row[@"updatedAt"], *by = row[@"updatedBy"];
-    return at.length ? [NSString stringWithFormat:@"%@ · %@", by ?: @"", [at stringByReplacingOccurrencesOfString:@"T" withString:@" "]] : @"";
+    return at.length ? [NSString stringWithFormat:@"%@ · %@", by ?: @"", LocalTime(at)] : @"";
 }
 - (void)tableView:(NSTableView *)table setObjectValue:(id)value forTableColumn:(NSTableColumn *)column row:(NSInteger)index {
     if (table == self.organizerTable) return;
