@@ -110,7 +110,8 @@
 - 원문은 `docs/manual/NN-<id>.md`(머리말 title·group·lede·admin) 한 곳. 빌드(`scripts/build-manual.mjs`)가 `dist/manual/`에 화면(index.html + `/manual.js`·`/manual.css`), 페이지별 `<id>.md`, 전체 `llms-full.txt`, 목록 `llms.txt`, 그림 `img/`를 만든다. 없는 그림을 가리키면 빌드가 멈춘다.
 - 설명서는 정적 파일이라 입장 없이도 열린다(AI가 주소로 읽으려면 필요). Studio에서는 입장 뒤 위쪽 `?`가 새 탭으로 연다. 옛 단축키 창은 없애고 설명서 ‘단축키’ 페이지로 옮겼다.
 - 그림은 `npm run build && node scripts/manual-shots.cjs [이름...]`로 다시 찍는다. 빌드된 Studio와 로컬 Worker 모사(Miniflare)에 지어낸 예시 자료를 넣어 찍고, 운영 서버는 치지 않는다. 드롭박스 목록만 흉내 낸다. 문서 저장 충돌 창은 이 방식으로 재현하지 못해 사진이 없다.
-- Sync 2(Mac 앱) 화면은 자동으로 찍지 못했다. 교회 Mac 화면이나 macOS CI 실행 캡처로 채울 자리를 설명서에 표시해 두었다.
+- Sync 2 창 그림은 `Verify Mac Sync 2`가 찍는다: 캡처 전용 빌드(`-DYB2_MANUAL_CAPTURE`, 배포 앱과 별개)가 로컬 Worker와 예시 자료(`mac-sync2/YB2Capture.m`)에 붙어 창을 PNG로 저장한다(`mac-sync2/capture.command`). 작업 브랜치에서 수동 실행하면 `manual-shots` job이 그림을 그 브랜치의 `docs/manual/img/sync-*.png`로 올린다(main에서는 안 돎). 실패해도 앱 검사·배포는 계속된다.
+- 그림을 찍다 찾은 Sync 2 결함: 고른 줄의 ‘바뀐 것’ 글씨가 파란 바탕에 파란색이라 안 보이던 것을 흰 글씨로 고쳤다(교회 Mac 확인 전).
 - 검사: Node 86개(설명서 빌드 검사 추가), 브라우저 7종(`responsive`의 `?` 확인을 설명서 열기로), `deploy:check` 통과.
 
 ## 다음 세 가지
