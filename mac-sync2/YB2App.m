@@ -138,14 +138,16 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     NSButton *studio = Button(@"Studio 열기", NSMakeRect(w - 106, h - 34, 90, 24), self, @selector(openStudio:));
     studio.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin; [content addSubview:studio];
     // 새 버전 줄(표 바로 위). 보일 때만 표를 그만큼 줄인다.
-    self.updateBar = [[NSBox alloc] initWithFrame:NSMakeRect(16, h - 120, w - 32, 32)];
+    self.updateBar = [[NSBox alloc] initWithFrame:NSMakeRect(16, h - 122, w - 32, 34)]; self.updateBar.contentViewMargins = NSZeroSize;
     self.updateBar.boxType = NSBoxCustom; self.updateBar.fillColor = [NSColor colorWithCalibratedRed:1 green:0.965 blue:0.8 alpha:1];
     self.updateBar.borderColor = [NSColor colorWithCalibratedRed:0.9 green:0.81 blue:0.42 alpha:1]; self.updateBar.cornerRadius = 4; self.updateBar.titlePosition = NSNoTitle;
     self.updateBar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin; self.updateBar.hidden = YES;
-    NSView *bar = self.updateBar.contentView; CGFloat bw = w - 40;
-    self.updateLabel = Label(@"", NSMakeRect(6, 5, bw - 220, 18), 12); self.updateLabel.autoresizingMask = NSViewWidthSizable;
-    NSButton *later = Button(@"나중에", NSMakeRect(bw - 206, 0, 80, 26), self, @selector(dismissUpdate:));
-    self.updateButton = Button(@"지금 설치", NSMakeRect(bw - 120, 0, 110, 26), self, @selector(installUpdate:));
+    // 버튼이 칸 안에 다 보이도록 안쪽 여백 없이 높이 34에 28짜리 버튼을 가운데 둔다.
+    NSView *bar = self.updateBar.contentView; CGFloat bw = w - 32;
+    self.updateLabel = Label(@"", NSMakeRect(10, 8, bw - 230, 18), 12); self.updateLabel.autoresizingMask = NSViewWidthSizable;
+    self.updateLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    NSButton *later = Button(@"나중에", NSMakeRect(bw - 210, 3, 86, 28), self, @selector(dismissUpdate:));
+    self.updateButton = Button(@"지금 설치", NSMakeRect(bw - 118, 3, 110, 28), self, @selector(installUpdate:));
     later.autoresizingMask = self.updateButton.autoresizingMask = NSViewMinXMargin;
     [bar addSubview:self.updateLabel]; [bar addSubview:later]; [bar addSubview:self.updateButton];
     [content addSubview:self.updateBar];
@@ -178,6 +180,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     }
     NSString *notes = [self.pendingRelease[@"notes"] length] ? [@" · " stringByAppendingString:self.pendingRelease[@"notes"]] : @"";
     self.updateLabel.stringValue = self.pendingRelease ? [NSString stringWithFormat:@"새 버전 있음 · 빌드 %@ (지금 빌드 %ld)%@", self.pendingRelease[@"build"], (long)[YB2Update currentBuild], notes] : @"";
+    self.updateLabel.toolTip = self.updateLabel.stringValue;
     NSString *blocked = self.busy ? @"작업 중" : self.checking ? @"전체 확인 중" : YBPresenterRunning() ? @"PP6를 닫은 뒤" : nil;
     self.updateButton.enabled = self.pendingRelease && !blocked;
     self.updateButton.toolTip = blocked ? [blocked stringByAppendingString:@" 설치할 수 있습니다."] : nil;
