@@ -105,9 +105,9 @@
         ctx.fillStyle=isBackground?'#202a39':'rgba(37,49,65,.7)';ctx.fillRect(box.x,box.y,box.w,box.h);
         ctx.fillStyle='#99acc7';ctx.font='30px "Malgun Gothic", sans-serif';ctx.textBaseline='top';ctx.fillText(reason,box.x+25,box.y+25,Math.max(1,box.w-50));ctx.font='24px "Malgun Gothic", sans-serif';ctx.fillText(name,box.x+25,box.y+70,Math.max(1,box.w-50));
       } else {
-        // scaleBehavior: 0=맞추기, 2=늘이기, 그 밖=채우기로 근사한다(PP6 화면과 대조 전).
+        // scaleBehavior: 0=맞추기, 1=채우기, 3=늘이기(교회 PP6에서 확인). 뜻을 모르는 2는 채우기로 그린다.
         const behavior=P.attr(element,'scaleBehavior'),scale=behavior==='0'?Math.min(box.w/result.width,box.h/result.height):Math.max(box.w/result.width,box.h/result.height);
-        const w=behavior==='2'?box.w:result.width*scale,h=behavior==='2'?box.h:result.height*scale;
+        const w=behavior==='3'?box.w:result.width*scale,h=behavior==='3'?box.h:result.height*scale;
         ctx.globalAlpha=Math.max(0,Math.min(1,Number(P.attr(element,'opacity','1'))));
         ctx.translate(box.x+box.w/2,box.y+box.h/2);ctx.rotate(Number(P.attr(element,'rotation','0'))*Math.PI/180);
         ctx.scale(P.attr(element,'flippedHorizontally')==='true'?-1:1,P.attr(element,'flippedVertically')==='true'?-1:1);
