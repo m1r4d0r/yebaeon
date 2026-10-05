@@ -542,7 +542,7 @@ static NSString *LocalTime(NSString *iso) {
 }
 
 
-static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"Mac에서 지움", *const kListArchived = @"서버에서 보관됨",
+static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"Mac에서 지움",
                 *const kListCollision = @"같은 이름, 다른 내용", *const kListExternal = @"외부 참조", *const kListImage = @"이미지 보충", *const kListNumbered = @"번호 붙임";
 - (NSArray *)reviewItems {
     NSMutableArray *items = [NSMutableArray array];
@@ -551,19 +551,24 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
         if ([status isEqual:@"hold"] && [row[@"nodeID"] length]) [items addObject:@{@"list": kListHold, @"title": row[@"name"] ?: @"", @"detail": row[@"reason"] ?: @""}];
         for (NSDictionary *hold in row[@"actionHolds"]) [items addObject:@{@"list": kListHold, @"title": hold[@"path"], @"path": hold[@"path"], @"detail": hold[@"reason"] ?: @""}];
         if ([row[@"macDeleted"] boolValue]) [items addObject:@{@"list": kListMacDeleted, @"title": row[@"name"] ?: @"", @"detail": @"예배 · 데일리 창에서 체크하면 다시 받습니다"}];
-        if ([status isEqual:@"archived"]) [items addObject:@{@"list": kListArchived, @"title": row[@"name"] ?: @"", @"detail": [row[@"reason"] stringByAppendingString:@" · Mac에 그대로 둡니다"]}];
     }
     NSDictionary *check = [self.engine lastFullCheck];
     for (NSDictionary *item in check[@"macDeleted"]) [items addObject:@{@"list": kListMacDeleted, @"title": item[@"path"], @"path": item[@"path"], @"detail": @"문서 · 서버에는 사용 중", @"item": item}];
     for (NSDictionary *item in check[@"collisions"]) [items addObject:@{@"list": kListCollision, @"title": item[@"path"], @"path": item[@"path"], @"detail": @"Mac과 서버의 내용이 다르고 같은 이력이 없음", @"item": item}];
-    for (NSDictionary *item in check[@"external"]) [items addObject:@{@"list": kListExternal, @"title": item[@"path"], @"path": item[@"path"], @"detail": [item[@"references"] componentsJoinedByString:@", "] ?: @"", @"item": item}];
+    // 외부 참조: 동영상은 아직 정리하지 않으므로 이미지 등만 보여 준다.
+    NSSet *videos = [NSSet setWithArray:@[@"mov", @"mp4", @"m4v", @"avi", @"wmv", @"mpg", @"mpeg", @"mkv", @"flv", @"webm", @"3gp", @"mts", @"m2ts"]];
+    for (NSDictionary *item in check[@"external"]) {
+        NSArray *references = [item[@"references"] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSString *reference, NSDictionary *b) {
+            return ![videos containsObject:reference.pathExtension.lowercaseString]; }]];
+        if (references.count) [items addObject:@{@"list": kListExternal, @"title": item[@"path"], @"path": item[@"path"], @"detail": [references componentsJoinedByString:@", "], @"item": item}];
+    }
     for (NSDictionary *item in check[@"imageFill"]) [items addObject:@{@"list": kListImage, @"title": [item[@"path"] lastPathComponent], @"path": item[@"path"], @"detail": @"서버에 있고 이 Mac에 없음", @"item": item}];
     for (NSDictionary *item in [self.engine numberedLog]) [items addObject:@{@"list": kListNumbered, @"title": item[@"path"], @"path": item[@"target"], @"detail": [NSString stringWithFormat:@"Mac 파일 → %@ · %@", item[@"target"], LocalTime(item[@"at"])]}];
     return items;
 }
 - (void)refreshReview {
     NSUInteger count = 0;
-    for (NSDictionary *item in [self reviewItems]) if (![item[@"list"] isEqual:kListArchived] && ![item[@"list"] isEqual:kListNumbered]) count++;
+    for (NSDictionary *item in [self reviewItems]) if (![item[@"list"] isEqual:kListNumbered]) count++;
     self.reviewButton.hidden = count == 0;
     self.reviewButton.title = [NSString stringWithFormat:@"확인 필요 %lu · 정리 열기", (unsigned long)count];
     if (self.organizer.visible) [self reloadOrganizer];
@@ -698,11 +703,14 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
             NSData *local = YBReadSafeFile(self.root, path, NULL), *remote = [self.engine serverBytes:path];
             NSDictionary *a = local ? PP6ParseDocumentData(local, path, @[], @{}, @[], @{}, YES) : nil, *b = remote ? PP6ParseDocumentData(remote, path, @[], @{}, @[], @{}, YES) : nil;
             YBRequire(![a[@"parseError"] length] && ![b[@"parseError"] length], @"문서 내용을 분석하지 못했습니다.");
-            return @{@"local": a ?: @{}, @"remote": b ?: @{}, @"bytes": FirstDifference(local, remote)};
+            return @{@"local": a ?: @{}, @"remote": b ?: @{}, @"bytes": FirstDifference(local, remote), @"localFile": local ?: NSNull.null, @"remoteFile": remote ?: NSNull.null};
         } done:^(NSDictionary *result) {
             NSAlert *alert = [NSAlert new]; alert.messageText = [@"문서 비교 · " stringByAppendingString:path];
             alert.informativeText = [@"슬라이드를 골라 양쪽 내용을 보세요. 정하는 것은 정리 창 버튼으로 합니다.\n\n" stringByAppendingString:result[@"bytes"]];
-            alert.accessoryView = [[YBDocumentComparison alloc] initWithLocal:result[@"local"] remote:result[@"remote"]];
+            YBDocumentComparison *comparison = [[YBDocumentComparison alloc] initWithLocal:result[@"local"] remote:result[@"remote"]];
+            comparison.localFile = [result[@"localFile"] isKindOfClass:NSData.class] ? result[@"localFile"] : nil;
+            comparison.remoteFile = [result[@"remoteFile"] isKindOfClass:NSData.class] ? result[@"remoteFile"] : nil;
+            alert.accessoryView = comparison;
             [alert addButtonWithTitle:@"닫기"]; [alert runModal];
         }];
         return;

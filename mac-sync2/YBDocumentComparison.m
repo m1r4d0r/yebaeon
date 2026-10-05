@@ -47,6 +47,14 @@ static NSString *SlideText(NSDictionary *slide) {
     }
     return [lines componentsJoinedByString:@"\n"];
 }
+// 복사용: 화면 글에 더해 글상자마다 RTF 원문을 붙인다(서식 차이를 글자 단위로 보려고).
+static NSString *SlideCode(NSString *side,NSDictionary *slide) {
+    NSMutableArray *parts=[NSMutableArray arrayWithObjects:[NSString stringWithFormat:@"===== %@ · %@ =====",side,slide.count?[NSString stringWithFormat:@"%@장 %@",slide[@"index"],slide[@"groupName"] ?: @""]:@"슬라이드 없음"],SlideText(slide),nil];
+    NSUInteger i=0;for(NSDictionary *t in slide[@"texts"]){NSData *data=[[NSData alloc] initWithBase64EncodedString:t[@"rtfBase64"] ?: @"" options:NSDataBase64DecodingIgnoreUnknownCharacters];
+        NSString *rtf=data?([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding]):@"";
+        [parts addObject:[NSString stringWithFormat:@"\n--- 글상자 %lu RTF 원문 ---\n%@",(unsigned long)++i,rtf ?: @""]];}
+    return [parts componentsJoinedByString:@"\n"];
+}
 static NSRect SlideRect(NSString *value) {
     NSString *clean=[[value ?: @"" stringByReplacingOccurrencesOfString:@"{" withString:@""] stringByReplacingOccurrencesOfString:@"}" withString:@""];
     NSArray *parts=[[clean stringByReplacingOccurrencesOfString:@"," withString:@" "] componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];NSMutableArray *numbers=[NSMutableArray array];for(NSString *part in parts)if(part.length)[numbers addObject:part];
@@ -83,14 +91,26 @@ static NSImage *SlideImage(NSDictionary *doc,NSDictionary *slide) {
         self.table=YBTable(self,NSMakeRect(0,370,900,110),@[@[@"local",@"Mac 슬라이드",@130],@[@"remote",@"서버 슬라이드",@130],@[@"status",@"변경 내용",@620]],self);self.table.allowsMultipleSelection=NO;
         NSMutableArray *texts=[NSMutableArray array],*images=[NSMutableArray array],*titles=[NSMutableArray array];
         for(NSUInteger i=0;i<2;i++){CGFloat x=i*456;NSTextField *title=YBLabel(i?@"서버 버전":@"이 Mac 버전",NSMakeRect(x,338,444,26),15,YES);[self addSubview:title];[titles addObject:title];
-            NSImageView *image=[[NSImageView alloc] initWithFrame:NSMakeRect(x,158,444,176)];image.imageScaling=NSImageScaleProportionallyUpOrDown;[self addSubview:image];[images addObject:image];
-            NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(x,22,444,132)];scroll.hasVerticalScroller=YES;scroll.borderType=NSBezelBorder;
-            NSTextView *text=[[NSTextView alloc] initWithFrame:NSMakeRect(0,0,424,132)];text.editable=NO;text.richText=YES;text.verticallyResizable=YES;text.horizontallyResizable=NO;text.autoresizingMask=NSViewWidthSizable;text.textContainer.widthTracksTextView=YES;text.textContainerInset=NSMakeSize(6,6);scroll.documentView=text;[self addSubview:scroll];[texts addObject:text];
+            NSImageView *image=[[NSImageView alloc] initWithFrame:NSMakeRect(x,158,444,176)];image.imageScaling=NSImageScaleProportionallyUpOrDown;image.wantsLayer=YES;[self addSubview:image];[images addObject:image];
+            NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(x,30,444,124)];scroll.hasVerticalScroller=YES;scroll.borderType=NSBezelBorder;scroll.wantsLayer=YES;
+            NSTextView *text=[[NSTextView alloc] initWithFrame:NSMakeRect(0,0,424,124)];text.editable=NO;text.selectable=YES;text.layoutManager.allowsNonContiguousLayout=YES;text.richText=YES;text.verticallyResizable=YES;text.horizontallyResizable=NO;text.autoresizingMask=NSViewWidthSizable;text.textContainer.widthTracksTextView=YES;text.textContainerInset=NSMakeSize(6,6);scroll.documentView=text;[self addSubview:scroll];[texts addObject:text];
         }self.texts=texts;self.images=images;self.titles=titles;
-        [self addSubview:YBLabel(@"미리보기는 근사 화면입니다. 아래 본문·경로의 색칠된 줄이 다릅니다. PP6 실제 출력과 차이가 있을 수 있습니다.",NSMakeRect(0,0,900,20),11,NO)];
+        [self addSubview:YBLabel(@"미리보기는 근사 화면입니다. 색칠된 줄이 다릅니다. 복사한 글을 그대로 붙여 넣어 물어보면 됩니다.",NSMakeRect(0,4,560,20),11,NO)];
+        NSButton *copySlide=[NSButton buttonWithTitle:@"이 슬라이드 코드 복사" target:self action:@selector(copySlide:)];copySlide.frame=NSMakeRect(566,0,170,26);[self addSubview:copySlide];
+        NSButton *copyFile=[NSButton buttonWithTitle:@"파일 전체 복사" target:self action:@selector(copyFile:)];copyFile.frame=NSMakeRect(742,0,158,26);[self addSubview:copyFile];
         NSUInteger selected=[self.rows indexOfObjectPassingTest:^BOOL(NSDictionary *r,NSUInteger i,BOOL *stop){return [r[@"changed"] boolValue];}];if(selected==NSNotFound)selected=0;
         if(self.rows.count)[self.table selectRowIndexes:[NSIndexSet indexSetWithIndex:selected] byExtendingSelection:NO];else for(NSTextView *text in self.texts)text.string=@"양쪽 모두 문서가 없습니다. 이전 비교 기록만 남아 있던 항목입니다.";
     }return self;
+}
+// Mac·서버 두 버전을 한 번에 클립보드로
+- (void)copyText:(NSString *)text {NSPasteboard *board=NSPasteboard.generalPasteboard;[board clearContents];[board setString:text forType:NSPasteboardTypeString];}
+- (void)copySlide:(id)sender {
+    NSInteger index=self.table.selectedRow;if(index<0||index>=(NSInteger)self.rows.count)return;NSDictionary *row=self.rows[index];
+    [self copyText:[NSString stringWithFormat:@"%@\n\n%@\n",SlideCode(@"이 Mac",row[@"local"]),SlideCode(@"서버",row[@"remote"])]];
+}
+- (void)copyFile:(id)sender {
+    NSString *(^text)(NSData *)=^NSString *(NSData *data){return data?([[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"(글자로 읽을 수 없음)"):@"(없음)";};
+    [self copyText:[NSString stringWithFormat:@"===== 이 Mac 파일 =====\n%@\n\n===== 서버 파일 =====\n%@\n",text(self.localFile),text(self.remoteFile)]];
 }
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)table {return self.rows.count;}
 - (NSView *)tableView:(NSTableView *)table viewForTableColumn:(NSTableColumn *)column row:(NSInteger)index {
