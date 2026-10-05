@@ -23,7 +23,7 @@
 - 서버 `cloudflare/remote-support.mjs`: 장치 표에 `status`·`status_at`·`support_until`, 명령 표 `yebaeon_sync_commands`(추가 전용 이전 `remote-support-v1`, 표시 `schema-ready-remote-v1`). 현황 쓰기·지원 열기·명령 가져가기·결과 보고는 그 장치 열쇠만, 명령 남기기는 관리자 쿠키 + 지원 시간 안만, 닫기는 Mac 또는 관리자.
 - Studio `web-editor/mac-remote.js`: 이름 메뉴 › 교회 Mac(요약 한 줄) → 현황 창(예배·정리 창·최근 기록·명령 기록). 지원 중에만 다시 비교·전체 확인·되돌리기·예배 [적용]·정리 창 버튼·문서 강제 동작·안내 보내기·지원 끝내기가 보인다. 예전 재생목록 아래 `macStatus` 줄은 반응형 화면에서 늘 숨어 있어 이름 메뉴로 옮겼다.
 - Sync 2 `YB2App.m`·`YB2Server.m`: 현황 올리기(바뀔 때·PP6 켜고 끌 때, 같으면 한 시간에 한 번, 64KB 넘으면 줄여 보냄), 도구 메뉴에만 [원격 지원 시작…/끝내기](평소 화면·메뉴 막대에는 없음), 표 위 주황 줄, 10초마다 명령 가져가기, 확인 창 없이 실행·결과 보고. Mac 파일을 바꾸는 명령은 PP6가 켜져 있으면 `rejected`. 오른쪽 클릭 강제 동작의 문서 목록·가능 여부는 원격과 같은 함수로 묶었다.
-- 검사(로컬): Worker 89개(새 `remote-support.test.mjs` 2개), 브라우저 `library-bins.cjs`에 현황·원격 지원 흐름 추가, `studio`·`responsive`·`library-management` 통과. Mac 엔진 통합 검사에 현황·지원 열고 닫기 6개를 더했다. Mac 빌드·통합 검사는 Verify Mac Sync 2 결과로 따로 적는다(Linux에서는 Objective-C를 빌드하지 못한다).
+- 검사(로컬): Worker 89개(새 `remote-support.test.mjs` 2개), 브라우저 `library-bins.cjs`에 현황·원격 지원 흐름 추가, `studio`·`responsive`·`library-management` 통과. Mac 엔진 통합 검사에 현황·지원 열고 닫기 6개를 더했다. Verify Mac Sync 2 run 37387601792(49ec961, 수동 실행) 성공 — 엔진 통합 검사·10.13 대상 빌드·설명서 캡처. 그 뒤 d04913f(원격 지원을 도구 메뉴에만, 메뉴 막대 아이콘 메뉴 한 줄 삭제)는 Mac 검사를 다시 돌리지 않았다. 최신 macOS CI 결과이며 High Sierra 실기는 아님.
 - D1 비용(추산): 현황은 바뀔 때만 장치 1행 쓰기(하루 수십 행). 지원 30분은 요청 약 180번, 명령 없을 때 요청당 읽기 2~3행·쓰기 0. Studio 현황 창은 열려 있을 때만 지원 중 5초, 아니면 60초마다 장치 목록·명령 기록(최대 30행)을 읽는다. 평소 상주 15분 확인은 바뀌지 않는다.
 - 남음: main 병합·배포 승인, 운영 `ADMIN_PASSWORD` 확인, 교회 Mac 실기(새 빌드 설치 → [원격 지원 시작…] → Studio에서 다시 비교·안내 보내기 → 결과 기록).
 
