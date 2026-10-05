@@ -43,7 +43,7 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) NSDictionary *pendingRelease;           // 서버의 새 빌드(지금보다 새로울 때만)
 @property(nonatomic) NSInteger dismissedBuild;        // [나중에]를 누른 빌드(이번 실행 동안 숨김)
 @property(nonatomic) NSDate *lastUpdateCheck;
-@property(nonatomic) NSMenuItem *statusUpdateItem, *statusLineItem;
+@property(nonatomic) NSMenuItem *statusUpdateItem, *statusLineItem, *appUpdateItem;
 @property(nonatomic) NSDate *lastCycleAt;             // 마지막으로 서버를 확인한 때(메뉴 막대 상태 줄)               // 전체 확인이 뒤에서 도는 중(데일리 창은 잠그지 않는다)
 @property(nonatomic) NSUInteger startupAttempt;
 @property(nonatomic) dispatch_queue_t work;
@@ -181,8 +181,10 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     NSString *blocked = self.busy ? @"작업 중" : self.checking ? @"전체 확인 중" : YBPresenterRunning() ? @"PP6를 닫은 뒤" : nil;
     self.updateButton.enabled = self.pendingRelease && !blocked;
     self.updateButton.toolTip = blocked ? [blocked stringByAppendingString:@" 설치할 수 있습니다."] : nil;
-    self.statusUpdateItem.hidden = !self.pendingRelease;
-    self.statusUpdateItem.title = self.pendingRelease ? [NSString stringWithFormat:@"새 버전 설치… (빌드 %@)", self.pendingRelease[@"build"]] : @"";
+    for (NSMenuItem *item in @[self.statusUpdateItem ?: [NSMenuItem new], self.appUpdateItem ?: [NSMenuItem new]]) {
+        item.hidden = !self.pendingRelease;
+        item.title = self.pendingRelease ? [NSString stringWithFormat:@"새 버전 설치… (빌드 %@)", self.pendingRelease[@"build"]] : @"";
+    }
     [self refreshStatusItem];
 }
 - (void)dismissUpdate:(id)sender { self.dismissedBuild = [self.pendingRelease[@"build"] integerValue]; [self refreshUpdateBar]; }
@@ -208,7 +210,14 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 - (void)openStudio:(id)sender { [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:kOrigin]]; }
 - (void)buildMenu {
     NSMenu *bar = [NSMenu new]; NSMenuItem *appItem = [NSMenuItem new]; [bar addItem:appItem];
+    // 프로그램 이름 메뉴: 버전·업데이트·Studio는 메뉴 막대 아이콘 메뉴와 같은 것을 여기에도 둔다(아이콘 메뉴는 창이 닫혀 있을 때 쓴다).
     NSMenu *app = [NSMenu new];
+    NSMenuItem *version = [app addItemWithTitle:[NSString stringWithFormat:@"버전: 빌드 %ld", (long)[YB2Update currentBuild]] action:nil keyEquivalent:@""]; version.enabled = NO;
+    [app addItemWithTitle:@"업데이트 확인" action:@selector(checkUpdateNow:) keyEquivalent:@""];
+    self.appUpdateItem = [app addItemWithTitle:@"새 버전 설치…" action:@selector(installUpdate:) keyEquivalent:@""]; self.appUpdateItem.hidden = !self.pendingRelease;
+    [app addItem:NSMenuItem.separatorItem];
+    [app addItemWithTitle:@"예배온 Studio 열기" action:@selector(openStudio:) keyEquivalent:@""];
+    [app addItem:NSMenuItem.separatorItem];
     [app addItemWithTitle:@"로그아웃" action:@selector(logout:) keyEquivalent:@""];
     [app addItem:NSMenuItem.separatorItem];
     [app addItemWithTitle:@"예배온 Sync 2 종료" action:@selector(terminate:) keyEquivalent:@"q"];
