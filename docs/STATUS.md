@@ -2,7 +2,7 @@
 
 이 파일은 세션마다 **덮어써서** 갱신한다. 새 인계 파일을 만들지 않는다. 끝난 일은 [CHANGELOG](CHANGELOG.md), 남은 일은 [BACKLOG](BACKLOG.md)에 둔다.
 
-갱신: 2026-10-05 · main에 Sync 2 실기 피드백·자동 업데이트 병합(사용자 승인). Deploy와 Verify Mac Sync 2(main 빌드를 서버에 게시) 결과는 아래 Sync 2 절에 적는다
+갱신: 2026-10-05 · main 3b7afc5(Sync 2 실기 피드백·자동 업데이트, 사용자 승인) · Deploy run 37288913470(#72) 성공 · Verify Mac Sync 2 run 37288913577(빌드 44) 성공 — 첫 시도는 서버 게시 단계가 R2 403(토큰 권한 없음)으로 실패, 사용자가 권한 추가 뒤 재실행으로 `apps/sync2/latest.json` 게시(build 44, ZIP SHA-256 `b5605abe…6f6f`). 엔진 통합 134개. 최신 macOS CI이며 High Sierra 실기는 아님
 
 ## 운영
 
