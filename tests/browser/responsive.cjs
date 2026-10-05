@@ -5,7 +5,7 @@ const {resolve,extname}=require('node:path');
 const {createHash}=require('node:crypto');
 const assert=require('node:assert/strict');
 (async()=>{
- const root=resolve('web-editor'),server=createServer(async(req,res)=>{try{const path=resolve(root,'.'+new URL(req.url,'http://localhost').pathname.replace(/\/$/,'/index.html'));if(!path.startsWith(root+'/'))throw Error();res.setHeader('Content-Type',({'.html':'text/html','.js':'application/javascript','.css':'text/css','.svg':'image/svg+xml'})[extname(path)]||'application/octet-stream');res.end(await readFile(path));}catch{res.writeHead(404);res.end();}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const root=resolve('web-editor'),server=createServer(async(req,res)=>{try{const path=resolve(root,'.'+new URL(req.url,'http://localhost').pathname.replace(/\/$/,'/index.html'));if(!path.startsWith(root+'/'))throw Error();res.setHeader('Content-Type',({'.html':'text/html','.js':'application/javascript','.css':'text/css','.svg':'image/svg+xml'})[extname(path)]||'application/octet-stream');res.end(await readFile(path));}catch{res.writeHead(404);res.end("not found");}});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const browser=await chromium.launch(process.env.CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.CHROMIUM_EXECUTABLE_PATH,args:['--no-sandbox']}:undefined),context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true}),page=await context.newPage(),errors=[];
  let handleDialog=d=>d.accept();page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>handleDialog(d));
  const ids=['11111111-1111-4111-a111-111111111111','22222222-2222-4222-a222-222222222222','33333333-3333-4333-a333-333333333333'];
@@ -36,7 +36,7 @@ const assert=require('node:assert/strict');
  const beforeNav=requests.length;
  for(const section of ['playlists','edit','order']){await nav.locator(`[data-page="${section}"]`).tap();assert.equal(await nav.locator(`[data-page="${section}"]`).getAttribute('aria-pressed'),'true');}
  assert.equal(requests.length,beforeNav,'navigation must not fetch documents or playlists');
- await page.locator('#responsiveSearch').tap();assert.equal(await page.locator('#responsiveSearchDrawer').isVisible(),true);
+ await page.locator('#responsiveSearch').tap();assert.equal(await page.locator('#responsiveSearchDrawer').isVisible(),true);assert.equal(await page.locator('#responsiveSearch').evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(58, 65, 160)','tapped search button keeps a dark background');
  const beforeSearch=requests.length;await page.locator('#libraryQuery').fill('찬');assert.equal(requests.length,beforeSearch,'typing does not send a query');
  await page.locator('#libraryRefresh').tap();await page.waitForFunction(()=>document.querySelectorAll('#libraryList .document-item').length===3);
  await page.locator('#libraryList .document-item').first().locator('strong').tap();await page.waitForTimeout(150);assert.equal(await page.locator('#playlistItems .order-item').count(),2,'tapping a result opens it without adding');assert.equal(await page.evaluate(()=>YebaeonEditor.state().name),'찬양.pro6');await nav.locator('[data-page="order"]').tap();await page.locator('#responsiveSearch').tap();const beforeAdd=requests.length;await page.locator('#libraryList .document-item').first().locator('.responsive-add').tap();await page.waitForFunction(()=>document.querySelectorAll('#playlistItems .order-item').length===3);
