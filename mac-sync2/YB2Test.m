@@ -9,6 +9,12 @@ static void Check(BOOL ok, NSString *message) { checks++; YBRequire(ok, message)
 static NSData *Doc(NSString *text) { return [[NSString stringWithFormat:@"<?xml version=\"1.0\" encoding=\"UTF-8\"?><RVPresentationDocument versionNumber=\"600\" category=\"예배순서\"><text>%@</text></RVPresentationDocument>", text] dataUsingEncoding:NSUTF8StringEncoding]; }
 // PP6가 송출하며 루트에 남기는 사용일·사용 횟수. 나머지 바이트는 Doc()과 같다.
 static NSData *DocUsed(NSString *text, NSString *used, int count) { return [[NSString stringWithFormat:@"<?xml version=\"1.0\" encoding=\"UTF-8\"?><RVPresentationDocument versionNumber=\"600\" category=\"예배순서\" lastDateUsed=\"%@\" usedCount=\"%d\"><text>%@</text></RVPresentationDocument>", used, count, text] dataUsingEncoding:NSUTF8StringEncoding]; }
+// 글상자 RTF가 든 문서. declaration은 앞에 붙일 XML 선언(없으면 @"").
+static NSData *RTFDoc(NSString *declaration, NSArray *rtfs) {
+    NSMutableString *boxes = [NSMutableString string];
+    for (NSString *rtf in rtfs) [boxes appendFormat:@"<RVTextElement displayName=\"Default\"><NSString rvXMLIvarName=\"RTFData\">%@</NSString></RVTextElement>", [[rtf dataUsingEncoding:NSASCIIStringEncoding] base64EncodedStringWithOptions:0]];
+    return [[NSString stringWithFormat:@"%@<RVPresentationDocument versionNumber=\"600\" category=\"예배순서\"><RVDisplaySlide UUID=\"S1\">%@</RVDisplaySlide></RVPresentationDocument>", declaration, boxes] dataUsingEncoding:NSUTF8StringEncoding];
+}
 static NSString *Cue(NSString *uuid, NSString *name, NSString *root) {
     return [NSString stringWithFormat:@"      <RVDocumentCue UUID=\"%@\" displayName=\"%@\" filePath=\"%@/%@.pro6\" selectedArrangementID=\"\"/>\n", uuid, name, root, name];
 }
@@ -397,6 +403,24 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         NSArray *collided = [full[@"collisions"] valueForKey:@"path"];
         Check(![collided containsObject:@"경로 찬양.pro6"] && [engine.receipt document:@"경로 찬양.pro6"] != nil, [NSString stringWithFormat:@"file URL and plain path are the same content: %@", collided]);
         Check([collided containsObject:@"경로 다름.pro6"], [NSString stringWithFormat:@"a different image path still differs: %@", collided]);
+
+        // 26. RTF 표기만 다른 첫 대조: PP6가 다시 저장한 꼴(XML 선언 없음, \uc1 없음, 빈 글상자에 서식 없음)과
+        //     정리본 도구가 쓴 꼴은 같은 내용이다. 글자 크기를 바꾼 것은 여전히 다른 내용이다.
+        NSString *head = @"{\\rtf1\\ansi\\ansicpg949\\cocoartf1561\\cocoasubrtf600\n{\\fonttbl\\f0\\fswiss\\fcharset0 Helvetica;}\n{\\colortbl;\\red255\\green255\\blue255;}\n{\\*\\expandedcolortbl;;}\n\\pard\\pardeftab720\\slleading460\\qc\\partightenfactor0\n\n";
+        NSString *macText = [head stringByAppendingString:@"\\f0\\b\\fs220 \\cf1 \\outl0\\strokewidth-100 \\strokec0 Holy\\\nHoly}"];
+        NSString *toolText = [head stringByAppendingString:@"\\f0\\b\\fs220 \\cf1 \\outl0\\strokewidth-100 \\strokec0 \\uc1 Holy\\\nHoly}"];
+        NSString *biggerText = [head stringByAppendingString:@"\\f0\\b\\fs240 \\cf1 \\outl0\\strokewidth-100 \\strokec0 \\uc1 Holy\\\nHoly}"];
+        NSString *macEmpty = @"{\\rtf1\\ansi\\ansicpg949\\cocoartf1561\\cocoasubrtf600\n{\\fonttbl}\n{\\colortbl;\\red255\\green255\\blue255;}\n{\\*\\expandedcolortbl;;}\n}";
+        NSString *toolEmpty = [head stringByAppendingString:@"\\f0\\b\\fs220 \\cf1 \\outl0\\strokewidth-100 \\strokec0 \\uc1 }"];
+        Check([RTFDoc(@"", @[macText, macEmpty]) writeToFile:Local(@"서식 찬양") atomically:YES], @"PP6-saved RTF on the mac");
+        Check([RTFDoc(@"", @[macText, macEmpty]) writeToFile:Local(@"서식 크기") atomically:YES], @"PP6-saved RTF for the size case");
+        [web upload:RTFDoc(@"<?xml version='1.0' encoding='utf-8'?>\n", @[toolText, toolEmpty]) path:@"서식 찬양.pro6" previous:nil];
+        [web upload:RTFDoc(@"<?xml version='1.0' encoding='utf-8'?>\n", @[biggerText, toolEmpty]) path:@"서식 크기.pro6" previous:nil];
+        Sync();
+        full = [engine fullCheck];
+        collided = [full[@"collisions"] valueForKey:@"path"];
+        Check(![collided containsObject:@"서식 찬양.pro6"] && [engine.receipt document:@"서식 찬양.pro6"] != nil, [NSString stringWithFormat:@"RTF notation differences are the same content: %@", collided]);
+        Check([collided containsObject:@"서식 크기.pro6"], [NSString stringWithFormat:@"a font size change still differs: %@", collided]);
 
         // 7. PP6가 켜져 있으면 적용하지 않는다.
         engine.presenterRunning = ^BOOL { return YES; };

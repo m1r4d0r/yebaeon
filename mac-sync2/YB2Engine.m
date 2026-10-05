@@ -83,22 +83,41 @@ static NSString *NeutralHashV2(NSData *data) {
     if (xml) neutral = [PlainFileReferences(xml) dataUsingEncoding:NSUTF8StringEncoding];
     return [@"v2:" stringByAppendingString:YBHash(neutral)];
 }
-// 비교용 글: 사용 기록을 빼고, 파일 참조 표기를 맞추고, 한글 자모 조합(NFD·NFC)을 NFC로 맞춘다.
-// macOS 파일 이름에서 온 경로는 자모가 풀린 꼴(NFD)일 수 있어, 같은 경로가 바이트로는 다르게 적힌다.
+// 3판("v3:"): 사용 기록을 빼고 파일 참조 표기를 맞춘 뒤 전체를 NFC로 맞춘 sha. 영수증에 남아 있는 3판 값과 비교할 때만 쓴다.
+static NSString *NeutralHashV3(NSData *data) {
+    NSData *neutral = UsageNeutral(data); if (!neutral) return nil;
+    NSString *xml = Text(neutral);
+    NSData *comparable = xml ? [PlainFileReferences(xml).precomposedStringWithCanonicalMapping dataUsingEncoding:NSUTF8StringEncoding] : neutral;
+    return [@"v3:" stringByAppendingString:YBHash(comparable)];
+}
+// 비교용 글(4판): 사용 기록을 빼고, 파일 참조 표기를 맞추고, XML을 정규형(C14N: XML 선언 없음·속성 순서·따옴표·빈 요소 표기 통일)으로 쓰고,
+// 글상자 RTF는 글자와 서식 목록(YBRTFSignature)으로 바꾸고, 한글 자모 조합을 NFC로 맞춘다.
+// PP6가 다시 저장하며 바꾸는 RTF 표기(\uc1 유무, 글자 없는 글상자의 서식)와 macOS 파일 이름의 NFD 경로는 같은 글이 된다.
 static NSData *ComparableBytes(NSData *data) {
     NSData *neutral = UsageNeutral(data); if (!neutral) return nil;
     NSString *xml = Text(neutral); if (!xml) return neutral;
-    return [PlainFileReferences(xml).precomposedStringWithCanonicalMapping dataUsingEncoding:NSUTF8StringEncoding];
+    xml = PlainFileReferences(xml);
+    NSXMLDocument *document = [[NSXMLDocument alloc] initWithXMLString:xml options:0 error:NULL];
+    if (document.rootElement) {
+        for (NSXMLNode *node in [document nodesForXPath:@"//NSString[@rvXMLIvarName='RTFData']" error:NULL])
+            node.stringValue = [@"rtf:" stringByAppendingString:YBRTFSignature(node.stringValue)];
+        xml = [document.rootElement canonicalXMLStringPreservingComments:NO];
+    } else {
+        NSRange declaration = [xml rangeOfString:@"^\\s*<\\?xml[^>]*\\?>\\s*" options:NSRegularExpressionSearch];
+        if (declaration.location != NSNotFound) xml = [xml substringFromIndex:NSMaxRange(declaration)];
+    }
+    return [xml.precomposedStringWithCanonicalMapping dataUsingEncoding:NSUTF8StringEncoding];
 }
-// 3판("v3:"): 비교용 글의 sha. 새로 적는 영수증 값은 이것이다.
+// 4판("v4:"): 비교용 글의 sha. 새로 적는 영수증 값은 이것이다.
 static NSString *NeutralHash(NSData *data) {
     NSData *comparable = ComparableBytes(data);
-    return comparable ? [@"v3:" stringByAppendingString:YBHash(comparable)] : nil;
+    return comparable ? [@"v4:" stringByAppendingString:YBHash(comparable)] : nil;
 }
-// 영수증에 적힌 값(1·2·3판)과 이 바이트가 같은 내용인가
+// 영수증에 적힌 값(1~4판)과 이 바이트가 같은 내용인가
 static BOOL SameNeutral(NSData *data, NSString *stored) {
     if (!data || !stored.length) return NO;
-    if ([stored hasPrefix:@"v3:"]) return [NeutralHash(data) isEqual:stored];
+    if ([stored hasPrefix:@"v4:"]) return [NeutralHash(data) isEqual:stored];
+    if ([stored hasPrefix:@"v3:"]) return [NeutralHashV3(data) isEqual:stored];
     if ([stored hasPrefix:@"v2:"]) return [NeutralHashV2(data) isEqual:stored];
     return [LegacyNeutral(data) isEqual:stored];
 }
@@ -361,7 +380,7 @@ static BOOL ImageExists(NSString *path) {
                 }
                 if (macEdited) {
                     NSData *bytes = YBReadSafeFile(self.root, path, NULL);
-                    NSString *neutral = NeutralHash(bytes), *base = knownDoc[@"neutral"];   // base는 1·2·3판 중 하나
+                    NSString *neutral = NeutralHash(bytes), *base = knownDoc[@"neutral"];   // base는 1~4판 중 하나
                     // 1차 영수증에는 neutral이 없다. 서버가 그대로면 그 버전 바이트로 한 번 계산한다.
                     if (!base && serverSame) { @try { base = NeutralHash([self.server download:doc]); } @catch (NSException *e) {} }
                     if (neutral && SameNeutral(bytes, base)) {
@@ -909,7 +928,7 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     YBRequire(!self.presenterRunning(), @"ProPresenter를 종료한 뒤 해 주세요.");
     NSDictionary *entry = [self.receipt ledger:path]; YBRequire([entry[@"id"] length] > 0, @"서버 장부에 없는 문서입니다.");
     [self receiveServer:[self serverDocument:entry[@"id"]] into:path backup:[self backupFolder:@"server"]];
-    [self dropFromFullCheck:@"collisions" path:path];
+    [self dropFromFullCheck:@"collisions" path:path]; [self dropFromFullCheck:@"macDeleted" path:path];
 }
 // 같은 이름, 다른 내용: [Mac 것 올리기]. 서버의 그전 내용은 이력에 남는다.
 - (void)takeMac:(NSString *)path {

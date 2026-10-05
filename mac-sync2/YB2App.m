@@ -25,7 +25,7 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 // 정리 창: 전체 확인과 비교가 만든 목록. 아무도 안 눌러도 아무 일도 생기지 않는다.
 @property(nonatomic) NSWindow *organizer;
 @property(nonatomic) NSTableView *organizerTable;
-@property(nonatomic) NSTextField *organizerStatus;
+@property(nonatomic) NSTextField *organizerStatus, *organizerTitle, *organizerHint;
 @property(nonatomic) NSMutableArray *organizerRows;    // {list, title, path, detail, item}
 @property(nonatomic) NSDictionary *organizerButtons;   // 동작 이름 → 버튼
 @property(nonatomic) YB2Server *server;
@@ -227,6 +227,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     [tools addItemWithTitle:@"다시 비교" action:@selector(compareNow:) keyEquivalent:@"r"];
     [tools addItemWithTitle:@"정리…" action:@selector(showOrganizer:) keyEquivalent:@"o"];
     [tools addItemWithTitle:@"백업 폴더 열기" action:@selector(openBackups:) keyEquivalent:@""];
+    [tools addItemWithTitle:@"마지막 적용 되돌리기…" action:@selector(undoLastApply:) keyEquivalent:@""];
     [tools addItem:NSMenuItem.separatorItem];
     [tools addItemWithTitle:@"상주 확인 (15분마다)" action:@selector(toggleResident:) keyEquivalent:@""];
     [tools addItemWithTitle:@"로그인 시 실행" action:@selector(toggleLoginItem:) keyEquivalent:@""];
@@ -524,7 +525,7 @@ static NSString *DifferenceText(NSString *label, NSData *local, NSData *remote) 
 static NSString *FirstDifference(NSData *local, NSData *remote) {
     if (local && remote && [local isEqual:remote]) return @"파일 바이트가 같습니다.";
     return [NSString stringWithFormat:@"%@\n\n%@", DifferenceText(@"파일 첫 차이", local, remote),
-            DifferenceText(@"사용 기록·경로 표기·자모 조합을 맞춘 뒤 첫 차이", [YB2Engine comparableBytes:local], [YB2Engine comparableBytes:remote])];
+            DifferenceText(@"비교용으로 맞춘 뒤 첫 차이(사용 기록·경로·XML·RTF 표기·자모)", [YB2Engine comparableBytes:local], [YB2Engine comparableBytes:remote])];
 }
 // 서버·영수증의 UTC 시각(ISO 8601)을 이 Mac의 시간대로: 2026-10-05 18:38
 static NSString *LocalTime(NSString *iso) {
@@ -600,32 +601,37 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     self.organizer = [[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
     self.organizer.title = @"예배온 Sync 2 · 정리"; self.organizer.releasedWhenClosed = NO; self.organizer.minSize = NSMakeSize(940, 360);
     NSView *content = self.organizer.contentView; CGFloat w = frame.size.width, h = frame.size.height;
-    NSTextField *help = Label(@"전체 확인과 비교가 찾은 것입니다. 여기 있는 것은 쌓여 있어도 안전하며, 버튼을 누를 때만 Mac·서버가 바뀝니다.", NSMakeRect(16, h - 30, w - 32, 18), 12);
-    [content addSubview:help];
-    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 92, w - 32, h - 130)];
+    NSTextField *help = Label(@"할 일만 모았습니다. 버튼을 누를 때만 Mac·서버가 바뀝니다.", NSMakeRect(16, h - 30, w - 32, 18), 12);
+    help.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin; [content addSubview:help];
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 152, w - 32, h - 190)];
     scroll.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; scroll.hasVerticalScroller = YES; scroll.borderType = NSBezelBorder;
     self.organizerTable = [[NSTableView alloc] initWithFrame:scroll.bounds];
     self.organizerTable.dataSource = self; self.organizerTable.delegate = self; self.organizerTable.rowHeight = 22; self.organizerTable.allowsMultipleSelection = YES;
     self.organizerTable.columnAutoresizingStyle = NSTableViewLastColumnOnlyAutoresizingStyle;
-    for (NSArray *spec in @[@[@"list", @"구분", @150], @[@"title", @"항목", @260], @[@"detail", @"설명", @380]]) {
+    for (NSArray *spec in @[@[@"list", @"구분", @150], @[@"title", @"항목", @300], @[@"detail", @"설명", @440]]) {
         NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:spec[0]]; column.title = spec[1]; column.width = [spec[2] doubleValue]; column.editable = NO;
         [self.organizerTable addTableColumn:column];
     }
     scroll.documentView = self.organizerTable; [content addSubview:scroll];
-    NSArray *actions = @[@[@"diff", @"차이 보기"], @[@"server", @"서버 것으로"], @[@"mac", @"Mac 것 올리기"], @[@"number", @"번호 붙여 둘 다 두기"], @[@"trash", @"서버 휴지통으로"], @[@"image", @"이미지 받기"], @[@"web", @"웹에서 보기"]];
-    NSMutableDictionary *buttons = [NSMutableDictionary dictionary]; CGFloat x = 16;
+    // 고른 항목 칸: 이름, 그 종류에 맞는 버튼만, 누르면 무엇이 바뀌는지 한 줄
+    NSBox *box = [[NSBox alloc] initWithFrame:NSMakeRect(16, 52, w - 32, 92)];
+    box.boxType = NSBoxCustom; box.borderType = NSLineBorder; box.cornerRadius = 5; box.borderColor = [NSColor colorWithCalibratedWhite:0.78 alpha:1];
+    box.fillColor = [NSColor colorWithCalibratedWhite:0.97 alpha:1]; box.contentViewMargins = NSZeroSize; box.titlePosition = NSNoTitle;
+    box.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin; [content addSubview:box];
+    NSView *inner = box.contentView; CGFloat bw = w - 32;
+    self.organizerTitle = Label(@"", NSMakeRect(12, 64, bw - 24, 18), 13); self.organizerTitle.autoresizingMask = NSViewWidthSizable; [inner addSubview:self.organizerTitle];
+    self.organizerHint = Label(@"", NSMakeRect(12, 6, bw - 24, 16), 11); self.organizerHint.textColor = NSColor.secondaryLabelColor; self.organizerHint.autoresizingMask = NSViewWidthSizable; [inner addSubview:self.organizerHint];
+    NSArray *actions = @[@[@"diff", @"차이 보기"], @[@"server", @"서버 것 받기"], @[@"mac", @"Mac 것 올리기"], @[@"number", @"둘 다 두기"], @[@"trash", @"서버 휴지통으로"], @[@"image", @"이미지 받기"], @[@"web", @"웹에서 보기"]];
+    NSMutableDictionary *buttons = [NSMutableDictionary dictionary];
     for (NSArray *spec in actions) {
-        NSButton *button = Button(spec[1], NSMakeRect(x, 50, 80, 28), self, @selector(organizerAction:));
-        [button sizeToFit]; NSRect fit = button.frame; fit.size.width += 8; fit.origin.y = 50; button.frame = fit;
-        button.identifier = spec[0]; button.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin; button.enabled = NO;
-        [content addSubview:button]; buttons[spec[0]] = button; x += button.frame.size.width + 6;
+        NSButton *button = Button(spec[1], NSMakeRect(12, 28, 80, 28), self, @selector(organizerAction:));
+        button.identifier = spec[0]; button.autoresizingMask = NSViewMaxXMargin; button.hidden = YES;
+        [inner addSubview:button]; buttons[spec[0]] = button;
     }
     self.organizerButtons = buttons;
     NSButton *check = Button(@"전체 확인 지금", NSMakeRect(16, 14, 130, 28), self, @selector(fullCheckNow:)); check.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
-    NSButton *undo = Button(@"마지막 적용 되돌리기", NSMakeRect(152, 14, 170, 28), self, @selector(undoLastApply:)); undo.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
-    NSButton *backups = Button(@"백업 폴더", NSMakeRect(328, 14, 100, 28), self, @selector(openBackups:)); backups.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
-    self.organizerStatus = Label(@"", NSMakeRect(436, 20, w - 452, 18), 12); self.organizerStatus.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
-    [content addSubview:check]; [content addSubview:undo]; [content addSubview:backups]; [content addSubview:self.organizerStatus];
+    self.organizerStatus = Label(@"", NSMakeRect(156, 20, w - 172, 18), 12); self.organizerStatus.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
+    [content addSubview:check]; [content addSubview:self.organizerStatus];
 }
 - (void)showOrganizer:(id)sender {
     if (!self.organizer) [self buildOrganizer];
@@ -651,17 +657,45 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     return items;
 }
 // 여러 줄을 골라도 되는 버튼(서버 것으로·Mac 것 올리기·서버 휴지통으로·이미지 받기)은 고른 줄이 모두 같은 구분일 때 켠다.
+// 고른 항목 종류에 맞는 버튼만 보이고, 첫 버튼(주로 할 일)이 무엇을 바꾸는지 아래 줄에 적는다. 버튼마다 마우스 설명도 같다.
+static NSString *ActionHint(NSString *action, NSString *list) {
+    if ([action isEqual:@"server"] && [list isEqual:kListMacDeleted]) return @"다시 받기: 서버 것을 이 Mac에 다시 받습니다.";
+    return @{@"diff": @"차이 보기: 슬라이드별로 Mac·서버 내용을 나란히 봅니다. 코드를 복사해 물어볼 수 있습니다.",
+             @"server": @"서버 것 받기: Mac 파일을 서버 내용으로 바꾸고, Mac 것은 백업 폴더와 서버 보관본에 남깁니다.",
+             @"mac": @"Mac 것 올리기: Mac 내용을 서버의 새 버전으로 올립니다. 그전 서버 내용은 이력에 남습니다.",
+             @"number": @"둘 다 두기: Mac 파일을 ‘이름 2’로 바꿔 올리고, 원래 이름에는 서버 것을 받습니다.",
+             @"trash": @"서버 휴지통으로: 서버 문서를 휴지통으로 옮깁니다. 웹 휴지통에서 꺼낼 수 있습니다.",
+             @"image": @"이미지 받기: 서버에서 이미지를 받아 그 자리에 둡니다.",
+             @"web": @"웹에서 보기: Studio에서 서버 것을 엽니다."}[action] ?: @"";
+}
 - (void)refreshOrganizerButtons {
     NSArray *items = [self selectedReviews]; NSDictionary *item = items.count == 1 ? items[0] : nil;
     NSSet *lists = [NSSet setWithArray:[items valueForKey:@"list"]]; NSString *list = lists.count == 1 ? lists.anyObject : nil;
     BOOL idle = !self.busy, docs = items.count > 0, single = item != nil;
     for (NSDictionary *each in items) if (![each[@"path"] hasSuffix:@".pro6"]) docs = NO;
-    BOOL collision = [list isEqual:kListCollision], held = [list isEqual:kListHold] && docs;
     BOOL numberedGone = [list isEqual:kListNumbered];
     for (NSDictionary *each in items) if ([self.engine hasLocalDocument:each[@"path"]]) numberedGone = NO;
-    NSDictionary *enabled = @{@"diff": @(single && (collision || held)), @"server": @(collision), @"mac": @(collision), @"number": @(single && collision),
-                              @"trash": @((([list isEqual:kListMacDeleted]) || numberedGone) && docs), @"image": @([list isEqual:kListImage]), @"web": @(single && docs && [self.engine webLink:item[@"path"]] != nil)};
-    for (NSString *key in self.organizerButtons) [self.organizerButtons[key] setEnabled:idle && [enabled[key] boolValue]];
+    BOOL web = single && docs && [self.engine webLink:item[@"path"]] != nil;
+    NSArray *shown = @[]; NSString *note = nil;
+    if ([list isEqual:kListCollision]) shown = single ? (web ? @[@"diff", @"server", @"mac", @"number", @"web"] : @[@"diff", @"server", @"mac", @"number"]) : @[@"server", @"mac"];
+    else if ([list isEqual:kListHold] && docs) shown = single ? (web ? @[@"diff", @"web"] : @[@"diff"]) : @[];
+    else if ([list isEqual:kListMacDeleted] && docs) shown = @[@"server", @"trash"];
+    else if ([list isEqual:kListImage]) shown = @[@"image"];
+    else if ([list isEqual:kListExternal]) { shown = web ? @[@"web"] : @[]; note = @"외부 참조: 이 Mac의 다른 폴더에 있는 파일을 가리킵니다. 다른 Mac에서는 보이지 않을 수 있습니다."; }
+    else if ([list isEqual:kListNumbered]) { shown = numberedGone ? @[@"trash"] : @[]; if (!numberedGone) note = @"번호 붙임: Mac에 번호 붙은 파일이 남아 있습니다. 필요 없으면 Mac에서 지운 뒤 다시 고르면 서버 휴지통으로 보낼 수 있습니다."; }
+    if (!items.count) { self.organizerTitle.stringValue = @"목록에서 항목을 고르세요."; note = @""; }
+    else if (!list) { self.organizerTitle.stringValue = [NSString stringWithFormat:@"%lu개 고름", (unsigned long)items.count]; note = @"같은 구분끼리만 함께 처리할 수 있습니다."; }
+    else self.organizerTitle.stringValue = single ? [NSString stringWithFormat:@"%@ · %@", item[@"title"] ?: @"", list] : [NSString stringWithFormat:@"%lu개 · %@", (unsigned long)items.count, list];
+    CGFloat x = 12;
+    for (NSString *key in @[@"diff", @"server", @"mac", @"number", @"trash", @"image", @"web"]) {
+        NSButton *button = self.organizerButtons[key]; BOOL visible = [shown containsObject:key];
+        button.hidden = !visible; button.enabled = idle && visible;
+        if ([key isEqual:@"server"]) button.title = [list isEqual:kListMacDeleted] ? @"다시 받기" : @"서버 것 받기";
+        button.toolTip = ActionHint(key, list);
+        if (!visible) continue;
+        [button sizeToFit]; NSRect fit = button.frame; fit.size.width += 12; fit.origin = NSMakePoint(x, 28); button.frame = fit; x += fit.size.width + 6;
+    }
+    self.organizerHint.stringValue = note ?: (shown.count ? ActionHint(shown[[shown.firstObject isEqual:@"diff"] && shown.count > 1 ? 1 : 0], list) : @"");
 }
 // 작업 큐에서 돌리고 끝나면 목록을 새로 그린다.
 - (void)runOrganizer:(NSString *)message task:(id (^)(void))task done:(void (^)(id result))done {
@@ -718,7 +752,7 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     NSDictionary *words = @{@"server": @"서버 것으로 바꿀까요? Mac 것은 백업 폴더와 서버 보관본에 남습니다.", @"mac": @"Mac 것을 서버의 새 버전으로 올릴까요? 서버의 그전 내용은 이력에 남습니다.",
                             @"number": @"Mac 파일에 번호를 붙여(예: 이름 2) 둘 다 둘까요? 재생목록 참조도 고치고, 원래 이름에는 서버 것을 받습니다.", @"trash": @"서버 휴지통으로 옮길까요? 웹 휴지통에서 꺼낼 수 있습니다.", @"image": @"서버에서 이 이미지를 받아 그 자리에 둘까요?"};
     NSAlert *confirm = [NSAlert new]; confirm.messageText = items.count == 1 ? (item[@"title"] ?: @"") : [NSString stringWithFormat:@"%lu개 항목", (unsigned long)items.count];
-    confirm.informativeText = words[action] ?: @"";
+    confirm.informativeText = [action isEqual:@"server"] && [item[@"list"] isEqual:kListMacDeleted] ? @"서버 것을 이 Mac에 다시 받을까요?" : words[action] ?: @"";
     [confirm addButtonWithTitle:@"진행"]; [confirm addButtonWithTitle:@"취소"];
     if ([confirm runModal] != NSAlertFirstButtonReturn) return;
     if ([action isEqual:@"number"]) {

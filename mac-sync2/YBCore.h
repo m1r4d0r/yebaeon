@@ -4,6 +4,8 @@
 FOUNDATION_EXPORT void YBRequire(BOOL condition, NSString *message);
 FOUNDATION_EXPORT NSString *YBHash(NSData *data);
 FOUNDATION_EXPORT NSString *YBPath(NSString *path);
+// PP6 글상자 RTF(base64)를 글자와 서식 목록으로. RTF를 쓰는 방식(예: \uc1)만 다른 두 값은 같은 글이 된다.
+FOUNDATION_EXPORT NSString *YBRTFSignature(NSString *base64);
 FOUNDATION_EXPORT void YBValidateDocument(NSData *data);
 FOUNDATION_EXPORT void YBValidateMetadata(NSDictionary *document);
 FOUNDATION_EXPORT BOOL YBPresenterRunning(void);
