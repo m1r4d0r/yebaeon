@@ -54,7 +54,7 @@
   let done=0;
   for(const doc of docs){try{await C.api(`/documents/${doc.id}/state`,json('POST',{action}));done++;}catch(error){status(error.message);}}
   status(`${done}개 문서를 ${action==='archive'?'보관함으로':action==='trash'?'휴지통으로':'사용 중으로'} 옮겼습니다.`);
-  await C.refresh();
+  await C.refresh();return done;
  }
 
  // ── 재생목록 ──

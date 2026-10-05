@@ -34,7 +34,7 @@
  const info=button('responsiveDocumentInfo','문서 정보');info.hidden=true;top.append(info);info.onclick=()=>documentDialog.showModal();
  const closeProperties=button('responsivePropertiesClose','×','속성 닫기');closeProperties.className='responsive-only';closeProperties.onclick=()=>properties(false);$('inspector').prepend(closeProperties);
  const saveDialog=dialog('studioSaveDialog','저장 상태');saveDialog.append(make('p','dialog-help',''));
- saveDialog.lastChild.textContent='서버 저장은 현재 재생목록의 수정한 문서와 순서를 함께 저장합니다. 브라우저 초안은 이 기기에만 남습니다.';
+ saveDialog.lastChild.textContent='서버 저장은 이 탭에서 저장하지 않은 문서와 순서(저장 필요가 붙은 다른 재생목록 포함)를 한꺼번에 저장합니다. 브라우저 초안은 이 기기에만 남습니다.';
  const scopeLabel=make('p','studio-save-detail');scopeLabel.id='studioSaveDetail';const orderDetail=make('p','dialog-help');orderDetail.id='studioOrderDetail';saveDialog.append(scopeLabel,$('status'),orderDetail,$('draftState'),$('dirtyState'));
  $('saveScope').onclick=()=>{scopeLabel.textContent=L.saveScope()?.name||E.state().name.replace(/\.pro6$/i,'');saveDialog.showModal();};
  const playlistDialog=dialog('studioPlaylistsDialog','재생목록');const picker=button('studioPlaylistPicker','재생목록 ⌄','재생목록 선택');const orderMenu=button('studioOrderMenu','⋯','순서 메뉴');const pickerRow=make('div','studio-playlist-picker');pickerRow.append(picker,orderMenu);const orderWorkspace=make('section','studio-order-workspace');orderWorkspace.id='studioOrderWorkspace';$('orderPane').before(orderWorkspace);orderWorkspace.append(pickerRow,$('orderPane'));
