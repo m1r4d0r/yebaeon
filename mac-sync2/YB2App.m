@@ -20,7 +20,7 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) NSWindow *window;
 @property(nonatomic) NSTextField *connectionLabel, *rootLabel, *playlistLabel, *statusLabel, *presenterLabel;
 @property(nonatomic) NSTableView *table;
-@property(nonatomic) NSTextField *detailLabel;
+@property(nonatomic) NSTextView *detailLabel;   // 고른 줄의 할 일과 문서 이름(길면 스크롤)
 @property(nonatomic) NSButton *compareButton, *applyButton, *reviewButton;
 // 정리 창: 전체 확인과 비교가 만든 목록. 아무도 안 눌러도 아무 일도 생기지 않는다.
 @property(nonatomic) NSWindow *organizer;
@@ -109,9 +109,13 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     [content addSubview:rootChange]; [content addSubview:playlistChange];
 
     // 표 아래: 고른 줄의 자세한 설명(문서 이름별로 무엇을 하는지)
-    self.detailLabel = Label(@"줄을 누르면 문서별 자세한 설명이 여기에 나옵니다.", NSMakeRect(16, 48, w - 32, 60), 11);
-    self.detailLabel.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin; self.detailLabel.lineBreakMode = NSLineBreakByWordWrapping;
-    self.detailLabel.selectable = YES; self.detailLabel.textColor = NSColor.secondaryLabelColor; [content addSubview:self.detailLabel];
+    NSScrollView *detailScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 48, w - 32, 60)];
+    detailScroll.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin; detailScroll.hasVerticalScroller = YES; detailScroll.drawsBackground = NO; detailScroll.borderType = NSNoBorder;
+    self.detailLabel = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, w - 48, 60)];
+    self.detailLabel.editable = NO; self.detailLabel.selectable = YES; self.detailLabel.drawsBackground = NO; self.detailLabel.font = [NSFont systemFontOfSize:11];
+    self.detailLabel.textColor = NSColor.secondaryLabelColor; self.detailLabel.verticallyResizable = YES; self.detailLabel.autoresizingMask = NSViewWidthSizable;
+    self.detailLabel.textContainer.widthTracksTextView = YES; self.detailLabel.string = @"줄을 누르면 할 일과 문서 이름이 여기에 나옵니다.";
+    detailScroll.documentView = self.detailLabel; [content addSubview:detailScroll];
     NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 114, w - 32, h - 202)]; self.tableScroll = scroll;
     scroll.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; scroll.hasVerticalScroller = YES; scroll.borderType = NSBezelBorder;
     self.table = [[NSTableView alloc] initWithFrame:scroll.bounds];
@@ -829,7 +833,8 @@ static NSString *ActionHint(NSString *action, NSString *list) {
 - (void)tableViewSelectionDidChange:(NSNotification *)note {
     if (note.object == self.organizerTable) { [self refreshOrganizerButtons]; return; }
     NSInteger index = self.table.selectedRow;
-    self.detailLabel.stringValue = index >= 0 && index < (NSInteger)self.rows.count ? DetailText(self.rows[index]) : @"";
+    self.detailLabel.string = index >= 0 && index < (NSInteger)self.rows.count ? DetailText(self.rows[index]) : @"";
+    self.detailLabel.textColor = NSColor.secondaryLabelColor; self.detailLabel.font = [NSFont systemFontOfSize:11];
 }
 
 #pragma mark - 메뉴 막대·설정
@@ -936,7 +941,7 @@ static NSString *StatusText(NSDictionary *row) {
         NSString *text = [@"Mac에서 바뀜 · 올리기: " stringByAppendingString:[up componentsJoinedByString:@" · "]];
         return [row[@"images"] count] ? [text stringByAppendingFormat:@" · 이미지 %lu개 받기", (unsigned long)[row[@"images"] count]] : text;
     }
-    // 받을 줄: 짧은 표시. 자세한 설명은 마우스를 올리면 나온다(DetailText).
+    // 받을 줄: 짧은 표시. 자세한 설명은 줄을 누르면 표 아래에 나온다(DetailText).
     NSMutableArray *parts = [NSMutableArray array];
     NSUInteger both = 0, unknown = 0;
     for (NSString *path in row[@"macChangedDocuments"]) { if ([row[@"macChangedReasons"][path] isEqual:@"technical"]) unknown++; else both++; }
@@ -953,21 +958,52 @@ static NSString *StatusText(NSDictionary *row) {
     return [parts componentsJoinedByString:@" · "];
 }
 // 마우스를 올렸을 때 보이는 자세한 설명
+// 줄을 고르면 표 아래에 보이는 설명: 할 일마다 한 줄, 문서 이름을 모두 적는다.
+static NSString *Names(NSArray *paths) {
+    NSMutableArray *names = [NSMutableArray array];
+    for (id item in paths) { NSString *path = [item isKindOfClass:NSDictionary.class] ? item[@"path"] : item; if ([path isKindOfClass:NSString.class]) [names addObject:path.stringByDeletingPathExtension]; }
+    return [names componentsJoinedByString:@", "];
+}
+static NSString *ImageNames(NSArray *images) {
+    NSMutableArray *names = [NSMutableArray array];
+    for (NSDictionary *image in images) [names addObject:[image[@"path"] lastPathComponent] ?: @""];
+    return [names componentsJoinedByString:@", "];
+}
 static NSString *DetailText(NSDictionary *row) {
-    if (![row[@"status"] isEqual:@"receive"]) return StatusText(row);
+    NSString *status = row[@"status"];
     NSMutableArray *lines = [NSMutableArray array];
+    if ([status isEqual:@"mac"]) {
+        if ([row[@"macRenamed"] boolValue]) [lines addObject:[NSString stringWithFormat:@"예배 이름 올리기: ‘%@’", row[@"localName"] ?: row[@"name"]]];
+        else if ([row[@"macOnlyOrder"] boolValue]) [lines addObject:@"순서 올리기: Mac에서 바꾼 순서를 서버에 올립니다."];
+        if ([row[@"macOnlyDocuments"] count]) [lines addObject:[@"문서 올리기(Mac에서만 고침): " stringByAppendingString:Names(row[@"macOnlyDocuments"])]];
+        if ([row[@"usageOnly"] count]) [lines addObject:[@"사용일만 알리기(내용 같음): " stringByAppendingString:Names(row[@"usageOnly"])]];
+        if ([row[@"images"] count]) [lines addObject:[@"이미지 받기: " stringByAppendingString:ImageNames(row[@"images"])]];
+        return [lines componentsJoinedByString:@"\n"];
+    }
+    if ([status isEqual:@"actions"]) {
+        NSMutableArray *renames = [NSMutableArray array];
+        for (NSDictionary *item in row[@"renames"]) [renames addObject:[NSString stringWithFormat:@"%@ → %@", [item[@"from"] stringByDeletingPathExtension], [item[@"to"] stringByDeletingPathExtension]]];
+        if (renames.count) [lines addObject:[@"이름 바꾸기: " stringByAppendingString:[renames componentsJoinedByString:@", "]]];
+        if ([row[@"trashes"] count]) [lines addObject:[@"macOS 휴지통으로: " stringByAppendingString:Names(row[@"trashes"])]];
+        if ([row[@"actionHolds"] count]) [lines addObject:[@"확인 필요(정리 창): " stringByAppendingString:Names(row[@"actionHolds"])]];
+        return [lines componentsJoinedByString:@"\n"];
+    }
+    if (![status isEqual:@"receive"]) return StatusText(row);
     if ([row[@"macDeleted"] boolValue]) [lines addObject:@"Mac에서 지운 예배입니다. 체크하면 서버 것을 다시 받습니다."];
     else if ([row[@"serverNew"] boolValue]) [lines addObject:@"서버에 새로 생긴 예배입니다."];
     else if ([row[@"orderChanged"] boolValue]) [lines addObject:[row[@"macOrderChanged"] boolValue] ? @"순서: 서버 것을 받습니다. Mac 순서는 서버 보관본에 남깁니다." : @"순서: 서버 것을 받습니다."];
     if (row[@"renamedFrom"]) [lines addObject:[NSString stringWithFormat:@"이름: ‘%@’ → 서버 이름", row[@"renamedFrom"]]];
-    for (NSString *path in row[@"macOnlyDocuments"]) [lines addObject:[@"올리기(Mac에서만 고침): " stringByAppendingString:path]];
-    for (NSString *path in row[@"macChangedDocuments"]) [lines addObject:[row[@"macChangedReasons"][path] isEqual:@"technical"]
-        ? [@"이력 없음(Sync가 받은 적 없고 서버와 내용이 다름) · 사용일만 다르면 받고, 아니면 Mac 파일을 그대로 두고 정리 창으로: " stringByAppendingString:path]
-        : [@"양쪽 수정 · 서버 것을 받고 Mac 것은 서버 보관본·백업에: " stringByAppendingString:path]];
-    for (NSDictionary *doc in row[@"documents"]) if (![row[@"macChangedDocuments"] containsObject:doc[@"path"]]) [lines addObject:[@"받기: " stringByAppendingString:doc[@"path"]]];
-    if ([row[@"macDeletedDocuments"] count]) [lines addObject:[NSString stringWithFormat:@"Mac에서 지운 문서 %lu개는 적용하면 다시 받습니다.", (unsigned long)[row[@"macDeletedDocuments"] count]]];
+    NSMutableArray *receive = [NSMutableArray array], *unknown = [NSMutableArray array], *both = [NSMutableArray array];
+    for (NSDictionary *doc in row[@"documents"]) if (![row[@"macChangedDocuments"] containsObject:doc[@"path"]]) [receive addObject:doc[@"path"]];
+    for (NSString *path in row[@"macChangedDocuments"]) [[row[@"macChangedReasons"][path] isEqual:@"technical"] ? unknown : both addObject:path];
+    if (receive.count) [lines addObject:[@"받기: " stringByAppendingString:Names(receive)]];
+    if (both.count) [lines addObject:[@"양쪽 수정(서버 것 받기, Mac 것은 서버 보관본·백업에): " stringByAppendingString:Names(both)]];
+    if (unknown.count) [lines addObject:[@"이력 없음(Mac 파일 그대로, 정리 창에서 정하기): " stringByAppendingString:Names(unknown)]];
+    if ([row[@"macOnlyDocuments"] count]) [lines addObject:[@"올리기(Mac에서만 고침): " stringByAppendingString:Names(row[@"macOnlyDocuments"])]];
+    if ([row[@"macDeletedDocuments"] count]) [lines addObject:[@"Mac에서 지운 문서(적용하면 다시 받음): " stringByAppendingString:Names(row[@"macDeletedDocuments"])]];
+    if ([row[@"images"] count]) [lines addObject:[@"이미지 받기: " stringByAppendingString:ImageNames(row[@"images"])]];
     if ([row[@"missingServer"] unsignedIntegerValue]) [lines addObject:[NSString stringWithFormat:@"서버에 원본 없는 문서 %@개는 Mac 파일 그대로", row[@"missingServer"]]];
-    if ([row[@"missingLocal"] count]) [lines addObject:[NSString stringWithFormat:@"Mac에도 없는 문서 %lu개", (unsigned long)[row[@"missingLocal"] count]]];
+    if ([row[@"missingLocal"] count]) [lines addObject:[@"Mac에도 없는 문서: " stringByAppendingString:Names(row[@"missingLocal"])]];
     return [lines componentsJoinedByString:@"\n"];
 }
 - (NSString *)tableView:(NSTableView *)table toolTipForCell:(NSCell *)cell rect:(NSRectPointer)rect tableColumn:(NSTableColumn *)column row:(NSInteger)index mouseLocation:(NSPoint)point {
