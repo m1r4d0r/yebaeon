@@ -162,7 +162,9 @@
   ops.push({key:'sermon',label:M.doc,sub:'문서',kind:'sermon',doc:mainDoc?.id,data:md,lines:mainDoc?[['add',summary(md)]]:[['bad',M.doc+' 문서를 찾지 못했습니다.']]});
   for(const E of work.extra){const doc=await extraDoc(E),d=simpleData(E);ops.push({key:'extra'+E.services.join(''),label:E.doc,sub:'문서',kind:'simple',doc:doc?.id,data:d,lines:doc?[['add',summary(d)]]:[['bad',E.doc+' 문서를 찾지 못했습니다. 이름을 확인하세요.']]});}
   for(const W of work.weekday){if(!v(W.title))continue;const doc=await docFromPlaylist(n=>n.replace(/\s/g,'')===W.day,W.doc),d=simpleData(W);ops.push({key:'wk'+W.day,label:W.doc,sub:'문서',kind:'simple',weekday:true,doc:doc?.id,data:d,lines:doc?[['add',summary(d)]]:[['bad',W.doc+' 문서를 찾지 못했습니다.']]});}
-  return ops;}
+  // 검토 화면은 작업 단계 순서대로: 1·2·3부 재생목록 → 기도자 → 말씀 → 주중예배(같은 묶음 안에서는 만든 순서).
+  const rank=o=>o.weekday?3:o.kind==='prayer'?1:o.kind==='sermon'||o.kind==='simple'?2:0;
+  return ops.map((o,i)=>[o,i]).sort((a,b)=>rank(a[0])-rank(b[0])||a[1]-b[1]).map(([o])=>o);}
  function summary(d){const verses=value=>{const r=BP.reference(value);return r.error?0:r.count;};const points=d.groups.reduce((a,g)=>a+g.points.length,0),quotes=d.groups.reduce((a,g)=>a+g.points.reduce((b,p)=>b+p.quotes.reduce((c,q)=>c+verses(q),0),0),0);
   return `제목 “${d.title}” · 본문 ${verses(d.passage)}절`+(points?` · 대지 ${points} · 인용구 ${quotes}절`:'');}
  async function sermonTarget(i){const E=work.extra.find(e=>e.services.includes(i));if(E){const doc=await extraDoc(E);return doc?{id:doc.id,name:base(doc.name)}:null;}if(!work.main.services.includes(i))return null;const doc=await docFromPlaylist(n=>/^2부/.test(n.replace(/\s/g,'')),work.main.doc);return doc?{id:doc.id,name:base(doc.name)}:null;}
