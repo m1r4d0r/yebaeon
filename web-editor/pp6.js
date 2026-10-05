@@ -241,10 +241,11 @@
   function documentXML({width=1920,height=1080,category='',groups=[{name:'기본',slides:''}]}){return `<RVPresentationDocument CCLIArtistCredits="" CCLIAuthor="" CCLICopyrightYear="" CCLIDisplay="false" CCLIPublisher="" CCLISongNumber="" CCLISongTitle="" backgroundColor="" buildNumber="100991749" category="${xmlAttr(category)}" chordChartPath="" docType="0" drawingBackgroundColor="false" height="${height}" lastDateUsed="" notes="" os="2" resourcesDirectory="" selectedArrangementID="" usedCount="0" uuid="${uuid()}" versionNumber="600" width="${width}"><RVTimeline duration="0.000000" loop="false" playBackRate="0.000000" rvXMLIvarName="timeline" selectedMediaTrackIndex="0" timeOffset="0.000000"><array rvXMLIvarName="timeCues"></array><array rvXMLIvarName="mediaTracks"></array></RVTimeline><array rvXMLIvarName="groups">${groups.map(g=>`<RVSlideGrouping color="0.2637968361377716 0.2637968361377716 0.2637968361377716 1" name="${xmlAttr(g.name)}" uuid="${uuid()}"><array rvXMLIvarName="slides">${g.slides}</array></RVSlideGrouping>`).join('')}</array><array rvXMLIvarName="arrangements"></array></RVPresentationDocument>`;}
   // 저장 전에 PP6 필수 구조 중 빠진 것만 채운다(이미 있는 값은 바꾸지 않는다). 예전 Studio가 만든 최소 구조 문서를 고친다.
   // 문서·그룹 id는 PP6처럼 소문자 uuid로, 시간표(RVTimeline)·arrangements, 글상자·그림 요소의 기본 속성과 그림자·테두리를 넣는다.
+  // 글상자의 source=""가 없으면 PP6가 문서를 열지 못한다(10-05 교회 PP6에서 이것 하나만 바꾼 파일로 확인). 그림의 source(파일 주소)는 채우지 않는다.
   function repairXML(xml){
     const doc=new DOMParser().parseFromString(xml,'application/xml'),root=doc.documentElement;if(root?.tagName!=='RVPresentationDocument'||doc.querySelector('parsererror'))return xml;
     const sample=text=>new DOMParser().parseFromString(text,'application/xml').documentElement;let changed=false;
-    const fill=(el,model)=>{for(const a of Array.from(model.attributes))if(!el.hasAttribute(a.name)&&a.name!=='UUID'&&a.name!=='uuid'&&a.name!=='source'&&a.name!=='rvXMLIvarName'){el.setAttribute(a.name,a.value);changed=true;}};
+    const fill=(el,model,skip=[])=>{for(const a of Array.from(model.attributes))if(!el.hasAttribute(a.name)&&!['UUID','uuid','rvXMLIvarName',...skip].includes(a.name)){el.setAttribute(a.name,a.value);changed=true;}};
     const lower=el=>{if(el.hasAttribute('UUID')&&!el.hasAttribute('uuid')){el.setAttribute('uuid',el.getAttribute('UUID'));el.removeAttribute('UUID');changed=true;}else if(!el.hasAttribute('uuid')&&!el.hasAttribute('UUID')){el.setAttribute('uuid',uuid());changed=true;}};
     const model=sample(documentXML({}));fill(root,model);lower(root);
     const direct=(tag,name)=>Array.from(root.children).find(c=>c.tagName===tag&&c.getAttribute('rvXMLIvarName')===name);
@@ -255,7 +256,7 @@
     const parts=el=>{const pos=Array.from(el.children).find(c=>c.tagName==='RVRect3D'&&c.getAttribute('rvXMLIvarName')==='position');let after=pos;for(const [tag,name,xmlText] of [['shadow','shadow',SHADOW],['dictionary','stroke',STROKE]]){let found=Array.from(el.children).find(c=>c.tagName===tag&&c.getAttribute('rvXMLIvarName')===name);if(!found){found=doc.importNode(sample(xmlText),true);el.insertBefore(found,after?after.nextSibling:el.firstChild);changed=true;}after=found;}if(!pos){el.insertBefore(doc.importNode(sample('<RVRect3D rvXMLIvarName="position">{0 0 0 0 0}</RVRect3D>'),true),el.firstChild);changed=true;}};
     const textModel=sample(textElementXML({rect:{},rtf:''})),imageModel=sample(imageElementXML({source:''}));
     for(const t of all(root,'RVTextElement')){fill(t,textModel);parts(t);}
-    for(const i of all(root,'RVImageElement')){fill(i,imageModel);parts(i);}
+    for(const i of all(root,'RVImageElement')){fill(i,imageModel,['source']);parts(i);}
     return changed?new XMLSerializer().serializeToString(doc):xml;
   }
   window.PP6={repairXML,documentXML,slideXML,textElementXML,imageElementXML,backgroundCueXML,all,ivar,attr,nfc,basename,uuid,rect,color,parseRTF,textRTF,runsRTF,sliceRuns,replaceRuns,setRuns,formatRange,setRect,textNode,parse,slides,textElements,mediaElements,setText,duplicate,refreshIDs,serialize,templateFormat,templateFormatData};
