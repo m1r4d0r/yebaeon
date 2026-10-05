@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import "YB2Engine.h"
 #import "YB2Server.h"
+#import "YB2Receipt.h"
 #import "YB2Update.h"
 #import "YBDocumentComparison.h"
 #import "PP6Core.h"
@@ -16,16 +17,17 @@ static NSString *const kResidentKey = @"residentMode";
 static NSString *const kAgentLabel = @"org.yebaeon.sync2";
 static const NSTimeInterval kResidentInterval = 15 * 60;
 
-@interface YB2App : NSObject <NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate>
+@interface YB2App : NSObject <NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate, NSMenuDelegate>
 @property(nonatomic) NSWindow *window;
 @property(nonatomic) NSTextField *connectionLabel, *rootLabel, *playlistLabel, *statusLabel, *presenterLabel;
 @property(nonatomic) NSTableView *table;
-@property(nonatomic) NSTextField *detailLabel;
+@property(nonatomic) NSTextView *detailLabel;   // 고른 줄의 할 일과 문서 이름(길면 스크롤)
 @property(nonatomic) NSButton *compareButton, *applyButton, *reviewButton;
 // 정리 창: 전체 확인과 비교가 만든 목록. 아무도 안 눌러도 아무 일도 생기지 않는다.
 @property(nonatomic) NSWindow *organizer;
 @property(nonatomic) NSTableView *organizerTable;
-@property(nonatomic) NSTextField *organizerStatus;
+@property(nonatomic) NSTextField *organizerStatus, *organizerTitle, *organizerHint;
+@property(nonatomic) BOOL organizerDirty;   // 정리 창에서 Mac·서버를 바꿨다: 닫을 때 다시 비교
 @property(nonatomic) NSMutableArray *organizerRows;    // {list, title, path, detail, item}
 @property(nonatomic) NSDictionary *organizerButtons;   // 동작 이름 → 버튼
 @property(nonatomic) YB2Server *server;
@@ -37,7 +39,7 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) BOOL checking;
 // 업데이트: 새 빌드가 있을 때만 표 위에 노란 줄. [지금 설치]를 눌러야 바뀐다.
 @property(nonatomic) NSScrollView *tableScroll;
-@property(nonatomic) NSBox *updateBar;
+@property(nonatomic) NSView *updateBar;
 @property(nonatomic) NSTextField *updateLabel;
 @property(nonatomic) NSButton *updateButton;
 @property(nonatomic) NSDictionary *pendingRelease;           // 서버의 새 빌드(지금보다 새로울 때만)
@@ -108,13 +110,18 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     [content addSubview:rootChange]; [content addSubview:playlistChange];
 
     // 표 아래: 고른 줄의 자세한 설명(문서 이름별로 무엇을 하는지)
-    self.detailLabel = Label(@"줄을 누르면 문서별 자세한 설명이 여기에 나옵니다.", NSMakeRect(16, 48, w - 32, 60), 11);
-    self.detailLabel.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin; self.detailLabel.lineBreakMode = NSLineBreakByWordWrapping;
-    self.detailLabel.selectable = YES; self.detailLabel.textColor = NSColor.secondaryLabelColor; [content addSubview:self.detailLabel];
+    NSScrollView *detailScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 48, w - 32, 60)];
+    detailScroll.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin; detailScroll.hasVerticalScroller = YES; detailScroll.drawsBackground = NO; detailScroll.borderType = NSNoBorder;
+    self.detailLabel = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, w - 48, 60)];
+    self.detailLabel.editable = NO; self.detailLabel.selectable = YES; self.detailLabel.drawsBackground = NO; self.detailLabel.font = [NSFont systemFontOfSize:11];
+    self.detailLabel.textColor = NSColor.secondaryLabelColor; self.detailLabel.verticallyResizable = YES; self.detailLabel.autoresizingMask = NSViewWidthSizable;
+    self.detailLabel.textContainer.widthTracksTextView = YES; self.detailLabel.string = @"줄을 누르면 할 일과 문서 이름이 여기에 나옵니다.";
+    detailScroll.documentView = self.detailLabel; [content addSubview:detailScroll];
     NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 114, w - 32, h - 202)]; self.tableScroll = scroll;
     scroll.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; scroll.hasVerticalScroller = YES; scroll.borderType = NSBezelBorder;
     self.table = [[NSTableView alloc] initWithFrame:scroll.bounds];
-    self.table.dataSource = self; self.table.delegate = self; self.table.rowHeight = 22; self.table.allowsMultipleSelection = NO;
+    self.table.dataSource = self; self.table.delegate = self;
+    NSMenu *force = [NSMenu new]; force.delegate = self; force.autoenablesItems = NO; self.table.menu = force;   // 오른쪽 클릭: 문서별 강제 동작 self.table.rowHeight = 22; self.table.allowsMultipleSelection = NO;
     self.table.columnAutoresizingStyle = NSTableViewLastColumnOnlyAutoresizingStyle;
     NSArray *columns = @[@[@"checked", @"적용", @44], @[@"name", @"예배", @200], @[@"status", @"바뀐 것", @300], @[@"updated", @"서버 저장", @200]];
     for (NSArray *spec in columns) {
@@ -128,7 +135,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     self.statusLabel = Label(@"", NSMakeRect(16, 16, w - 300, 18), 12); self.statusLabel.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
     self.presenterLabel = Label(@"", NSMakeRect(w - 440, 16, 160, 18), 12); self.presenterLabel.autoresizingMask = NSViewMinXMargin | NSViewMaxYMargin; self.presenterLabel.alignment = NSTextAlignmentRight;
     self.compareButton = Button(@"다시 비교", NSMakeRect(w - 270, 10, 110, 28), self, @selector(compareNow:));
-    self.applyButton = Button(@"적용·올리기", NSMakeRect(w - 150, 10, 134, 28), self, @selector(applyNow:));
+    self.applyButton = Button(@"받기·올리기", NSMakeRect(w - 150, 10, 134, 28), self, @selector(applyNow:));
     self.applyButton.keyEquivalent = @"\r"; self.applyButton.enabled = NO;
     [content addSubview:self.statusLabel]; [content addSubview:self.presenterLabel]; [content addSubview:self.compareButton]; [content addSubview:self.applyButton];
     // "확인 필요 n · 정리 열기" 한 줄. n=0이면 숨긴다.
@@ -138,16 +145,20 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     NSButton *studio = Button(@"Studio 열기", NSMakeRect(w - 106, h - 34, 90, 24), self, @selector(openStudio:));
     studio.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin; [content addSubview:studio];
     // 새 버전 줄(표 바로 위). 보일 때만 표를 그만큼 줄인다.
-    self.updateBar = [[NSBox alloc] initWithFrame:NSMakeRect(16, h - 120, w - 32, 32)];
-    self.updateBar.boxType = NSBoxCustom; self.updateBar.fillColor = [NSColor colorWithCalibratedRed:1 green:0.965 blue:0.8 alpha:1];
-    self.updateBar.borderColor = [NSColor colorWithCalibratedRed:0.9 green:0.81 blue:0.42 alpha:1]; self.updateBar.cornerRadius = 4; self.updateBar.titlePosition = NSNoTitle;
+    // 새 버전 줄: 노란 바탕(NSBox)은 뒤에 깔고, 글·버튼은 바탕 밖의 보통 칸에 둔다(NSBox 안에 두면 위아래가 잘린다).
+    self.updateBar = [[NSView alloc] initWithFrame:NSMakeRect(16, h - 124, w - 32, 36)];
     self.updateBar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin; self.updateBar.hidden = YES;
-    NSView *bar = self.updateBar.contentView; CGFloat bw = w - 40;
-    self.updateLabel = Label(@"", NSMakeRect(6, 5, bw - 220, 18), 12); self.updateLabel.autoresizingMask = NSViewWidthSizable;
-    NSButton *later = Button(@"나중에", NSMakeRect(bw - 206, 0, 80, 26), self, @selector(dismissUpdate:));
-    self.updateButton = Button(@"지금 설치", NSMakeRect(bw - 120, 0, 110, 26), self, @selector(installUpdate:));
+    NSBox *backdrop = [[NSBox alloc] initWithFrame:self.updateBar.bounds];
+    backdrop.boxType = NSBoxCustom; backdrop.fillColor = [NSColor colorWithCalibratedRed:1 green:0.965 blue:0.8 alpha:1];
+    backdrop.borderColor = [NSColor colorWithCalibratedRed:0.9 green:0.81 blue:0.42 alpha:1]; backdrop.cornerRadius = 4; backdrop.titlePosition = NSNoTitle;
+    backdrop.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; [self.updateBar addSubview:backdrop];
+    CGFloat bw = w - 32;
+    self.updateLabel = Label(@"", NSMakeRect(10, 9, bw - 230, 18), 12); self.updateLabel.autoresizingMask = NSViewWidthSizable;
+    self.updateLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    NSButton *later = Button(@"나중에", NSMakeRect(bw - 210, 4, 86, 28), self, @selector(dismissUpdate:));
+    self.updateButton = Button(@"지금 설치", NSMakeRect(bw - 118, 4, 110, 28), self, @selector(installUpdate:));
     later.autoresizingMask = self.updateButton.autoresizingMask = NSViewMinXMargin;
-    [bar addSubview:self.updateLabel]; [bar addSubview:later]; [bar addSubview:self.updateButton];
+    [self.updateBar addSubview:self.updateLabel]; [self.updateBar addSubview:later]; [self.updateBar addSubview:self.updateButton];
     [content addSubview:self.updateBar];
 }
 #pragma mark - 업데이트
@@ -173,11 +184,12 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 - (void)refreshUpdateBar {
     BOOL show = self.pendingRelease && [self.pendingRelease[@"build"] integerValue] != self.dismissedBuild;
     if (show != !self.updateBar.hidden) {
-        NSRect frame = self.tableScroll.frame; frame.size.height += show ? -38 : 38; self.tableScroll.frame = frame;
+        NSRect frame = self.tableScroll.frame; frame.size.height += show ? -40 : 40; self.tableScroll.frame = frame;
         self.updateBar.hidden = !show;
     }
     NSString *notes = [self.pendingRelease[@"notes"] length] ? [@" · " stringByAppendingString:self.pendingRelease[@"notes"]] : @"";
     self.updateLabel.stringValue = self.pendingRelease ? [NSString stringWithFormat:@"새 버전 있음 · 빌드 %@ (지금 빌드 %ld)%@", self.pendingRelease[@"build"], (long)[YB2Update currentBuild], notes] : @"";
+    self.updateLabel.toolTip = self.updateLabel.stringValue;
     NSString *blocked = self.busy ? @"작업 중" : self.checking ? @"전체 확인 중" : YBPresenterRunning() ? @"PP6를 닫은 뒤" : nil;
     self.updateButton.enabled = self.pendingRelease && !blocked;
     self.updateButton.toolTip = blocked ? [blocked stringByAppendingString:@" 설치할 수 있습니다."] : nil;
@@ -191,7 +203,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 - (void)installUpdate:(id)sender {
     NSDictionary *release = self.pendingRelease;
     if (!release) return;
-    if (self.busy || self.checking || YBPresenterRunning()) { [self alert:@"지금은 설치할 수 없습니다" text:@"적용·올리기·전체 확인이 끝나고 PP6를 닫은 뒤 다시 눌러 주세요."]; return; }
+    if (self.busy || self.checking || YBPresenterRunning()) { [self alert:@"지금은 설치할 수 없습니다" text:@"받기·올리기·전체 확인이 끝나고 PP6를 닫은 뒤 다시 눌러 주세요."]; return; }
     [self showWindow:nil];
     NSAlert *confirm = [NSAlert new]; confirm.messageText = [NSString stringWithFormat:@"빌드 %@로 바꿀까요?", release[@"build"]];
     confirm.informativeText = @"새 버전을 받아 앱을 바꾸고 다시 켭니다. 지금 앱은 백업 폴더에 남습니다. 영수증·백업·설정은 그대로입니다.";
@@ -227,6 +239,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     [tools addItemWithTitle:@"다시 비교" action:@selector(compareNow:) keyEquivalent:@"r"];
     [tools addItemWithTitle:@"정리…" action:@selector(showOrganizer:) keyEquivalent:@"o"];
     [tools addItemWithTitle:@"백업 폴더 열기" action:@selector(openBackups:) keyEquivalent:@""];
+    [tools addItemWithTitle:@"마지막 적용 되돌리기…" action:@selector(undoLastApply:) keyEquivalent:@""];
     [tools addItem:NSMenuItem.separatorItem];
     [tools addItemWithTitle:@"상주 확인 (15분마다)" action:@selector(toggleResident:) keyEquivalent:@""];
     [tools addItemWithTitle:@"로그인 시 실행" action:@selector(toggleLoginItem:) keyEquivalent:@""];
@@ -300,8 +313,8 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     } @catch (NSException *e) { [self alert:@"중단된 적용을 마무리하지 못함" text:e.reason]; }
     if (!self.server.cookie && !self.server.deviceToken) { if (![self loginSheet]) return; }
     else self.connectionLabel.stringValue = [NSString stringWithFormat:@"연결 확인 중%@ · %@", self.server.deviceToken ? @" (장치 열쇠)" : @"", kOrigin];
-    // 구형 Mac은 부팅 뒤 한참 인터넷을 못 잡는다. 바로 돌지 않고 잠시 뒤에 시작하며, 네트워크 오류면 간격을 늘려 조용히 기다린다.
-    [self performSelector:@selector(startupCompare) withObject:nil afterDelay:5];
+    // 켜자마자 서버에 연결한다. 네트워크 오류면 startupCompare가 15초마다 다시 시도한다.
+    [self performSelector:@selector(startupCompare) withObject:nil afterDelay:0];
 }
 - (void)startupCompare {
     if (self.busy) return;
@@ -309,7 +322,8 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
         if (!error) { [self runFullCheckIfDue]; [self checkUpdate:NO]; return; }
         if ([error.reason hasPrefix:@"HTTP 401"]) { dispatch_async(dispatch_get_main_queue(), ^{ [self handleLoginRequired]; }); return; }
         if ([error.reason hasPrefix:@"HTTP "]) { dispatch_async(dispatch_get_main_queue(), ^{ self.statusLabel.stringValue = error.reason; }); return; }
-        NSArray *delays = @[@10, @20, @40, @80, @160, @300];
+        // 켜자마자 연결하고, 네트워크가 없으면 15초마다 다시 시도한다(최대 5분).
+        NSArray *delays = [@"15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15 15" componentsSeparatedByString:@" "];
         if (self.startupAttempt >= delays.count) { dispatch_async(dispatch_get_main_queue(), ^{ self.statusLabel.stringValue = [@"서버에 연결하지 못했습니다. 인터넷 연결 뒤 ‘다시 비교’를 눌러 주세요. " stringByAppendingString:error.reason]; }); return; }
         NSTimeInterval delay = [delays[self.startupAttempt++] doubleValue];
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -352,6 +366,14 @@ static BOOL IsPresenter(NSRunningApplication *app) {
 
 // [적용]으로 고를 수 있는 줄. Mac 파일을 바꾸는 줄(받기·빼기·문서 정리)은 PP6가 꺼져 있어야 한다.
 static BOOL Checkable(NSDictionary *row) { return [@[@"receive", @"mac", @"trash", @"actions", @"macNew"] containsObject:row[@"status"] ?: @""]; }
+// 받을 것이 "이력 없음" 문서뿐인 줄: [적용]으로는 아무것도 바뀌지 않는다(Mac 파일을 지키고 정리 창으로 보낸다). 체크를 꺼 두고 정리 창으로 안내한다.
+static BOOL NoHistoryOnly(NSDictionary *row) {
+    if (![row[@"status"] isEqual:@"receive"] || [row[@"orderChanged"] boolValue] || [row[@"macDeleted"] boolValue] || [row[@"serverNew"] boolValue]) return NO;
+    if ([row[@"images"] count] || [row[@"macOnlyDocuments"] count] || [row[@"revertedOrder"] boolValue] || [row[@"revertedDocuments"] count]) return NO;
+    NSUInteger unknown = 0;
+    for (NSString *path in row[@"macChangedDocuments"]) if ([row[@"macChangedReasons"][path] isEqual:@"technical"]) unknown++;
+    return unknown > 0 && unknown == [row[@"documents"] count];
+}
 static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"actions"] containsObject:row[@"status"] ?: @""] || [row[@"images"] count]; }
 
 - (void)setBusy:(BOOL)busy {
@@ -371,14 +393,17 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
 }
 - (void)refreshApplyButton {
     NSUInteger checked = 0, receive = 0;
-    for (NSDictionary *row in self.rows) if ([row[@"checked"] boolValue]) { checked++; if (ChangesMac(row)) receive++; }
+    for (NSDictionary *row in self.rows) if ([row[@"checked"] boolValue] && !NoHistoryOnly(row)) { checked++; if (ChangesMac(row)) receive++; }
     // 올리기는 PP6가 켜져 있어도 된다(Mac 파일을 바꾸지 않는다). 받기는 PP6를 닫아야 한다.
     self.applyButton.enabled = !self.busy && checked > 0 && (receive == 0 || !YBPresenterRunning());
-    self.applyButton.title = checked ? [NSString stringWithFormat:@"%lu개 적용·올리기", (unsigned long)checked] : @"적용·올리기";
+    // 고른 줄의 방향대로: 받기(Mac이 바뀜)만, 올리기만, 둘 다
+    NSUInteger up = checked - receive;
+    NSString *verb = receive && up ? @"받기·올리기" : receive ? @"받기" : @"올리기";
+    self.applyButton.title = checked ? [NSString stringWithFormat:@"%lu개 %@", (unsigned long)checked, verb] : @"받기·올리기";
 }
 - (void)refreshStatusItem {
     NSUInteger waiting = 0, hold = 0;
-    for (NSDictionary *row in self.rows) { if (Checkable(row) && !([row[@"macDeleted"] boolValue])) waiting++; else if ([row[@"status"] isEqual:@"hold"]) hold++; }
+    for (NSDictionary *row in self.rows) { if (Checkable(row) && !([row[@"macDeleted"] boolValue]) && !NoHistoryOnly(row)) waiting++; else if ([row[@"status"] isEqual:@"hold"] || NoHistoryOnly(row)) hold++; }
     NSString *title = self.busy ? @"예배온 확인 중" : waiting ? [NSString stringWithFormat:@"예배온 대기 %lu", (unsigned long)waiting] : hold ? [NSString stringWithFormat:@"예배온 보류 %lu", (unsigned long)hold] : @"예배온 최신";
     self.statusItem.button.title = self.pendingRelease ? [title stringByAppendingString:@" · 새 버전"] : title;
     NSString *state = self.busy ? @"확인 중" : waiting ? [NSString stringWithFormat:@"받을·올릴 것 %lu", (unsigned long)waiting] : hold ? [NSString stringWithFormat:@"보류 %lu", (unsigned long)hold] : @"모두 같음";
@@ -388,12 +413,13 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
 - (void)showRows:(NSArray *)result {
     [self.rows removeAllObjects];
     // Mac에서 지운 예배는 기본 체크 꺼짐(되살리지 않는다). 나머지 고를 수 있는 줄은 켜 둔다.
-    for (NSDictionary *row in result) { NSMutableDictionary *m = [row mutableCopy]; m[@"checked"] = @(Checkable(row) && ![row[@"macDeleted"] boolValue]); [self.rows addObject:m]; }
+    for (NSDictionary *row in result) { NSMutableDictionary *m = [row mutableCopy]; m[@"checked"] = @(Checkable(row) && ![row[@"macDeleted"] boolValue] && !NoHistoryOnly(row)); [self.rows addObject:m]; }
     [self.table reloadData];
     NSUInteger receive = 0, mac = 0, hold = 0, trash = 0;
     for (NSDictionary *row in self.rows) {
         NSString *status = row[@"status"];
-        if ([status isEqual:@"receive"] && ![row[@"macDeleted"] boolValue]) receive++;
+        if (NoHistoryOnly(row)) hold++;
+        else if ([status isEqual:@"receive"] && ![row[@"macDeleted"] boolValue]) receive++;
         else if ([status isEqual:@"mac"] || [status isEqual:@"macNew"]) mac++;
         else if ([status isEqual:@"trash"]) trash++;
         else if ([status isEqual:@"actions"]) trash += [row[@"renames"] count] + [row[@"trashes"] count];
@@ -403,7 +429,7 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
     if (receive) [parts addObject:[NSString stringWithFormat:@"받을 예배 %lu개", (unsigned long)receive]];
     if (mac) [parts addObject:[NSString stringWithFormat:@"올릴 예배 %lu개", (unsigned long)mac]];
     if (trash) [parts addObject:[NSString stringWithFormat:@"서버 정리 %lu개", (unsigned long)trash]];
-    if (hold) [parts addObject:[NSString stringWithFormat:@"보류 %lu개", (unsigned long)hold]];
+    if (hold) [parts addObject:[NSString stringWithFormat:@"정리 창에서 정할 것 %lu개", (unsigned long)hold]];
     self.statusLabel.stringValue = parts.count ? [parts componentsJoinedByString:@" · "] : @"모두 같음";
     self.connectionLabel.stringValue = [NSString stringWithFormat:@"연결됨%@ · %@", self.server.deviceToken ? @" (장치 열쇠)" : @"", kOrigin];
     [self refreshApplyButton]; [self refreshStatusItem]; [self refreshReview];
@@ -491,8 +517,17 @@ static NSString *Summary(NSDictionary *result) {
 - (void)applyNow:(id)sender {
     if (self.busy) return;
     NSMutableArray *selected = [NSMutableArray array];
-    for (NSDictionary *row in self.rows) if ([row[@"checked"] boolValue] && Checkable(row)) [selected addObject:row];
-    if (!selected.count) return;
+    NSMutableArray *organizerOnly = [NSMutableArray array];
+    for (NSDictionary *row in self.rows) if ([row[@"checked"] boolValue] && Checkable(row)) [NoHistoryOnly(row) ? organizerOnly : selected addObject:row];
+    NSString *organizerNote = organizerOnly.count ? [NSString stringWithFormat:@"%@: 이력 없는 문서뿐이라 [적용]으로는 바뀌지 않습니다. 정리 창에서 서버 것 받기·Mac 것 올리기로 정해 주세요.", [[organizerOnly valueForKey:@"name"] componentsJoinedByString:@", "]] : nil;
+    if (!selected.count) {
+        if (organizerNote) {
+            NSAlert *alert = [NSAlert new]; alert.messageText = @"정리 창에서 정할 것"; alert.informativeText = organizerNote;
+            [alert addButtonWithTitle:@"정리 창 열기"]; [alert addButtonWithTitle:@"닫기"];
+            if ([alert runModal] == NSAlertFirstButtonReturn) [self showOrganizer:nil];
+        }
+        return;
+    }
     self.busy = YES; self.statusLabel.stringValue = @"올리기·적용 중";
     dispatch_async(self.work, ^{
         NSDictionary *result = nil; NSException *error = nil;
@@ -501,6 +536,7 @@ static NSString *Summary(NSDictionary *result) {
             self.busy = NO;
             if (error) { [self alert:@"적용하지 못함" text:error.reason]; [self compareNow:nil]; return; }
             NSString *text = Summary(result);
+            if (organizerNote) text = [text stringByAppendingFormat:@"%@%@", text.length ? @"\n" : @"", organizerNote];
             [self alert:@"완료" text:text.length ? text : @"바뀐 것이 없습니다."];
             [self compareNow:nil];
         });
@@ -524,7 +560,7 @@ static NSString *DifferenceText(NSString *label, NSData *local, NSData *remote) 
 static NSString *FirstDifference(NSData *local, NSData *remote) {
     if (local && remote && [local isEqual:remote]) return @"파일 바이트가 같습니다.";
     return [NSString stringWithFormat:@"%@\n\n%@", DifferenceText(@"파일 첫 차이", local, remote),
-            DifferenceText(@"사용 기록·경로 표기·자모 조합을 맞춘 뒤 첫 차이", [YB2Engine comparableBytes:local], [YB2Engine comparableBytes:remote])];
+            DifferenceText(@"비교용으로 맞춘 뒤 첫 차이(사용 기록·경로·XML·RTF 표기·자모)", [YB2Engine comparableBytes:local], [YB2Engine comparableBytes:remote])];
 }
 // 서버·영수증의 UTC 시각(ISO 8601)을 이 Mac의 시간대로: 2026-10-05 18:38
 static NSString *LocalTime(NSString *iso) {
@@ -560,10 +596,10 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     for (NSDictionary *item in check[@"external"]) {
         NSArray *references = [item[@"references"] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSString *reference, NSDictionary *b) {
             return ![videos containsObject:reference.pathExtension.lowercaseString]; }]];
-        if (references.count) [items addObject:@{@"list": kListExternal, @"title": item[@"path"], @"path": item[@"path"], @"detail": [references componentsJoinedByString:@", "], @"item": item}];
+        if (references.count) [items addObject:@{@"list": kListExternal, @"title": item[@"path"], @"path": item[@"path"], @"detail": [references componentsJoinedByString:@", "], @"item": @{@"path": item[@"path"], @"references": references}}];
     }
     for (NSDictionary *item in check[@"imageFill"]) [items addObject:@{@"list": kListImage, @"title": [item[@"path"] lastPathComponent], @"path": item[@"path"], @"detail": @"서버에 있고 이 Mac에 없음", @"item": item}];
-    for (NSDictionary *item in [self.engine numberedLog]) [items addObject:@{@"list": kListNumbered, @"title": item[@"path"], @"path": item[@"target"], @"detail": [NSString stringWithFormat:@"Mac 파일 → %@ · %@", item[@"target"], LocalTime(item[@"at"])]}];
+    for (NSDictionary *item in [self.engine numberedLog]) [items addObject:@{@"list": kListNumbered, @"title": item[@"path"], @"path": item[@"target"], @"detail": [NSString stringWithFormat:@"Mac 파일 → %@ · %@", item[@"target"], LocalTime(item[@"at"])], @"item": item}];
     return items;
 }
 - (void)refreshReview {
@@ -598,34 +634,98 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
 - (void)buildOrganizer {
     NSRect frame = NSMakeRect(0, 0, 980, 480);
     self.organizer = [[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
-    self.organizer.title = @"예배온 Sync 2 · 정리"; self.organizer.releasedWhenClosed = NO; self.organizer.minSize = NSMakeSize(940, 360);
+    self.organizer.title = @"예배온 Sync 2 · 정리"; self.organizer.delegate = self; self.organizer.releasedWhenClosed = NO; self.organizer.minSize = NSMakeSize(940, 360);
     NSView *content = self.organizer.contentView; CGFloat w = frame.size.width, h = frame.size.height;
-    NSTextField *help = Label(@"전체 확인과 비교가 찾은 것입니다. 여기 있는 것은 쌓여 있어도 안전하며, 버튼을 누를 때만 Mac·서버가 바뀝니다.", NSMakeRect(16, h - 30, w - 32, 18), 12);
-    [content addSubview:help];
-    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 92, w - 32, h - 130)];
+    NSTextField *help = Label(@"할 일만 모았습니다. 버튼을 누를 때만 Mac·서버가 바뀝니다.", NSMakeRect(16, h - 30, w - 32, 18), 12);
+    help.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin; [content addSubview:help];
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 152, w - 32, h - 190)];
     scroll.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; scroll.hasVerticalScroller = YES; scroll.borderType = NSBezelBorder;
     self.organizerTable = [[NSTableView alloc] initWithFrame:scroll.bounds];
     self.organizerTable.dataSource = self; self.organizerTable.delegate = self; self.organizerTable.rowHeight = 22; self.organizerTable.allowsMultipleSelection = YES;
     self.organizerTable.columnAutoresizingStyle = NSTableViewLastColumnOnlyAutoresizingStyle;
-    for (NSArray *spec in @[@[@"list", @"구분", @150], @[@"title", @"항목", @260], @[@"detail", @"설명", @380]]) {
+    for (NSArray *spec in @[@[@"list", @"구분", @150], @[@"title", @"항목", @300], @[@"detail", @"설명", @440]]) {
         NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:spec[0]]; column.title = spec[1]; column.width = [spec[2] doubleValue]; column.editable = NO;
         [self.organizerTable addTableColumn:column];
     }
     scroll.documentView = self.organizerTable; [content addSubview:scroll];
-    NSArray *actions = @[@[@"diff", @"차이 보기"], @[@"server", @"서버 것으로"], @[@"mac", @"Mac 것 올리기"], @[@"number", @"번호 붙여 둘 다 두기"], @[@"trash", @"서버 휴지통으로"], @[@"image", @"이미지 받기"], @[@"web", @"웹에서 보기"]];
-    NSMutableDictionary *buttons = [NSMutableDictionary dictionary]; CGFloat x = 16;
+    // 고른 항목 칸: 이름, 그 종류에 맞는 버튼만, 누르면 무엇이 바뀌는지 한 줄
+    // 바탕(NSBox)은 뒤에 깔고 이름·버튼은 보통 칸에 둔다(NSBox 안의 버튼은 잘린다).
+    NSView *inner = [[NSView alloc] initWithFrame:NSMakeRect(16, 52, w - 32, 92)];
+    inner.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin; [content addSubview:inner];
+    NSBox *box = [[NSBox alloc] initWithFrame:inner.bounds];
+    box.boxType = NSBoxCustom; box.cornerRadius = 5; box.borderColor = [NSColor colorWithCalibratedWhite:0.78 alpha:1];
+    box.fillColor = [NSColor colorWithCalibratedWhite:0.97 alpha:1]; box.titlePosition = NSNoTitle;
+    box.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; [inner addSubview:box];
+    CGFloat bw = w - 32;
+    self.organizerTitle = Label(@"", NSMakeRect(12, 64, bw - 24, 18), 13); self.organizerTitle.autoresizingMask = NSViewWidthSizable; [inner addSubview:self.organizerTitle];
+    self.organizerHint = Label(@"", NSMakeRect(12, 6, bw - 24, 16), 11); self.organizerHint.textColor = NSColor.secondaryLabelColor; self.organizerHint.autoresizingMask = NSViewWidthSizable; [inner addSubview:self.organizerHint];
+    NSArray *actions = @[@[@"diff", @"차이 보기"], @[@"server", @"서버 것 받기"], @[@"mac", @"Mac 것 올리기"], @[@"number", @"둘 다 두기"], @[@"trash", @"서버 휴지통으로"], @[@"image", @"이미지 받기"], @[@"import", @"그림 가져오기"], @[@"removeNumbered", @"번호 사본 지우기"], @[@"web", @"웹에서 보기"]];
+    NSMutableDictionary *buttons = [NSMutableDictionary dictionary];
     for (NSArray *spec in actions) {
-        NSButton *button = Button(spec[1], NSMakeRect(x, 50, 80, 28), self, @selector(organizerAction:));
-        [button sizeToFit]; NSRect fit = button.frame; fit.size.width += 8; fit.origin.y = 50; button.frame = fit;
-        button.identifier = spec[0]; button.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin; button.enabled = NO;
-        [content addSubview:button]; buttons[spec[0]] = button; x += button.frame.size.width + 6;
+        NSButton *button = Button(spec[1], NSMakeRect(12, 28, 80, 28), self, @selector(organizerAction:));
+        button.identifier = spec[0]; button.autoresizingMask = NSViewMaxXMargin; button.hidden = YES;
+        [inner addSubview:button]; buttons[spec[0]] = button;
     }
     self.organizerButtons = buttons;
     NSButton *check = Button(@"전체 확인 지금", NSMakeRect(16, 14, 130, 28), self, @selector(fullCheckNow:)); check.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
-    NSButton *undo = Button(@"마지막 적용 되돌리기", NSMakeRect(152, 14, 170, 28), self, @selector(undoLastApply:)); undo.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
-    NSButton *backups = Button(@"백업 폴더", NSMakeRect(328, 14, 100, 28), self, @selector(openBackups:)); backups.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
-    self.organizerStatus = Label(@"", NSMakeRect(436, 20, w - 452, 18), 12); self.organizerStatus.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
-    [content addSubview:check]; [content addSubview:undo]; [content addSubview:backups]; [content addSubview:self.organizerStatus];
+    self.organizerStatus = Label(@"", NSMakeRect(156, 20, w - 172, 18), 12); self.organizerStatus.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
+    [content addSubview:check]; [content addSubview:self.organizerStatus];
+}
+#pragma mark - 오른쪽 클릭 강제 동작
+
+// 권장과 상관없이 문서 하나에 할 수 있는 동작. 실제로 불가능한 것(파일이 없음 등)만 끈다.
+- (void)menuNeedsUpdate:(NSMenu *)menu {
+    if (menu != self.table.menu) return;
+    [menu removeAllItems];
+    NSInteger index = self.table.clickedRow;
+    if (index < 0 || index >= (NSInteger)self.rows.count) return;
+    NSDictionary *row = self.rows[index];
+    NSMutableOrderedSet *paths = [NSMutableOrderedSet orderedSet];
+    for (NSString *key in @[@"serviceDocuments", @"macDeletedDocuments", @"missingLocal", @"macOnlyDocuments", @"macChangedDocuments"]) for (id path in row[key]) if ([path isKindOfClass:NSString.class]) [paths addObject:path];
+    for (NSDictionary *doc in row[@"documents"]) if ([doc[@"path"] isKindOfClass:NSString.class]) [paths addObject:doc[@"path"]];
+    NSMenuItem *head = [menu addItemWithTitle:[NSString stringWithFormat:@"강제 동작 · %@ (권장과 상관없이 실행)", row[@"name"] ?: @""] action:nil keyEquivalent:@""]; head.enabled = NO;
+    if (!paths.count) { NSMenuItem *none = [menu addItemWithTitle:@"이 예배에 문서가 없습니다" action:nil keyEquivalent:@""]; none.enabled = NO; return; }
+    [menu addItem:NSMenuItem.separatorItem];
+    for (NSString *path in [paths.array sortedArrayUsingSelector:@selector(localizedStandardCompare:)]) {
+        BOOL mac = [self.engine hasLocalDocument:path];
+        NSDictionary *entry = [self.engine.receipt ledger:path]; NSString *state = entry[@"state"];
+        BOOL server = [entry[@"id"] length] > 0, active = server && ![state isEqual:@"trashed"];
+        NSString *where = [NSString stringWithFormat:@"%@ · %@", mac ? @"Mac 있음" : @"Mac 없음", !server ? @"서버 없음" : active ? @"서버 있음" : @"서버 휴지통"];
+        NSMenuItem *docItem = [menu addItemWithTitle:[NSString stringWithFormat:@"%@  (%@)", path.stringByDeletingPathExtension, where] action:nil keyEquivalent:@""];
+        NSMenu *actions = [NSMenu new]; actions.autoenablesItems = NO;
+        for (NSArray *spec in @[@[@"diff", @"차이 보기", @(mac && server)], @[@"server", @"서버 것 받기 (Mac 파일을 서버 것으로)", @(active)],
+                                @[@"mac", @"Mac 것 올리기 (서버를 Mac 것으로)", @(mac && server)], @[@"trashServer", @"서버 휴지통으로", @(active)],
+                                @[@"trashMac", @"Mac에서 지우기 (macOS 휴지통)", @(mac)], @[@"web", @"웹에서 보기", @(server)]]) {
+            NSMenuItem *item = [actions addItemWithTitle:spec[1] action:@selector(forceDocument:) keyEquivalent:@""];
+            item.target = self; item.enabled = [spec[2] boolValue] && !self.busy; item.representedObject = @{@"action": spec[0], @"path": path};
+        }
+        docItem.submenu = actions;
+    }
+}
+- (void)forceDocument:(NSMenuItem *)sender {
+    NSString *action = sender.representedObject[@"action"], *path = sender.representedObject[@"path"], *name = path.stringByDeletingPathExtension;
+    if ([action isEqual:@"diff"]) { [self showDiffForPath:path]; return; }
+    if ([action isEqual:@"web"]) { NSString *link = [self.engine webLink:path]; if (link) [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:link]]; return; }
+    NSDictionary *words = @{@"server": @"Mac 파일을 서버 것으로 바꿉니다. 지금 Mac 파일은 백업 폴더와 서버 보관본에 남습니다.",
+                            @"mac": @"Mac 파일을 서버의 새 버전으로 올립니다. 그전 서버 내용은 이력에 남습니다.",
+                            @"trashServer": @"서버 문서를 서버 휴지통으로 옮깁니다. 웹 휴지통에서 꺼낼 수 있습니다. 이 문서를 쓰는 서버 예배 순서는 Studio에서 따로 정리해 주세요.",
+                            @"trashMac": @"Mac 파일을 macOS 휴지통으로 옮깁니다. 백업 폴더에도 사본을 남깁니다. 서버 것은 그대로입니다."};
+    NSAlert *confirm = [NSAlert new]; confirm.messageText = [NSString stringWithFormat:@"강제 동작 · %@", name];
+    confirm.informativeText = [words[action] stringByAppendingString:@"\n\nSync가 권하는 동작과 다를 수 있습니다. 진행할까요?"];
+    [confirm addButtonWithTitle:@"진행"]; [confirm addButtonWithTitle:@"취소"];
+    if ([confirm runModal] != NSAlertFirstButtonReturn) return;
+    [self runOrganizer:@"강제 동작 중" task:^id{
+        if ([action isEqual:@"server"]) [self.engine takeServer:path];
+        else if ([action isEqual:@"mac"]) [self.engine takeMac:path];
+        else if ([action isEqual:@"trashServer"]) [self.engine trashOnServer:path];
+        else if ([action isEqual:@"trashMac"]) [self.engine trashOnMac:path];
+        return @YES;
+    } done:^(id result) { [self compareNow:nil]; }];
+}
+
+- (void)windowWillClose:(NSNotification *)note {
+    if (note.object != self.organizer || !self.organizerDirty) return;
+    self.organizerDirty = NO; [self compareNow:nil];
 }
 - (void)showOrganizer:(id)sender {
     if (!self.organizer) [self buildOrganizer];
@@ -633,8 +733,11 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     [self.organizer makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
 }
 - (void)reloadOrganizer {
+    NSInteger keep = self.organizerTable.selectedRow;
     self.organizerRows = [[self reviewItems] mutableCopy];
     [self.organizerTable reloadData];
+    // 처리한 줄이 빠지면 같은 자리의 다음 줄을 고른다(이어서 처리)
+    if (keep >= 0 && self.organizerRows.count) [self.organizerTable selectRowIndexes:[NSIndexSet indexSetWithIndex:MIN((NSUInteger)keep, self.organizerRows.count - 1)] byExtendingSelection:NO];
     NSDictionary *check = [self.engine lastFullCheck], *last = [self.engine lastApply];
     NSString *at = check[@"at"] ? LocalTime(check[@"at"]) : @"아직 없음";
     NSString *counts = check[@"at"] ? [NSString stringWithFormat:@" · 처음 대조로 같음 %@ · 확인 필요 %lu", check[@"remembered"] ?: @"-", (unsigned long)[check[@"collisions"] count] + [check[@"macDeleted"] count]] : @"";
@@ -651,17 +754,45 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     return items;
 }
 // 여러 줄을 골라도 되는 버튼(서버 것으로·Mac 것 올리기·서버 휴지통으로·이미지 받기)은 고른 줄이 모두 같은 구분일 때 켠다.
+// 고른 항목 종류에 맞는 버튼만 보이고, 첫 버튼(주로 할 일)이 무엇을 바꾸는지 아래 줄에 적는다. 버튼마다 마우스 설명도 같다.
+static NSString *ActionHint(NSString *action, NSString *list) {
+    if ([action isEqual:@"server"] && [list isEqual:kListMacDeleted]) return @"다시 받기: 서버 것을 이 Mac에 다시 받습니다.";
+    return @{@"diff": @"차이 보기: 슬라이드별로 Mac·서버 내용을 나란히 봅니다. 코드를 복사해 물어볼 수 있습니다.",
+             @"server": @"서버 것 받기: Mac 파일을 서버 내용으로 바꾸고, Mac 것은 백업 폴더와 서버 보관본에 남깁니다.",
+             @"mac": @"Mac 것 올리기: Mac 내용을 서버의 새 버전으로 올립니다. 그전 서버 내용은 이력에 남습니다.",
+             @"number": @"둘 다 두기: Mac 파일을 ‘이름 2’로 바꿔 올리고, 원래 이름에는 서버 것을 받습니다.",
+             @"trash": @"서버 휴지통으로: 서버 문서를 휴지통으로 옮깁니다. 웹 휴지통에서 꺼낼 수 있습니다.",
+             @"image": @"이미지 받기: 서버에서 이미지를 받아 그 자리에 둡니다.",
+             @"import": @"그림 가져오기: 그림을 PP6 미디어 폴더 YebaeOn/으로 복사하고 문서 경로를 바꿔 서버에도 올립니다. 원래 그림은 그대로 둡니다.",
+             @"removeNumbered": @"번호 사본 지우기: Mac의 번호 파일은 macOS 휴지통으로(백업 사본 남김), 서버 문서는 서버 휴지통으로 옮깁니다. 원래 문서는 그대로입니다.",
+             @"web": @"웹에서 보기: Studio에서 서버 것을 엽니다."}[action] ?: @"";
+}
 - (void)refreshOrganizerButtons {
     NSArray *items = [self selectedReviews]; NSDictionary *item = items.count == 1 ? items[0] : nil;
     NSSet *lists = [NSSet setWithArray:[items valueForKey:@"list"]]; NSString *list = lists.count == 1 ? lists.anyObject : nil;
     BOOL idle = !self.busy, docs = items.count > 0, single = item != nil;
     for (NSDictionary *each in items) if (![each[@"path"] hasSuffix:@".pro6"]) docs = NO;
-    BOOL collision = [list isEqual:kListCollision], held = [list isEqual:kListHold] && docs;
-    BOOL numberedGone = [list isEqual:kListNumbered];
-    for (NSDictionary *each in items) if ([self.engine hasLocalDocument:each[@"path"]]) numberedGone = NO;
-    NSDictionary *enabled = @{@"diff": @(single && (collision || held)), @"server": @(collision), @"mac": @(collision), @"number": @(single && collision),
-                              @"trash": @((([list isEqual:kListMacDeleted]) || numberedGone) && docs), @"image": @([list isEqual:kListImage]), @"web": @(single && docs && [self.engine webLink:item[@"path"]] != nil)};
-    for (NSString *key in self.organizerButtons) [self.organizerButtons[key] setEnabled:idle && [enabled[key] boolValue]];
+    BOOL web = single && docs && [self.engine webLink:item[@"path"]] != nil;
+    NSArray *shown = @[]; NSString *note = nil;
+    if ([list isEqual:kListCollision]) shown = single ? (web ? @[@"diff", @"server", @"mac", @"number", @"web"] : @[@"diff", @"server", @"mac", @"number"]) : @[@"server", @"mac"];
+    else if ([list isEqual:kListHold] && docs) shown = single ? (web ? @[@"diff", @"web"] : @[@"diff"]) : @[];
+    else if ([list isEqual:kListMacDeleted] && docs) shown = @[@"server", @"trash"];
+    else if ([list isEqual:kListImage]) shown = @[@"image"];
+    else if ([list isEqual:kListExternal]) shown = web ? @[@"import", @"web"] : @[@"import"];
+    else if ([list isEqual:kListNumbered]) shown = @[@"removeNumbered"];
+    if (!items.count) { self.organizerTitle.stringValue = @"목록에서 항목을 고르세요."; note = @""; }
+    else if (!list) { self.organizerTitle.stringValue = [NSString stringWithFormat:@"%lu개 고름", (unsigned long)items.count]; note = @"같은 구분끼리만 함께 처리할 수 있습니다."; }
+    else self.organizerTitle.stringValue = single ? [NSString stringWithFormat:@"%@ · %@", item[@"title"] ?: @"", list] : [NSString stringWithFormat:@"%lu개 · %@", (unsigned long)items.count, list];
+    CGFloat x = 12;
+    for (NSString *key in @[@"diff", @"server", @"mac", @"number", @"trash", @"image", @"import", @"removeNumbered", @"web"]) {
+        NSButton *button = self.organizerButtons[key]; BOOL visible = [shown containsObject:key];
+        button.hidden = !visible; button.enabled = idle && visible;
+        if ([key isEqual:@"server"]) button.title = [list isEqual:kListMacDeleted] ? @"다시 받기" : @"서버 것 받기";
+        button.toolTip = ActionHint(key, list);
+        if (!visible) continue;
+        [button sizeToFit]; NSRect fit = button.frame; fit.size.width += 12; fit.origin = NSMakePoint(x, 28); button.frame = fit; x += fit.size.width + 6;
+    }
+    self.organizerHint.stringValue = note ?: (shown.count ? ActionHint(shown[[shown.firstObject isEqual:@"diff"] && shown.count > 1 ? 1 : 0], list) : @"");
 }
 // 작업 큐에서 돌리고 끝나면 목록을 새로 그린다.
 - (void)runOrganizer:(NSString *)message task:(id (^)(void))task done:(void (^)(id result))done {
@@ -694,12 +825,9 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
         [self compareNow:nil];
     }];
 }
-- (void)organizerAction:(NSButton *)sender {
-    NSArray *items = [self selectedReviews]; NSDictionary *item = items.firstObject; NSString *path = item[@"path"], *action = sender.identifier;
-    if (!item) return;
-    if ([action isEqual:@"web"]) { NSString *link = [self.engine webLink:path]; if (link) [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:link]]; return; }
-    if ([action isEqual:@"diff"]) {
-        [self runOrganizer:@"차이 준비 중" task:^id{
+// 문서 차이 창(정리 창 [차이 보기]와 오른쪽 클릭 메뉴)
+- (void)showDiffForPath:(NSString *)path {
+    [self runOrganizer:@"차이 준비 중" task:^id{
             NSData *local = YBReadSafeFile(self.root, path, NULL), *remote = [self.engine serverBytes:path];
             NSDictionary *a = local ? PP6ParseDocumentData(local, path, @[], @{}, @[], @{}, YES) : nil, *b = remote ? PP6ParseDocumentData(remote, path, @[], @{}, @[], @{}, YES) : nil;
             YBRequire(![a[@"parseError"] length] && ![b[@"parseError"] length], @"문서 내용을 분석하지 못했습니다.");
@@ -713,12 +841,18 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
             alert.accessoryView = comparison;
             [alert addButtonWithTitle:@"닫기"]; [alert runModal];
         }];
-        return;
-    }
+}
+- (void)organizerAction:(NSButton *)sender {
+    NSArray *items = [self selectedReviews]; NSDictionary *item = items.firstObject; NSString *path = item[@"path"], *action = sender.identifier;
+    if (!item) return;
+    if ([action isEqual:@"web"]) { NSString *link = [self.engine webLink:path]; if (link) [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:link]]; return; }
+    if ([action isEqual:@"diff"]) { [self showDiffForPath:path]; return; }
     NSDictionary *words = @{@"server": @"서버 것으로 바꿀까요? Mac 것은 백업 폴더와 서버 보관본에 남습니다.", @"mac": @"Mac 것을 서버의 새 버전으로 올릴까요? 서버의 그전 내용은 이력에 남습니다.",
-                            @"number": @"Mac 파일에 번호를 붙여(예: 이름 2) 둘 다 둘까요? 재생목록 참조도 고치고, 원래 이름에는 서버 것을 받습니다.", @"trash": @"서버 휴지통으로 옮길까요? 웹 휴지통에서 꺼낼 수 있습니다.", @"image": @"서버에서 이 이미지를 받아 그 자리에 둘까요?"};
+                            @"number": @"Mac 파일에 번호를 붙여(예: 이름 2) 둘 다 둘까요? 재생목록 참조도 고치고, 원래 이름에는 서버 것을 받습니다.", @"trash": @"서버 휴지통으로 옮길까요? 웹 휴지통에서 꺼낼 수 있습니다.", @"image": @"서버에서 이 이미지를 받아 그 자리에 둘까요?",
+                            @"import": @"그림을 PP6 미디어 폴더 YebaeOn/으로 복사하고 문서 안 경로를 바꿀까요? 바꾸기 전 문서는 백업 폴더에 남고, 서버와 맞춰 본 문서는 서버에도 올립니다.",
+                            @"removeNumbered": @"번호 붙은 사본을 지울까요? Mac 파일은 macOS 휴지통(백업 폴더에도 사본), 서버 문서는 서버 휴지통으로 옮깁니다. 원래 문서는 그대로 둡니다."};
     NSAlert *confirm = [NSAlert new]; confirm.messageText = items.count == 1 ? (item[@"title"] ?: @"") : [NSString stringWithFormat:@"%lu개 항목", (unsigned long)items.count];
-    confirm.informativeText = words[action] ?: @"";
+    confirm.informativeText = [action isEqual:@"server"] && [item[@"list"] isEqual:kListMacDeleted] ? @"서버 것을 이 Mac에 다시 받을까요?" : words[action] ?: @"";
     [confirm addButtonWithTitle:@"진행"]; [confirm addButtonWithTitle:@"취소"];
     if ([confirm runModal] != NSAlertFirstButtonReturn) return;
     if ([action isEqual:@"number"]) {
@@ -736,18 +870,26 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
                 else if ([action isEqual:@"mac"]) [self.engine takeMac:target];
                 else if ([action isEqual:@"trash"]) [self.engine trashOnServer:target];
                 else if ([action isEqual:@"image"]) [self.engine fetchImage:each[@"item"]];
+                else if ([action isEqual:@"removeNumbered"]) [self.engine removeNumbered:each[@"item"]];
+                else if ([action isEqual:@"import"]) {
+                    NSDictionary *result = [self.engine importExternal:each[@"item"]];
+                    if ([result[@"missing"] count]) [failures addObject:[NSString stringWithFormat:@"%@: 원본 그림이 없어 건너뜀 · %@", target.lastPathComponent, [result[@"missing"] componentsJoinedByString:@", "]]];
+                    else if ([result[@"copied"] integerValue] && ![result[@"uploaded"] boolValue]) [failures addObject:[NSString stringWithFormat:@"%@: Mac 문서만 바꿨습니다. 서버와 아직 맞춰 보지 않은 문서라 ‘같은 이름, 다른 내용’에서 Mac 것 올리기로 마저 올려 주세요.", target.lastPathComponent]];
+                }
             } @catch (NSException *e) { [failures addObject:[NSString stringWithFormat:@"%@: %@", target.lastPathComponent, e.reason]]; }
         }
         return failures;
     } done:^(NSArray *failures) {
-        if (failures.count) [self alert:[NSString stringWithFormat:@"%lu개는 하지 못함", (unsigned long)failures.count] text:[failures componentsJoinedByString:@"\n"]];
-        if ([action isEqual:@"server"] || [action isEqual:@"mac"]) [self compareNow:nil];
+        if (failures.count) [self alert:[NSString stringWithFormat:@"확인할 것 %lu개", (unsigned long)failures.count] text:[failures componentsJoinedByString:@"\n"]];
+        // 데일리 창 비교는 정리 창을 닫을 때 한 번 한다(정리 중에는 버튼을 잠그지 않는다).
+        self.organizerDirty = YES;
     }];
 }
 - (void)tableViewSelectionDidChange:(NSNotification *)note {
     if (note.object == self.organizerTable) { [self refreshOrganizerButtons]; return; }
     NSInteger index = self.table.selectedRow;
-    self.detailLabel.stringValue = index >= 0 && index < (NSInteger)self.rows.count ? DetailText(self.rows[index]) : @"";
+    self.detailLabel.string = index >= 0 && index < (NSInteger)self.rows.count ? DetailText(self.rows[index]) : @"";
+    self.detailLabel.textColor = NSColor.secondaryLabelColor; self.detailLabel.font = [NSFont systemFontOfSize:11];
 }
 
 #pragma mark - 메뉴 막대·설정
@@ -854,7 +996,7 @@ static NSString *StatusText(NSDictionary *row) {
         NSString *text = [@"Mac에서 바뀜 · 올리기: " stringByAppendingString:[up componentsJoinedByString:@" · "]];
         return [row[@"images"] count] ? [text stringByAppendingFormat:@" · 이미지 %lu개 받기", (unsigned long)[row[@"images"] count]] : text;
     }
-    // 받을 줄: 짧은 표시. 자세한 설명은 마우스를 올리면 나온다(DetailText).
+    // 받을 줄: 짧은 표시. 자세한 설명은 줄을 누르면 표 아래에 나온다(DetailText).
     NSMutableArray *parts = [NSMutableArray array];
     NSUInteger both = 0, unknown = 0;
     for (NSString *path in row[@"macChangedDocuments"]) { if ([row[@"macChangedReasons"][path] isEqual:@"technical"]) unknown++; else both++; }
@@ -865,27 +1007,58 @@ static NSString *StatusText(NSDictionary *row) {
     if (plain) [parts addObject:[NSString stringWithFormat:@"받기 %lu", (unsigned long)plain]];
     if ([row[@"macOnlyDocuments"] count]) [parts addObject:[NSString stringWithFormat:@"올리기 %lu", (unsigned long)[row[@"macOnlyDocuments"] count]]];
     if (both) [parts addObject:[NSString stringWithFormat:@"양쪽 수정 %lu", (unsigned long)both]];
-    if (unknown) [parts addObject:[NSString stringWithFormat:@"이력 없음 %lu", (unsigned long)unknown]];
+    if (unknown) [parts addObject:NoHistoryOnly(row) ? [NSString stringWithFormat:@"이력 없음 %lu · 정리 창에서 정하기", (unsigned long)unknown] : [NSString stringWithFormat:@"이력 없음 %lu", (unsigned long)unknown]];
     if ([row[@"revertedOrder"] boolValue] || [row[@"revertedDocuments"] count]) [parts addObject:@"되돌림 다시 적용"];
     if ([row[@"images"] count]) [parts addObject:[NSString stringWithFormat:@"이미지 %lu", (unsigned long)[row[@"images"] count]]];
     return [parts componentsJoinedByString:@" · "];
 }
 // 마우스를 올렸을 때 보이는 자세한 설명
+// 줄을 고르면 표 아래에 보이는 설명: 할 일마다 한 줄, 문서 이름을 모두 적는다.
+static NSString *Names(NSArray *paths) {
+    NSMutableArray *names = [NSMutableArray array];
+    for (id item in paths) { NSString *path = [item isKindOfClass:NSDictionary.class] ? item[@"path"] : item; if ([path isKindOfClass:NSString.class]) [names addObject:path.stringByDeletingPathExtension]; }
+    return [names componentsJoinedByString:@", "];
+}
+static NSString *ImageNames(NSArray *images) {
+    NSMutableArray *names = [NSMutableArray array];
+    for (NSDictionary *image in images) [names addObject:[image[@"path"] lastPathComponent] ?: @""];
+    return [names componentsJoinedByString:@", "];
+}
 static NSString *DetailText(NSDictionary *row) {
-    if (![row[@"status"] isEqual:@"receive"]) return StatusText(row);
+    NSString *status = row[@"status"];
     NSMutableArray *lines = [NSMutableArray array];
+    if ([status isEqual:@"mac"]) {
+        if ([row[@"macRenamed"] boolValue]) [lines addObject:[NSString stringWithFormat:@"예배 이름 올리기: ‘%@’", row[@"localName"] ?: row[@"name"]]];
+        else if ([row[@"macOnlyOrder"] boolValue]) [lines addObject:@"순서 올리기: Mac에서 바꾼 순서를 서버에 올립니다."];
+        if ([row[@"macOnlyDocuments"] count]) [lines addObject:[@"문서 올리기(Mac에서만 고침): " stringByAppendingString:Names(row[@"macOnlyDocuments"])]];
+        if ([row[@"usageOnly"] count]) [lines addObject:[@"사용일만 알리기(내용 같음): " stringByAppendingString:Names(row[@"usageOnly"])]];
+        if ([row[@"images"] count]) [lines addObject:[@"이미지 받기: " stringByAppendingString:ImageNames(row[@"images"])]];
+        return [lines componentsJoinedByString:@"\n"];
+    }
+    if ([status isEqual:@"actions"]) {
+        NSMutableArray *renames = [NSMutableArray array];
+        for (NSDictionary *item in row[@"renames"]) [renames addObject:[NSString stringWithFormat:@"%@ → %@", [item[@"from"] stringByDeletingPathExtension], [item[@"to"] stringByDeletingPathExtension]]];
+        if (renames.count) [lines addObject:[@"이름 바꾸기: " stringByAppendingString:[renames componentsJoinedByString:@", "]]];
+        if ([row[@"trashes"] count]) [lines addObject:[@"macOS 휴지통으로: " stringByAppendingString:Names(row[@"trashes"])]];
+        if ([row[@"actionHolds"] count]) [lines addObject:[@"확인 필요(정리 창): " stringByAppendingString:Names(row[@"actionHolds"])]];
+        return [lines componentsJoinedByString:@"\n"];
+    }
+    if (![status isEqual:@"receive"]) return StatusText(row);
     if ([row[@"macDeleted"] boolValue]) [lines addObject:@"Mac에서 지운 예배입니다. 체크하면 서버 것을 다시 받습니다."];
     else if ([row[@"serverNew"] boolValue]) [lines addObject:@"서버에 새로 생긴 예배입니다."];
     else if ([row[@"orderChanged"] boolValue]) [lines addObject:[row[@"macOrderChanged"] boolValue] ? @"순서: 서버 것을 받습니다. Mac 순서는 서버 보관본에 남깁니다." : @"순서: 서버 것을 받습니다."];
     if (row[@"renamedFrom"]) [lines addObject:[NSString stringWithFormat:@"이름: ‘%@’ → 서버 이름", row[@"renamedFrom"]]];
-    for (NSString *path in row[@"macOnlyDocuments"]) [lines addObject:[@"올리기(Mac에서만 고침): " stringByAppendingString:path]];
-    for (NSString *path in row[@"macChangedDocuments"]) [lines addObject:[row[@"macChangedReasons"][path] isEqual:@"technical"]
-        ? [@"이력 없음(Sync가 받은 적 없고 서버와 내용이 다름) · 사용일만 다르면 받고, 아니면 Mac 파일을 그대로 두고 정리 창으로: " stringByAppendingString:path]
-        : [@"양쪽 수정 · 서버 것을 받고 Mac 것은 서버 보관본·백업에: " stringByAppendingString:path]];
-    for (NSDictionary *doc in row[@"documents"]) if (![row[@"macChangedDocuments"] containsObject:doc[@"path"]]) [lines addObject:[@"받기: " stringByAppendingString:doc[@"path"]]];
-    if ([row[@"macDeletedDocuments"] count]) [lines addObject:[NSString stringWithFormat:@"Mac에서 지운 문서 %lu개는 적용하면 다시 받습니다.", (unsigned long)[row[@"macDeletedDocuments"] count]]];
+    NSMutableArray *receive = [NSMutableArray array], *unknown = [NSMutableArray array], *both = [NSMutableArray array];
+    for (NSDictionary *doc in row[@"documents"]) if (![row[@"macChangedDocuments"] containsObject:doc[@"path"]]) [receive addObject:doc[@"path"]];
+    for (NSString *path in row[@"macChangedDocuments"]) [[row[@"macChangedReasons"][path] isEqual:@"technical"] ? unknown : both addObject:path];
+    if (receive.count) [lines addObject:[@"받기: " stringByAppendingString:Names(receive)]];
+    if (both.count) [lines addObject:[@"양쪽 수정(서버 것 받기, Mac 것은 서버 보관본·백업에): " stringByAppendingString:Names(both)]];
+    if (unknown.count) [lines addObject:[@"이력 없음(Mac 파일 그대로, 정리 창에서 정하기): " stringByAppendingString:Names(unknown)]];
+    if ([row[@"macOnlyDocuments"] count]) [lines addObject:[@"올리기(Mac에서만 고침): " stringByAppendingString:Names(row[@"macOnlyDocuments"])]];
+    if ([row[@"macDeletedDocuments"] count]) [lines addObject:[@"Mac에서 지운 문서(적용하면 다시 받음): " stringByAppendingString:Names(row[@"macDeletedDocuments"])]];
+    if ([row[@"images"] count]) [lines addObject:[@"이미지 받기: " stringByAppendingString:ImageNames(row[@"images"])]];
     if ([row[@"missingServer"] unsignedIntegerValue]) [lines addObject:[NSString stringWithFormat:@"서버에 원본 없는 문서 %@개는 Mac 파일 그대로", row[@"missingServer"]]];
-    if ([row[@"missingLocal"] count]) [lines addObject:[NSString stringWithFormat:@"Mac에도 없는 문서 %lu개", (unsigned long)[row[@"missingLocal"] count]]];
+    if ([row[@"missingLocal"] count]) [lines addObject:[@"Mac에도 없는 문서: " stringByAppendingString:Names(row[@"missingLocal"])]];
     return [lines componentsJoinedByString:@"\n"];
 }
 - (NSString *)tableView:(NSTableView *)table toolTipForCell:(NSCell *)cell rect:(NSRectPointer)rect tableColumn:(NSTableColumn *)column row:(NSInteger)index mouseLocation:(NSPoint)point {
@@ -914,7 +1087,7 @@ static NSString *DetailText(NSDictionary *row) {
     if ([column.identifier isEqual:@"checked"]) [cell setEnabled:!self.busy && Checkable(row)];
     if ([column.identifier isEqual:@"status"] && [cell isKindOfClass:NSTextFieldCell.class]) {
         NSString *status = row[@"status"];
-        [cell setTextColor:Checkable(row) ? [NSColor colorWithCalibratedRed:0.10 green:0.35 blue:0.75 alpha:1] : [status isEqual:@"hold"] ? [NSColor colorWithCalibratedRed:0.75 green:0.35 blue:0.10 alpha:1] : NSColor.disabledControlTextColor];
+        [cell setTextColor:Checkable(row) && !NoHistoryOnly(row) ? [NSColor colorWithCalibratedRed:0.10 green:0.35 blue:0.75 alpha:1] : [status isEqual:@"hold"] ? [NSColor colorWithCalibratedRed:0.75 green:0.35 blue:0.10 alpha:1] : NSColor.disabledControlTextColor];
     }
 }
 - (BOOL)tableView:(NSTableView *)table shouldSelectRow:(NSInteger)index { return YES; }

@@ -86,9 +86,30 @@ static NSString *PP6SortedAttributes(NSXMLElement *e, NSSet<NSString *> *exclude
     return [parts componentsJoinedByString:@"|"];
 }
 
-static NSString *PP6FirstXPathText(NSXMLElement *e, NSString *xpath) {
-    NSArray *nodes = [e nodesForXPath:xpath error:nil];
-    NSXMLNode *n = nodes.firstObject;
+// 요소 찾기는 XPath 대신 자식을 직접 훑는다. PP6가 저장한 문서에서 상대 XPath(.//)가 문서 전체를 훑어
+// 한 장에 모든 장의 요소가 모이는 일이 있었다(10-05 실기).
+static void PP6CollectDescendants(NSXMLElement *e, NSString *name, NSString *ivar, NSMutableArray *out) {
+    for (NSXMLNode *child in e.children) {
+        if (child.kind != NSXMLElementKind) continue;
+        NSXMLElement *element = (NSXMLElement *)child;
+        if ([element.name isEqualToString:name] && (!ivar || [[element attributeForName:@"rvXMLIvarName"].stringValue isEqualToString:ivar])) [out addObject:element];
+        PP6CollectDescendants(element, name, ivar, out);
+    }
+}
+static NSArray *PP6Descendants(NSXMLElement *e, NSString *name, NSString *ivar) {
+    NSMutableArray *out = [NSMutableArray array]; PP6CollectDescendants(e, name, ivar, out); return out;
+}
+static NSArray *PP6Children(NSXMLElement *e, NSString *name, NSString *ivar) {
+    NSMutableArray *out = [NSMutableArray array];
+    for (NSXMLNode *child in e.children) {
+        if (child.kind != NSXMLElementKind) continue;
+        NSXMLElement *element = (NSXMLElement *)child;
+        if ([element.name isEqualToString:name] && (!ivar || [[element attributeForName:@"rvXMLIvarName"].stringValue isEqualToString:ivar])) [out addObject:element];
+    }
+    return out;
+}
+static NSString *PP6ChildText(NSXMLElement *e, NSString *name, NSString *ivar) {
+    NSXMLNode *n = PP6Children(e, name, ivar).firstObject;
     return [[n stringValue] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] ?: @"";
 }
 
@@ -202,12 +223,12 @@ static NSDictionary *PP6ResolveMedia(NSString *sourcePath, NSString *basename,
 #pragma mark - Parse document
 
 static NSDictionary *PP6ParseTextElement(NSXMLElement *te) {
-    NSArray *rtfNodes = [te nodesForXPath:@".//NSString[@rvXMLIvarName='RTFData']" error:nil];
+    NSArray *rtfNodes = PP6Descendants(te, @"NSString", @"RTFData");
     NSString *b64 = [rtfNodes.firstObject stringValue] ?: @"";
     NSString *text = PP6RTFPlainText(b64);
-    NSString *position = PP6FirstXPathText(te, @"./RVRect3D[@rvXMLIvarName='position']");
-    NSString *shadow = PP6FirstXPathText(te, @"./shadow[@rvXMLIvarName='shadow']");
-    NSArray *strokeNodes = [te nodesForXPath:@"./dictionary[@rvXMLIvarName='stroke']" error:nil];
+    NSString *position = PP6ChildText(te, @"RVRect3D", @"position");
+    NSString *shadow = PP6ChildText(te, @"shadow", @"shadow");
+    NSArray *strokeNodes = PP6Children(te, @"dictionary", @"stroke");
     NSString *stroke = strokeNodes.count ? [strokeNodes.firstObject XMLStringWithOptions:NSXMLNodeCompactEmptyElement] : @"";
     NSString *attrs = PP6SortedAttributes(te, [NSSet setWithArray:@[@"UUID",@"source"]]);
     NSString *style = [@[attrs, position, shadow, stroke] componentsJoinedByString:@"||"];
@@ -222,7 +243,7 @@ static NSDictionary *PP6ParseMediaElement(NSXMLElement *me) {
     NSXMLNode *parent = me.parent;
     BOOL background = [[parent name] isEqualToString:@"RVMediaCue"] &&
                       [PP6Attr((NSXMLElement *)parent,@"rvXMLIvarName") isEqualToString:@"backgroundMediaCue"];
-    NSString *position = PP6FirstXPathText(me, @"./RVRect3D[@rvXMLIvarName='position']");
+    NSString *position = PP6ChildText(me, @"RVRect3D", @"position");
     NSString *attrs = PP6SortedAttributes(me, [NSSet setWithArray:@[@"UUID",@"source",@"manufactureURL",@"manufactureName"]]);
     return @{ @"kind": me.name ?: @"", @"basename": base, @"source": source,
               @"sourcePath": path, @"background": @(background), @"position": position,
@@ -235,9 +256,9 @@ static NSDictionary *PP6ParseSlide(NSXMLElement *slide,
                                    NSArray *managedRoots, NSDictionary *managedIndex,
                                    NSArray *packageRoots, NSDictionary *packageIndex) {
     NSMutableArray *texts = [NSMutableArray array];
-    for (NSXMLElement *te in [slide nodesForXPath:@".//RVTextElement" error:nil]) [texts addObject:PP6ParseTextElement(te)];
+    for (NSXMLElement *te in PP6Descendants(slide, @"RVTextElement", nil)) [texts addObject:PP6ParseTextElement(te)];
     NSMutableArray *media = [NSMutableArray array];
-    NSArray *mediaNodes = [[slide nodesForXPath:@".//RVImageElement" error:nil] arrayByAddingObjectsFromArray:[slide nodesForXPath:@".//RVVideoElement" error:nil]];
+    NSArray *mediaNodes = [PP6Descendants(slide, @"RVImageElement", nil) arrayByAddingObjectsFromArray:PP6Descendants(slide, @"RVVideoElement", nil)];
     for (NSXMLElement *me in mediaNodes) {
         NSMutableDictionary *m = [PP6ParseMediaElement(me) mutableCopy];
         m[@"resolution"] = PP6ResolveMedia(m[@"sourcePath"], m[@"basename"], managedRoots, managedIndex, packageRoots, packageIndex);
@@ -307,11 +328,11 @@ NSDictionary *PP6ParseDocumentData(NSData *data, NSString *path,
 
     NSMutableArray *groups = [NSMutableArray array], *allSlides = [NSMutableArray array], *allRefs = [NSMutableArray array];
     NSInteger gi = 0, global = 0;
-    for (NSXMLElement *g in [root nodesForXPath:@".//RVSlideGrouping" error:nil]) {
+    for (NSXMLElement *g in PP6Descendants(root, @"RVSlideGrouping", nil)) {
         gi++; NSInteger gsi = 0;
         NSString *guuid = PP6Attr(g,@"uuid"), *gname = PP6Attr(g,@"name");
         NSMutableArray *slides = [NSMutableArray array];
-        for (NSXMLElement *s in [g nodesForXPath:@".//RVDisplaySlide" error:nil]) {
+        for (NSXMLElement *s in PP6Descendants(g, @"RVDisplaySlide", nil)) {
             global++; gsi++;
             NSDictionary *sd = PP6ParseSlide(s, global, gi, gsi, guuid, gname,
                                              managedMediaRoots, managedMediaIndex,

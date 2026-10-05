@@ -16,6 +16,39 @@ void YBRequire(BOOL ok, NSString *message) {
 static NSString *YBSystem(NSString *operation) {
     return [NSString stringWithFormat:@"%@: %s", operation, strerror(errno)];
 }
+static NSString *YBColorText(NSColor *color) {
+    NSColor *rgb = [color colorUsingColorSpace:NSColorSpace.genericRGBColorSpace];
+    if (!rgb) return color ? color.description : @"-";
+    return [NSString stringWithFormat:@"%.3f %.3f %.3f %.3f", rgb.redComponent, rgb.greenComponent, rgb.blueComponent, rgb.alphaComponent];
+}
+NSString *YBRTFSignature(NSString *base64) {
+    NSData *data = [[NSData alloc] initWithBase64EncodedString:base64 ?: @"" options:NSDataBase64DecodingIgnoreUnknownCharacters];
+    if (!data.length) return @"";
+    NSAttributedString *text = nil;
+    @synchronized (NSAttributedString.class) { text = [[NSAttributedString alloc] initWithRTF:data documentAttributes:NULL]; }
+    if (!text) return [@"raw:" stringByAppendingString:YBHash(data)];
+    if (!text.length) return @"";
+    NSMutableArray *runs = [NSMutableArray array]; __block NSString *last = nil;
+    [text enumerateAttributesInRange:NSMakeRange(0, text.length) options:0 usingBlock:^(NSDictionary *a, NSRange range, BOOL *stop) {
+        NSFont *font = a[NSFontAttributeName]; NSParagraphStyle *p = a[NSParagraphStyleAttributeName]; NSShadow *shadow = a[NSShadowAttributeName];
+        NSString *style = [@[
+            [NSString stringWithFormat:@"%@ %.2f", font.fontName ?: @"-", font.pointSize],
+            YBColorText(a[NSForegroundColorAttributeName]), YBColorText(a[NSStrokeColorAttributeName]),
+            [NSString stringWithFormat:@"stroke %.2f kern %.2f base %.2f under %@ strike %@ super %@ expand %.2f oblique %.2f",
+                [a[NSStrokeWidthAttributeName] doubleValue], [a[NSKernAttributeName] doubleValue], [a[NSBaselineOffsetAttributeName] doubleValue],
+                a[NSUnderlineStyleAttributeName] ?: @0, a[NSStrikethroughStyleAttributeName] ?: @0, a[NSSuperscriptAttributeName] ?: @0,
+                [a[NSExpansionAttributeName] doubleValue], [a[NSObliquenessAttributeName] doubleValue]],
+            p ? [NSString stringWithFormat:@"align %ld line %.2f para %.2f before %.2f min %.2f max %.2f multiple %.2f indent %.2f %.2f %.2f",
+                (long)p.alignment, p.lineSpacing, p.paragraphSpacing, p.paragraphSpacingBefore, p.minimumLineHeight, p.maximumLineHeight,
+                p.lineHeightMultiple, p.firstLineHeadIndent, p.headIndent, p.tailIndent] : @"-",
+            shadow ? [NSString stringWithFormat:@"shadow %.2f %.2f %.2f %@", shadow.shadowOffset.width, shadow.shadowOffset.height, shadow.shadowBlurRadius, YBColorText(shadow.shadowColor)] : @"-"]
+            componentsJoinedByString:@"|"];
+        NSString *piece = [text.string substringWithRange:range];
+        if ([style isEqual:last]) { NSUInteger end = runs.count - 1; runs[end] = [runs[end] stringByAppendingString:piece]; }
+        else { [runs addObject:[NSString stringWithFormat:@"[%@]", style]]; [runs addObject:piece]; last = style; }
+    }];
+    return [runs componentsJoinedByString:@""];
+}
 NSString *YBHash(NSData *data) {
     if (!data) return nil;
     unsigned char digest[CC_SHA256_DIGEST_LENGTH];

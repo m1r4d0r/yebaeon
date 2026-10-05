@@ -1,4 +1,5 @@
 #import "YB2Engine.h"
+#import "PP6Core.h"
 #import "YB2Server.h"
 #import "YBPlaylistFormat.h"
 #import "YBPlaylistIO.h"
@@ -9,6 +10,12 @@ static void Check(BOOL ok, NSString *message) { checks++; YBRequire(ok, message)
 static NSData *Doc(NSString *text) { return [[NSString stringWithFormat:@"<?xml version=\"1.0\" encoding=\"UTF-8\"?><RVPresentationDocument versionNumber=\"600\" category=\"예배순서\"><text>%@</text></RVPresentationDocument>", text] dataUsingEncoding:NSUTF8StringEncoding]; }
 // PP6가 송출하며 루트에 남기는 사용일·사용 횟수. 나머지 바이트는 Doc()과 같다.
 static NSData *DocUsed(NSString *text, NSString *used, int count) { return [[NSString stringWithFormat:@"<?xml version=\"1.0\" encoding=\"UTF-8\"?><RVPresentationDocument versionNumber=\"600\" category=\"예배순서\" lastDateUsed=\"%@\" usedCount=\"%d\"><text>%@</text></RVPresentationDocument>", used, count, text] dataUsingEncoding:NSUTF8StringEncoding]; }
+// 글상자 RTF가 든 문서. declaration은 앞에 붙일 XML 선언(없으면 @"").
+static NSData *RTFDoc(NSString *declaration, NSArray *rtfs) {
+    NSMutableString *boxes = [NSMutableString string];
+    for (NSString *rtf in rtfs) [boxes appendFormat:@"<RVTextElement displayName=\"Default\"><NSString rvXMLIvarName=\"RTFData\">%@</NSString></RVTextElement>", [[rtf dataUsingEncoding:NSASCIIStringEncoding] base64EncodedStringWithOptions:0]];
+    return [[NSString stringWithFormat:@"%@<RVPresentationDocument versionNumber=\"600\" category=\"예배순서\"><RVDisplaySlide UUID=\"S1\">%@</RVDisplaySlide></RVPresentationDocument>", declaration, boxes] dataUsingEncoding:NSUTF8StringEncoding];
+}
 static NSString *Cue(NSString *uuid, NSString *name, NSString *root) {
     return [NSString stringWithFormat:@"      <RVDocumentCue UUID=\"%@\" displayName=\"%@\" filePath=\"%@/%@.pro6\" selectedArrangementID=\"\"/>\n", uuid, name, root, name];
 }
@@ -397,6 +404,73 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         NSArray *collided = [full[@"collisions"] valueForKey:@"path"];
         Check(![collided containsObject:@"경로 찬양.pro6"] && [engine.receipt document:@"경로 찬양.pro6"] != nil, [NSString stringWithFormat:@"file URL and plain path are the same content: %@", collided]);
         Check([collided containsObject:@"경로 다름.pro6"], [NSString stringWithFormat:@"a different image path still differs: %@", collided]);
+
+        // 26. RTF 표기만 다른 첫 대조: PP6가 다시 저장한 꼴(XML 선언 없음, \uc1 없음, 빈 글상자에 서식 없음)과
+        //     정리본 도구가 쓴 꼴은 같은 내용이다. 글자 크기를 바꾼 것은 여전히 다른 내용이다.
+        NSString *head = @"{\\rtf1\\ansi\\ansicpg949\\cocoartf1561\\cocoasubrtf600\n{\\fonttbl\\f0\\fswiss\\fcharset0 Helvetica;}\n{\\colortbl;\\red255\\green255\\blue255;}\n{\\*\\expandedcolortbl;;}\n\\pard\\pardeftab720\\slleading460\\qc\\partightenfactor0\n\n";
+        NSString *macText = [head stringByAppendingString:@"\\f0\\b\\fs220 \\cf1 \\outl0\\strokewidth-100 \\strokec0 Holy\\\nHoly}"];
+        NSString *toolText = [head stringByAppendingString:@"\\f0\\b\\fs220 \\cf1 \\outl0\\strokewidth-100 \\strokec0 \\uc1 Holy\\\nHoly}"];
+        NSString *biggerText = [head stringByAppendingString:@"\\f0\\b\\fs240 \\cf1 \\outl0\\strokewidth-100 \\strokec0 \\uc1 Holy\\\nHoly}"];
+        NSString *macEmpty = @"{\\rtf1\\ansi\\ansicpg949\\cocoartf1561\\cocoasubrtf600\n{\\fonttbl}\n{\\colortbl;\\red255\\green255\\blue255;}\n{\\*\\expandedcolortbl;;}\n}";
+        NSString *toolEmpty = [head stringByAppendingString:@"\\f0\\b\\fs220 \\cf1 \\outl0\\strokewidth-100 \\strokec0 \\uc1 }"];
+        Check([RTFDoc(@"", @[macText, macEmpty]) writeToFile:Local(@"서식 찬양") atomically:YES], @"PP6-saved RTF on the mac");
+        Check([RTFDoc(@"", @[macText, macEmpty]) writeToFile:Local(@"서식 크기") atomically:YES], @"PP6-saved RTF for the size case");
+        [web upload:RTFDoc(@"<?xml version='1.0' encoding='utf-8'?>\n", @[toolText, toolEmpty]) path:@"서식 찬양.pro6" previous:nil];
+        [web upload:RTFDoc(@"<?xml version='1.0' encoding='utf-8'?>\n", @[biggerText, toolEmpty]) path:@"서식 크기.pro6" previous:nil];
+        Sync();
+        full = [engine fullCheck];
+        collided = [full[@"collisions"] valueForKey:@"path"];
+        Check(![collided containsObject:@"서식 찬양.pro6"] && [engine.receipt document:@"서식 찬양.pro6"] != nil, [NSString stringWithFormat:@"RTF notation differences are the same content: %@", collided]);
+        Check([collided containsObject:@"서식 크기.pro6"], [NSString stringWithFormat:@"a font size change still differs: %@", collided]);
+
+        // 27. 차이 창 읽기: PP6가 저장한 그룹 여러 개 문서(XML 선언 없음)도 장마다 자기 요소만 읽는다.
+        NSString *(^Box)(NSString *) = ^NSString *(NSString *text) {
+            return [NSString stringWithFormat:@"<RVTextElement displayName=\"Default\"><RVRect3D rvXMLIvarName=\"position\">{0 0 0 10 10}</RVRect3D><NSString rvXMLIvarName=\"RTFData\">%@</NSString></RVTextElement>", [[[head stringByAppendingFormat:@"\\f0 %@}", text] dataUsingEncoding:NSASCIIStringEncoding] base64EncodedStringWithOptions:0]]; };
+        NSString *(^Slide)(NSString *, BOOL) = ^NSString *(NSString *text, BOOL background) {
+            NSString *cue = background ? @"<RVMediaCue rvXMLIvarName=\"backgroundMediaCue\"><RVImageElement source=\"file:///Users/Shared/a.jpg\"><RVRect3D rvXMLIvarName=\"position\">{0 0 0 0 0}</RVRect3D></RVImageElement></RVMediaCue>" : @"";
+            return [NSString stringWithFormat:@"<RVDisplaySlide UUID=\"%@\"><array rvXMLIvarName=\"cues\"></array>%@<array rvXMLIvarName=\"displayElements\">%@</array></RVDisplaySlide>", NSUUID.UUID.UUIDString, cue, Box(text)]; };
+        NSString *grouped = [NSString stringWithFormat:@"<RVPresentationDocument versionNumber=\"600\" width=\"1920\" height=\"1080\"><array rvXMLIvarName=\"groups\"><RVSlideGrouping name=\"\"><array rvXMLIvarName=\"slides\">%@</array></RVSlideGrouping><RVSlideGrouping name=\"Verse 1\"><array rvXMLIvarName=\"slides\">%@%@</array></RVSlideGrouping></array><array rvXMLIvarName=\"arrangements\"></array></RVPresentationDocument>", Slide(@"One", YES), Slide(@"Two", NO), Slide(@"Three", YES)];
+        NSDictionary *parsed = PP6ParseDocumentData([grouped dataUsingEncoding:NSUTF8StringEncoding], @"grouped.pro6", @[], @{}, @[], @{}, YES);
+        NSMutableArray *perSlide = [NSMutableArray array];
+        for (NSDictionary *group in parsed[@"groups"]) for (NSDictionary *slide in group[@"slides"]) [perSlide addObject:[NSString stringWithFormat:@"%lu/%lu", (unsigned long)[slide[@"texts"] count], (unsigned long)[slide[@"media"] count]]];
+        Check([perSlide isEqual:@[@"1/1", @"1/0", @"1/1"]], [NSString stringWithFormat:@"each slide reads only its own elements: %@ %@", perSlide, parsed[@"parseError"] ?: @""]);
+
+        // 28. 외부 참조 그림 가져오기: 그림을 YebaeOn/<문서이름>-1.png로 복사하고 문서 경로를 바꿔 서버에도 올린다. 원래 그림은 그대로.
+        if (withImage) {
+            NSString *outside = [area stringByAppendingPathComponent:@"바탕화면/포스터.png"];
+            [NSFileManager.defaultManager createDirectoryAtPath:outside.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:NULL];
+            Check([[NSData dataWithBytes:png length:sizeof png] writeToFile:outside atomically:YES], @"outside image");
+            NSString *docName = [NSString stringWithFormat:@"외부 그림 %@", [NSUUID.UUID.UUIDString substringToIndex:6]];
+            Check([Doc([NSString stringWithFormat:@"<RVImageElement source=\"%@\"/>", [NSURL fileURLWithPath:outside].absoluteString]) writeToFile:Local(docName) atomically:YES], @"document with an outside image");
+            [engine uploadNew];
+            NSString *docPath = [docName stringByAppendingString:@".pro6"];
+            NSDictionary *imported = [engine importExternal:@{@"path": docPath, @"references": @[outside.precomposedStringWithCanonicalMapping]}];
+            NSString *copied = [NSString stringWithFormat:@"/Users/Shared/Renewed Vision Media/YebaeOn/%@-1.png", docName];
+            NSString *serverText = [[NSString alloc] initWithData:[engine serverBytes:docPath] encoding:NSUTF8StringEncoding];
+            Check([imported[@"copied"] integerValue] == 1 && [imported[@"uploaded"] boolValue] && [NSFileManager.defaultManager fileExistsAtPath:copied] && [NSFileManager.defaultManager fileExistsAtPath:outside], [NSString stringWithFormat:@"outside image copied: %@", imported]);
+            Check([serverText containsString:@"YebaeOn/"] && ![serverText containsString:@"%EB%B0%94%ED%83%95"] && ![serverText containsString:outside], [NSString stringWithFormat:@"server copy points at the copied image: %@", serverText]);
+            NSArray *paths = [web request:@"/api/media/paths" method:@"GET" body:nil headers:nil][@"paths"];
+            Check([[paths valueForKey:@"path"] containsObject:copied.precomposedStringWithCanonicalMapping], @"copied image registered");
+            [NSFileManager.defaultManager removeItemAtPath:copied error:NULL];
+            [NSFileManager.defaultManager removeItemAtPath:copied.decomposedStringWithCanonicalMapping error:NULL];
+        }
+
+        // 29. 번호 사본 지우기: 23번의 `광고 보관 2`를 Mac 휴지통·서버 휴지통으로 보내고 기록을 지운다. 재생목록이 가리키면 하지 않는다.
+        NSDictionary *numberedItem = [engine numberedLog].firstObject;
+        NSString *playlistText = [[NSString alloc] initWithData:YBReadPlaylist(playlistURL) encoding:NSUTF8StringEncoding] ?: @"";
+        BOOL referenced = [playlistText containsString:@"광고 보관 2"] || [playlistText containsString:[@"광고 보관 2" stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]];
+        BOOL removeRefused = NO; @try { [engine removeNumbered:numberedItem]; } @catch (NSException *e) { removeRefused = [e.reason containsString:@"재생목록"]; }
+        if (referenced) Check(removeRefused && [NSFileManager.defaultManager fileExistsAtPath:Local(@"광고 보관 2")], @"numbered copy still used by the playlist is kept");
+        else {
+            NSString *numberedID = [engine.receipt ledger:@"광고 보관 2.pro6"][@"id"];
+            Check(!removeRefused && ![NSFileManager.defaultManager fileExistsAtPath:Local(@"광고 보관 2")] && [NSFileManager.defaultManager fileExistsAtPath:Local(@"광고 보관")], @"numbered copy moved to the Mac trash, original kept");
+            Check([[web request:[@"/api/documents/" stringByAppendingString:numberedID] method:@"GET" body:nil headers:nil][@"document"][@"state"] isEqual:@"trashed"] && [engine numberedLog].count == 0, @"numbered copy trashed on the server and log cleared");
+        }
+
+        // 30. 오른쪽 클릭 강제 동작: Mac에서 지우기는 macOS 휴지통으로 옮기고 백업을 남긴다(서버는 그대로).
+        Check([Doc(@"강제 지움") writeToFile:Local(@"강제 지움") atomically:YES], @"document to trash on the mac");
+        [engine trashOnMac:@"강제 지움.pro6"];
+        Check(![NSFileManager.defaultManager fileExistsAtPath:Local(@"강제 지움")] && [NSFileManager.defaultManager fileExistsAtPath:[trashBin stringByAppendingPathComponent:@"강제 지움.pro6"]], @"forced mac trash moves the file to the trash");
 
         // 7. PP6가 켜져 있으면 적용하지 않는다.
         engine.presenterRunning = ^BOOL { return YES; };

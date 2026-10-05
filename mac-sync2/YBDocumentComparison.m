@@ -1,6 +1,8 @@
 #import "YBDocumentComparison.h"
 #import "PP6Core.h"
+#import "YBCore.h"
 
+static NSArray *RTFSignatures(NSDictionary *slide) {NSMutableArray *out=[NSMutableArray array];for(NSDictionary *t in slide[@"texts"])[out addObject:YBRTFSignature(t[@"rtfBase64"])];return out;}
 NSArray *YBComparisonRows(NSDictionary *local,NSDictionary *remote) {
     NSArray *left=local[@"slides"] ?: @[],*right=remote[@"slides"] ?: @[];
     NSMutableDictionary *pairs=[NSMutableDictionary dictionary];NSMutableSet *used=[NSMutableSet set];
@@ -10,8 +12,8 @@ NSArray *YBComparisonRows(NSDictionary *local,NSDictionary *remote) {
     NSMutableArray *rows=[NSMutableArray array];
     for(NSDictionary *slide in right){NSDictionary *match=pairs[slide[@"index"]],*old=leftByID[match[@"oldIndex"] ?: @0];NSMutableArray *flags=[NSMutableArray array];
         if(!old)[flags addObject:@"+ 서버에만 있음"];
-        else {if(![[old[@"texts"] valueForKey:@"rtfBase64"] isEqual:[slide[@"texts"] valueForKey:@"rtfBase64"]] && ![match[@"modified"] boolValue])[flags addObject:@"글자 서식 변경"];if([match[@"modified"] boolValue])[flags addObject:@"내용·서식 변경"];if([match[@"moved"] boolValue])[flags addObject:@"순서 이동"];if([match[@"technicalOnly"] boolValue])[flags addObject:@"경로·식별자 변경"];}
-        [rows addObject:@{@"local":old ?: @{},@"remote":slide,@"status":flags.count ? [flags componentsJoinedByString:@" · "] : @"동일",@"changed":@(flags.count>0)}];
+        else {if(![[old[@"texts"] valueForKey:@"rtfBase64"] isEqual:[slide[@"texts"] valueForKey:@"rtfBase64"]] && ![match[@"modified"] boolValue])[flags addObject:[RTFSignatures(old) isEqual:RTFSignatures(slide)]?@"RTF 표기만 다름(서식 같음)":@"글자 서식 변경"];if([match[@"modified"] boolValue])[flags addObject:@"내용·서식 변경"];if([match[@"moved"] boolValue])[flags addObject:@"순서 이동"];if([match[@"technicalOnly"] boolValue])[flags addObject:@"경로·식별자 변경"];}
+        [rows addObject:@{@"local":old ?: @{},@"remote":slide,@"status":flags.count ? [flags componentsJoinedByString:@" · "] : @"동일",@"changed":@(flags.count>0 && ![flags isEqual:@[@"RTF 표기만 다름(서식 같음)"]])}];
     }
     for(NSDictionary *slide in left)if(![used containsObject:slide[@"index"]])[rows addObject:@{@"local":slide,@"remote":@{},@"status":@"− Mac에만 있음",@"changed":@YES}];
     return rows;

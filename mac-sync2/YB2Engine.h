@@ -76,15 +76,18 @@
 - (BOOL)fullCheckDue;
 // 정리 창 버튼. 모두 사용자가 누를 때만 돈다.
 - (void)trashOnServer:(NSString *)path;          // Mac에서 지운 문서를 서버 휴지통으로
+- (void)trashOnMac:(NSString *)path;             // 강제 동작: Mac 파일을 macOS 휴지통으로(백업 사본)
 - (void)takeServer:(NSString *)path;             // 같은 이름 다른 내용: 서버 것으로(Mac 것은 백업·서버 보관본)
 - (void)takeMac:(NSString *)path;                // 같은 이름 다른 내용: Mac 것을 서버 새 버전으로
 - (NSString *)keepBothNumbered:(NSString *)path; // 같은 이름 다른 내용: Mac 파일에 번호를 붙여 둘 다 둔다. 반환: 새 경로
 - (NSArray *)numberedLog;                        // 번호 붙인 기록 [{path, target, at}]
 - (void)fetchImage:(NSDictionary *)item;         // 이미지 보충 {path, sha}
+- (NSDictionary *)importExternal:(NSDictionary *)item;   // 외부 참조 {path, references} → 그림 복사·경로 바꿈·올리기 {copied, missing, uploaded}
+- (void)removeNumbered:(NSDictionary *)item;     // 번호 붙임 {path, target} → Mac 휴지통·서버 휴지통·기록 정리
 - (NSString *)webLink:(NSString *)path;
 - (BOOL)hasLocalDocument:(NSString *)path;       // 문서 폴더에 그 파일이 있나(NFC·NFD 모두)          // Studio에서 그 문서 열기
 - (NSData *)serverBytes:(NSString *)path;        // 차이 창용 서버 바이트
-+ (NSData *)comparableBytes:(NSData *)data;      // 차이 창용: 사용 기록·파일 참조 표기·자모 조합을 맞춘 비교용 바이트
++ (NSData *)comparableBytes:(NSData *)data;      // 차이 창용: Sync가 같은지 판단할 때 쓰는 비교용 글(4판)
 // 마지막 적용 기록({id, at, applied:[…]}) 또는 nil. 되돌리면 그 다음 것이 아니라 nil이 된다(한 단계만).
 - (NSDictionary *)lastApply;
 // 마지막 적용을 되돌린다. 적용 뒤 바뀐 파일은 건너뛴다. PP6가 꺼져 있어야 한다. 반환: {restored:[…], skipped:[…]}
