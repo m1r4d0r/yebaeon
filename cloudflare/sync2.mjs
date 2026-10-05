@@ -79,8 +79,9 @@ async function devicesRoute(request, env, user, id, sub) {
   }
   method(request, ['GET', 'POST']);
   if (request.method === 'GET') {
-    const rows = (await env.DB.prepare('SELECT id,name,created_at AS createdAt,created_by AS createdBy,last_seen_at AS lastSeenAt,applied_seq AS appliedSeq,applied_at AS appliedAt,pending FROM yebaeon_sync_devices WHERE revoked_at IS NULL ORDER BY created_at LIMIT 50').all()).results;
-    return json({ head: await head(env.DB), devices: rows.map(r => ({ ...r, pending: JSON.parse(r.pending) })) });
+    const rows = (await env.DB.prepare('SELECT id,name,created_at AS createdAt,created_by AS createdBy,last_seen_at AS lastSeenAt,applied_seq AS appliedSeq,applied_at AS appliedAt,pending,status,status_at AS statusAt,support_until AS supportUntil FROM yebaeon_sync_devices WHERE revoked_at IS NULL ORDER BY created_at LIMIT 50').all()).results;
+    const now = Date.now();
+    return json({ head: await head(env.DB), devices: rows.map(r => ({ ...r, pending: JSON.parse(r.pending), status: r.status ? JSON.parse(r.status) : null, supportUntil: r.supportUntil && Date.parse(r.supportUntil) > now ? r.supportUntil : null })) });
   }
   sameOrigin(request);
   const body = await jsonBody(request, 1024), name = typeof body?.name === 'string' ? body.name.normalize('NFC').trim() : '';

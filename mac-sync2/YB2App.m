@@ -8,9 +8,11 @@
 
 // 예배온 Sync 2: 데일리 창 하나 + 메뉴 막대 상주.
 // - Mac 파일을 바꾸는 일은 모두 [적용]으로만 한다: 받기, 서버 휴지통 예배 빼기, 문서 이름 바꾸기·휴지통.
+//   원격 지원 시간(Mac 앞에서 연 30분)에는 관리자가 웹에서 같은 버튼을 누를 수 있다.
 // - 올리기(서버에 더하기만 함): Mac에서만 바뀐 문서·순서·사용일, Mac에서 만든 예배·새 문서·그 문서의 새 이미지.
 // - 상주: 15분마다 변경 일지만 묻고(요청 1번), 바뀐 것이 있을 때만 비교해 창에 보여 준다. 적용하지 않는다.
 //   PP6가 닫히면 Mac 수정분과 새 문서를 올린다. 잠자기에서 깨면 다시 확인한다.
+// - 현황: 비교 결과·PP6 상태·마지막 오류를 서버에 올려 Studio에서 본다.
 static NSString *const kOrigin = @"https://yebaeon.grace-jean-p.workers.dev";
 #ifdef YB2_MANUAL_CAPTURE
 // 설명서 그림 전용 빌드(capture.command): 로컬 Worker 주소·시험 폴더·입장 정보를 환경 변수로 받고, 비교가 끝나면 창을 PNG로 저장한 뒤 끝난다. 배포 앱에는 들어가지 않는다.
@@ -56,6 +58,21 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) NSDate *lastCycleAt;             // 마지막으로 서버를 확인한 때(메뉴 막대 상태 줄)               // 전체 확인이 뒤에서 도는 중(데일리 창은 잠그지 않는다)
 @property(nonatomic) NSUInteger startupAttempt;
 @property(nonatomic) dispatch_queue_t work;
+// 현황·원격 지원
+@property(nonatomic, copy) NSString *summary;          // 데일리 창 아래 요약 한 줄
+@property(nonatomic, copy) NSString *lastError;
+@property(nonatomic) NSMutableArray *recentLog;        // 최근 기록 30줄(현황에 함께 올림)
+@property(nonatomic, copy) NSString *statusHash;
+@property(nonatomic) NSDate *statusSentAt;
+@property(nonatomic) BOOL statusSending;
+@property(nonatomic) NSNumber *presenterSeen;
+@property(nonatomic) NSDate *supportUntil;             // 원격 지원 끝 시각(nil = 꺼짐)
+@property(nonatomic) NSTimer *supportTimer;
+@property(nonatomic) BOOL supportPolling, remoteRunning;
+@property(nonatomic) NSMutableArray *remoteQueue;      // 가져와서 아직 하지 않은 명령
+@property(nonatomic, copy) NSString *supportNote, *supportMessage;
+@property(nonatomic) NSView *supportBar;
+@property(nonatomic) NSTextField *supportLabel;
 @end
 
 @implementation YB2App
@@ -176,6 +193,28 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     later.autoresizingMask = self.updateButton.autoresizingMask = NSViewMinXMargin;
     [self.updateBar addSubview:self.updateLabel]; [self.updateBar addSubview:later]; [self.updateBar addSubview:self.updateButton];
     [content addSubview:self.updateBar];
+    // 원격 지원 줄(표 바로 위, 새 버전 줄보다 위). 지원 중에만 보인다.
+    self.supportBar = [[NSView alloc] initWithFrame:NSMakeRect(16, h - 124, w - 32, 36)];
+    self.supportBar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin; self.supportBar.hidden = YES;
+    NSBox *supportBackdrop = [[NSBox alloc] initWithFrame:self.supportBar.bounds];
+    supportBackdrop.boxType = NSBoxCustom; supportBackdrop.fillColor = [NSColor colorWithCalibratedRed:1 green:0.93 blue:0.85 alpha:1];
+    supportBackdrop.borderColor = [NSColor colorWithCalibratedRed:0.88 green:0.6 blue:0.3 alpha:1]; supportBackdrop.cornerRadius = 4; supportBackdrop.titlePosition = NSNoTitle;
+    supportBackdrop.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; [self.supportBar addSubview:supportBackdrop];
+    self.supportLabel = Label(@"", NSMakeRect(10, 9, bw - 120, 18), 12); self.supportLabel.autoresizingMask = NSViewWidthSizable;
+    self.supportLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    NSButton *endSupport = Button(@"끝내기", NSMakeRect(bw - 102, 4, 94, 28), self, @selector(endSupportNow:)); endSupport.autoresizingMask = NSViewMinXMargin;
+    [self.supportBar addSubview:self.supportLabel]; [self.supportBar addSubview:endSupport];
+    [content addSubview:self.supportBar];
+}
+// 표 위의 줄(원격 지원·새 버전)을 위에서부터 쌓고, 표 높이를 그만큼 줄인다.
+- (void)layoutBars {
+    if (!self.supportBar || !self.updateBar) return;
+    CGFloat top = NSHeight(self.window.contentView.bounds) - 88;
+    for (NSView *bar in @[self.supportBar, self.updateBar]) {
+        if (bar.hidden) continue;
+        NSRect frame = bar.frame; frame.origin.y = top - 36; bar.frame = frame; top -= 40;
+    }
+    NSRect frame = self.tableScroll.frame; frame.size.height = MAX(40, top - frame.origin.y); self.tableScroll.frame = frame;
 }
 #pragma mark - 업데이트
 
@@ -192,17 +231,14 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
             self.pendingRelease = [release[@"build"] integerValue] > [YB2Update currentBuild] ? release : nil;
             if (force && !self.pendingRelease) [self alert:@"최신 버전입니다" text:[NSString stringWithFormat:@"지금 빌드 %ld", (long)[YB2Update currentBuild]]];
             if (force) self.dismissedBuild = 0;
-            [self refreshUpdateBar];
+            [self refreshUpdateBar]; [self scheduleStatus];
         });
     });
 }
 - (void)checkUpdateNow:(id)sender { [self checkUpdate:YES]; }
 - (void)refreshUpdateBar {
     BOOL show = self.pendingRelease && [self.pendingRelease[@"build"] integerValue] != self.dismissedBuild;
-    if (show != !self.updateBar.hidden) {
-        NSRect frame = self.tableScroll.frame; frame.size.height += show ? -40 : 40; self.tableScroll.frame = frame;
-        self.updateBar.hidden = !show;
-    }
+    if (show != !self.updateBar.hidden) { self.updateBar.hidden = !show; [self layoutBars]; }
     NSString *notes = [self.pendingRelease[@"notes"] length] ? [@" · " stringByAppendingString:self.pendingRelease[@"notes"]] : @"";
     self.updateLabel.stringValue = self.pendingRelease ? [NSString stringWithFormat:@"새 버전 있음 · 빌드 %@ (지금 빌드 %ld)%@", self.pendingRelease[@"build"], (long)[YB2Update currentBuild], notes] : @"";
     self.updateLabel.toolTip = self.updateLabel.stringValue;
@@ -257,6 +293,8 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     [tools addItemWithTitle:@"백업 폴더 열기" action:@selector(openBackups:) keyEquivalent:@""];
     [tools addItemWithTitle:@"마지막 적용 되돌리기…" action:@selector(undoLastApply:) keyEquivalent:@""];
     [tools addItem:NSMenuItem.separatorItem];
+    [tools addItemWithTitle:@"원격 지원 시작…" action:@selector(toggleSupport:) keyEquivalent:@""];
+    [tools addItem:NSMenuItem.separatorItem];
     [tools addItemWithTitle:@"상주 확인 (15분마다)" action:@selector(toggleResident:) keyEquivalent:@""];
     [tools addItemWithTitle:@"로그인 시 실행" action:@selector(toggleLoginItem:) keyEquivalent:@""];
     toolsItem.submenu = tools;
@@ -289,6 +327,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     }
 }
 - (void)logout:(id)sender {
+    [self endSupport:@"로그아웃" notifyServer:YES];
     NSString *token = self.server.deviceToken; self.server.deviceToken = nil;
     @try { [self.server request:@"/api/session" method:@"DELETE" body:nil headers:nil]; } @catch (NSException *e) {}
     @try { [self.server forgetSession]; } @catch (NSException *e) {}
@@ -434,10 +473,13 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
     [self refreshStatusItem];
     if (self.organizer) [self refreshOrganizerButtons];
     if (self.updateBar) [self refreshUpdateBar];
+    if (!busy) [self scheduleStatus];
 }
 - (void)refreshPresenterState {
     BOOL running = YBPresenterRunning();
     self.presenterLabel.stringValue = running ? @"PP6 실행 중" : @"PP6 꺼져 있음";
+    if (self.presenterSeen && self.presenterSeen.boolValue != running) [self scheduleStatus];
+    self.presenterSeen = @(running);
     [self refreshApplyButton];
     if (self.pendingRelease) [self refreshUpdateBar];
 }
@@ -455,6 +497,7 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
     NSUInteger waiting = 0, hold = 0;
     for (NSDictionary *row in self.rows) { if (Checkable(row) && !([row[@"macDeleted"] boolValue]) && !NoHistoryOnly(row)) waiting++; else if ([row[@"status"] isEqual:@"hold"] || NoHistoryOnly(row)) hold++; }
     NSString *title = self.busy ? @"예배온 확인 중" : waiting ? [NSString stringWithFormat:@"예배온 대기 %lu", (unsigned long)waiting] : hold ? [NSString stringWithFormat:@"예배온 보류 %lu", (unsigned long)hold] : @"예배온 최신";
+    if (self.supportUntil) title = [@"원격 지원 · " stringByAppendingString:title];
     self.statusItem.button.title = self.pendingRelease ? [title stringByAppendingString:@" · 새 버전"] : title;
     NSString *state = self.busy ? @"확인 중" : waiting ? [NSString stringWithFormat:@"받을·올릴 것 %lu", (unsigned long)waiting] : hold ? [NSString stringWithFormat:@"보류 %lu", (unsigned long)hold] : @"모두 같음";
     NSString *at = self.lastCycleAt ? [@" · " stringByAppendingString:[NSDateFormatter localizedStringFromDate:self.lastCycleAt dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle]] : @"";
@@ -481,6 +524,7 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
     if (trash) [parts addObject:[NSString stringWithFormat:@"서버 정리 %lu개", (unsigned long)trash]];
     if (hold) [parts addObject:[NSString stringWithFormat:@"정리 창에서 정할 것 %lu개", (unsigned long)hold]];
     self.statusLabel.stringValue = parts.count ? [parts componentsJoinedByString:@" · "] : @"모두 같음";
+    self.summary = self.statusLabel.stringValue;
     self.connectionLabel.stringValue = [NSString stringWithFormat:@"연결됨%@ · %@", self.server.deviceToken ? @" (장치 열쇠)" : @"", YB2_ORIGIN];
     [self refreshApplyButton]; [self refreshStatusItem]; [self refreshReview];
 }
@@ -546,12 +590,14 @@ static NSString *Summary(NSDictionary *result) {
         } @catch (NSException *e) { error = e; }
         dispatch_async(dispatch_get_main_queue(), ^{
             if (!error) self.lastCycleAt = NSDate.date;
+            self.lastError = error.reason;
+            if (error) [self note:[@"확인 실패 · " stringByAppendingString:error.reason ?: @""]];
             self.busy = NO;
             if (rows) [self showRows:rows];
             else if (error) self.statusLabel.stringValue = error.reason ?: @"확인 실패";
             else if (!compared) { self.statusLabel.stringValue = [@"바뀐 것 없음 · " stringByAppendingString:[NSDateFormatter localizedStringFromDate:NSDate.date dateStyle:NSDateFormatterNoStyle timeStyle:NSDateFormatterShortStyle]]; [self refreshStatusItem]; }
             NSString *summary = synced ? Summary(synced) : @"";
-            if (summary.length) self.statusLabel.stringValue = [[summary componentsSeparatedByString:@"\n"].firstObject stringByAppendingString:@" (자동)"];
+            if (summary.length) { self.statusLabel.stringValue = [[summary componentsSeparatedByString:@"\n"].firstObject stringByAppendingString:@" (자동)"]; [self note:[@"자동 올리기 · " stringByAppendingString:summary]]; }
             if (completion) completion(error);
         });
     });
@@ -584,8 +630,9 @@ static NSString *Summary(NSDictionary *result) {
         @try { result = [self syncRows:selected automatic:NO]; } @catch (NSException *e) { error = e; }
         dispatch_async(dispatch_get_main_queue(), ^{
             self.busy = NO;
-            if (error) { [self alert:@"적용하지 못함" text:error.reason]; [self compareNow:nil]; return; }
+            if (error) { [self note:[@"적용 실패 · " stringByAppendingString:error.reason ?: @""]]; [self alert:@"적용하지 못함" text:error.reason]; [self compareNow:nil]; return; }
             NSString *text = Summary(result);
+            [self note:[@"적용 · " stringByAppendingString:text.length ? text : @"바뀐 것 없음"]];
             if (organizerNote) text = [text stringByAppendingFormat:@"%@%@", text.length ? @"\n" : @"", organizerNote];
             [self alert:@"완료" text:text.length ? text : @"바뀐 것이 없습니다."];
             [self compareNow:nil];
@@ -671,6 +718,7 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
         void (^finish)(NSException *) = ^(NSException *failure) { dispatch_async(dispatch_get_main_queue(), ^{
             self.checking = NO;
             if (failure) self.statusLabel.stringValue = [@"전체 확인 실패 · " stringByAppendingString:failure.reason ?: @""];
+            [self note:failure ? [@"전체 확인 실패 · " stringByAppendingString:failure.reason ?: @""] : @"전체 확인 끝"];
             [self refreshReview]; [self reloadOrganizer];
         }); };
         if (error) { finish(error); return; }
@@ -723,6 +771,21 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
 }
 #pragma mark - 오른쪽 클릭 강제 동작
 
+// 데일리 창 한 줄이 가리키는 문서 경로. 오른쪽 클릭 강제 동작과 원격 강제 동작이 같이 쓴다.
+static NSArray *RowDocumentPaths(NSDictionary *row) {
+    NSMutableOrderedSet *paths = [NSMutableOrderedSet orderedSet];
+    for (NSString *key in @[@"serviceDocuments", @"macDeletedDocuments", @"missingLocal", @"macOnlyDocuments", @"macChangedDocuments"]) for (id path in row[key]) if ([path isKindOfClass:NSString.class]) [paths addObject:path];
+    for (NSDictionary *doc in row[@"documents"]) if ([doc[@"path"] isKindOfClass:NSString.class]) [paths addObject:doc[@"path"]];
+    return [paths.array sortedArrayUsingSelector:@selector(localizedStandardCompare:)];
+}
+// 문서 하나에 할 수 있는 강제 동작. 실제로 불가능한 것(파일이 없음 등)만 NO.
+- (NSDictionary *)forceState:(NSString *)path {
+    BOOL mac = [self.engine hasLocalDocument:path];
+    NSDictionary *entry = [self.engine.receipt ledger:path]; NSString *state = entry[@"state"];
+    BOOL server = [entry[@"id"] length] > 0, active = server && ![state isEqual:@"trashed"];
+    return @{@"where": [NSString stringWithFormat:@"%@ · %@", mac ? @"Mac 있음" : @"Mac 없음", !server ? @"서버 없음" : active ? @"서버 있음" : @"서버 휴지통"],
+             @"diff": @(mac && server), @"server": @(active), @"mac": @(mac && server), @"trashServer": @(active), @"trashMac": @(mac), @"web": @(server)};
+}
 // 권장과 상관없이 문서 하나에 할 수 있는 동작. 실제로 불가능한 것(파일이 없음 등)만 끈다.
 - (void)menuNeedsUpdate:(NSMenu *)menu {
     if (menu != self.table.menu) return;
@@ -730,24 +793,18 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     NSInteger index = self.table.clickedRow;
     if (index < 0 || index >= (NSInteger)self.rows.count) return;
     NSDictionary *row = self.rows[index];
-    NSMutableOrderedSet *paths = [NSMutableOrderedSet orderedSet];
-    for (NSString *key in @[@"serviceDocuments", @"macDeletedDocuments", @"missingLocal", @"macOnlyDocuments", @"macChangedDocuments"]) for (id path in row[key]) if ([path isKindOfClass:NSString.class]) [paths addObject:path];
-    for (NSDictionary *doc in row[@"documents"]) if ([doc[@"path"] isKindOfClass:NSString.class]) [paths addObject:doc[@"path"]];
+    NSArray *paths = RowDocumentPaths(row);
     NSMenuItem *head = [menu addItemWithTitle:[NSString stringWithFormat:@"강제 동작 · %@ (권장과 상관없이 실행)", row[@"name"] ?: @""] action:nil keyEquivalent:@""]; head.enabled = NO;
     if (!paths.count) { NSMenuItem *none = [menu addItemWithTitle:@"이 예배에 문서가 없습니다" action:nil keyEquivalent:@""]; none.enabled = NO; return; }
     [menu addItem:NSMenuItem.separatorItem];
-    for (NSString *path in [paths.array sortedArrayUsingSelector:@selector(localizedStandardCompare:)]) {
-        BOOL mac = [self.engine hasLocalDocument:path];
-        NSDictionary *entry = [self.engine.receipt ledger:path]; NSString *state = entry[@"state"];
-        BOOL server = [entry[@"id"] length] > 0, active = server && ![state isEqual:@"trashed"];
-        NSString *where = [NSString stringWithFormat:@"%@ · %@", mac ? @"Mac 있음" : @"Mac 없음", !server ? @"서버 없음" : active ? @"서버 있음" : @"서버 휴지통"];
-        NSMenuItem *docItem = [menu addItemWithTitle:[NSString stringWithFormat:@"%@  (%@)", path.stringByDeletingPathExtension, where] action:nil keyEquivalent:@""];
+    for (NSString *path in paths) {
+        NSDictionary *state = [self forceState:path];
+        NSMenuItem *docItem = [menu addItemWithTitle:[NSString stringWithFormat:@"%@  (%@)", path.stringByDeletingPathExtension, state[@"where"]] action:nil keyEquivalent:@""];
         NSMenu *actions = [NSMenu new]; actions.autoenablesItems = NO;
-        for (NSArray *spec in @[@[@"diff", @"차이 보기", @(mac && server)], @[@"server", @"서버 것 받기 (Mac 파일을 서버 것으로)", @(active)],
-                                @[@"mac", @"Mac 것 올리기 (서버를 Mac 것으로)", @(mac && server)], @[@"trashServer", @"서버 휴지통으로", @(active)],
-                                @[@"trashMac", @"Mac에서 지우기 (macOS 휴지통)", @(mac)], @[@"web", @"웹에서 보기", @(server)]]) {
+        for (NSArray *spec in @[@[@"diff", @"차이 보기"], @[@"server", @"서버 것 받기 (Mac 파일을 서버 것으로)"], @[@"mac", @"Mac 것 올리기 (서버를 Mac 것으로)"],
+                                @[@"trashServer", @"서버 휴지통으로"], @[@"trashMac", @"Mac에서 지우기 (macOS 휴지통)"], @[@"web", @"웹에서 보기"]]) {
             NSMenuItem *item = [actions addItemWithTitle:spec[1] action:@selector(forceDocument:) keyEquivalent:@""];
-            item.target = self; item.enabled = [spec[2] boolValue] && !self.busy; item.representedObject = @{@"action": spec[0], @"path": path};
+            item.target = self; item.enabled = [state[spec[0]] boolValue] && !self.busy; item.representedObject = @{@"action": spec[0], @"path": path};
         }
         docItem.submenu = actions;
     }
@@ -854,7 +911,7 @@ static NSString *ActionHint(NSString *action, NSString *list) {
         dispatch_async(dispatch_get_main_queue(), ^{
             self.busy = NO; self.statusLabel.stringValue = error ? error.reason : @"완료";
             [self refreshReview]; [self reloadOrganizer];
-            if (error) [self alert:@"하지 못함" text:error.reason];
+            if (error) { [self note:[NSString stringWithFormat:@"%@ 실패 · %@", message, error.reason ?: @""]]; [self alert:@"하지 못함" text:error.reason]; }
             else if (done) done(result);
         });
     });
@@ -953,6 +1010,7 @@ static NSString *ActionHint(NSString *action, NSString *list) {
     [menu addItem:NSMenuItem.separatorItem];
     [menu addItemWithTitle:@"예배온 Sync 2 창 열기" action:@selector(showWindow:) keyEquivalent:@""];
     [menu addItemWithTitle:@"예배온 Studio 열기" action:@selector(openStudio:) keyEquivalent:@""];
+    [menu addItemWithTitle:@"원격 지원 시작…" action:@selector(toggleSupport:) keyEquivalent:@""];
     [menu addItem:NSMenuItem.separatorItem];
     self.statusUpdateItem = [menu addItemWithTitle:@"새 버전 설치…" action:@selector(installUpdate:) keyEquivalent:@""]; self.statusUpdateItem.hidden = YES;
     [menu addItemWithTitle:@"업데이트 확인" action:@selector(checkUpdateNow:) keyEquivalent:@""];
@@ -992,6 +1050,7 @@ static BOOL Translocated(void) { return [NSBundle.mainBundle.bundlePath contains
 - (BOOL)validateMenuItem:(NSMenuItem *)item {
     if (item.action == @selector(toggleResident:)) item.state = self.resident ? NSControlStateValueOn : NSControlStateValueOff;
     if (item.action == @selector(toggleLoginItem:)) item.state = [NSFileManager.defaultManager fileExistsAtPath:self.agentPath] ? NSControlStateValueOn : NSControlStateValueOff;
+    if (item.action == @selector(toggleSupport:)) item.title = self.supportUntil ? @"원격 지원 끝내기" : @"원격 지원 시작…";
     if (item.action == @selector(compareNow:)) return !self.busy;
     return YES;
 }
@@ -1146,8 +1205,339 @@ static NSString *DetailText(NSDictionary *row) {
 // 체크 칸은 줄을 고르지 않아도 누를 수 있어야 한다.
 - (BOOL)tableView:(NSTableView *)table shouldTrackCell:(NSCell *)cell forTableColumn:(NSTableColumn *)column row:(NSInteger)row { return YES; }
 
+#pragma mark - 현황·원격 지원
+
+// 현황: 비교·작업이 끝날 때와 PP6를 켜고 끌 때 서버에 한 줄로 올린다. 내용이 같으면 한 시간에 한 번만 보낸다.
+// 원격 지원: Mac 앞에서 [원격 지원 시작…]을 누르면 30분 동안 10초마다 원격 명령을 묻는다. 지원 시간이 아니면 묻지 않는다.
+// 명령은 이 창·정리 창·오른쪽 클릭 강제 동작과 같은 동작뿐이고 확인 창 없이 실행해 결과를 보고한다.
+// Mac 파일을 바꾸는 명령은 PP6가 켜져 있으면 하지 않는다. 대상은 지금 비교 결과·정리 창 목록에 있는 것만 받는다.
+static const NSInteger kSupportMinutes = 30;
+static const NSTimeInterval kSupportPoll = 10;
+
+static NSString *ISOText(NSDate *date) {
+    static NSISO8601DateFormatter *formatter; static dispatch_once_t once;
+    dispatch_once(&once, ^{ formatter = [NSISO8601DateFormatter new]; });
+    return date ? [formatter stringFromDate:date] : nil;
+}
+static NSDate *ISODate(id text) {
+    if (![text isKindOfClass:NSString.class]) return nil;
+    static NSISO8601DateFormatter *plain, *fractional; static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        plain = [NSISO8601DateFormatter new];
+        fractional = [NSISO8601DateFormatter new]; fractional.formatOptions = NSISO8601DateFormatWithInternetDateTime | NSISO8601DateFormatWithFractionalSeconds;
+    });
+    return [fractional dateFromString:text] ?: [plain dateFromString:text];
+}
+static BOOL SamePath(id a, id b) {
+    return [a isKindOfClass:NSString.class] && [b isKindOfClass:NSString.class] && [[a precomposedStringWithCanonicalMapping] isEqual:[b precomposedStringWithCanonicalMapping]];
+}
+// 원격으로 누를 수 있는 정리 창 버튼(차이 보기·웹에서 보기 빼고). 항목 하나를 골랐을 때 정리 창에 보이는 버튼과 같다.
+static NSArray *RemoteActions(NSDictionary *item) {
+    NSString *list = item[@"list"], *path = item[@"path"];
+    if (![path isKindOfClass:NSString.class] || !path.length) return @[];
+    if ([list isEqual:kListCollision]) return @[@"server", @"mac", @"number"];
+    if ([list isEqual:kListMacDeleted] && [path hasSuffix:@".pro6"]) return @[@"server", @"trash"];
+    if ([list isEqual:kListImage]) return @[@"image"];
+    if ([list isEqual:kListExternal]) return @[@"import"];
+    if ([list isEqual:kListNumbered]) return @[@"removeNumbered"];
+    return @[];
+}
+static NSString *RemoteLabel(NSDictionary *command) {
+    NSString *action = command[@"action"]; NSDictionary *args = [command[@"args"] isKindOfClass:NSDictionary.class] ? command[@"args"] : @{};
+    NSString *path = [args[@"path"] isKindOfClass:NSString.class] ? [args[@"path"] stringByDeletingPathExtension] : @"";
+    if ([action isEqual:@"check"]) return @"다시 비교";
+    if ([action isEqual:@"fullCheck"]) return @"전체 확인";
+    if ([action isEqual:@"undo"]) return @"마지막 적용 되돌리기";
+    if ([action isEqual:@"apply"]) return @"적용";
+    if ([action isEqual:@"organizer"]) return [@"정리 · " stringByAppendingString:path];
+    if ([action isEqual:@"force"]) return [@"강제 동작 · " stringByAppendingString:path];
+    if ([action isEqual:@"message"]) return @"안내";
+    return [action isKindOfClass:NSString.class] ? action : @"알 수 없는 명령";
+}
+
+- (void)note:(NSString *)text {
+    if (!text.length) return;
+    if (!self.recentLog) self.recentLog = [NSMutableArray array];
+    NSString *time = [NSDateFormatter localizedStringFromDate:NSDate.date dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterShortStyle];
+    NSString *line = [[text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] stringByReplacingOccurrencesOfString:@"\n" withString:@" · "];
+    [self.recentLog addObject:[NSString stringWithFormat:@"%@ %@", time, line.length > 300 ? [line substringToIndex:300] : line]];
+    while (self.recentLog.count > 30) [self.recentLog removeObjectAtIndex:0];
+    [self scheduleStatus];
+}
+// compact: 서버 한도(64KB)를 넘을 때 문서 목록·기록을 줄인다.
+- (NSDictionary *)statusReport:(BOOL)compact {
+    BOOL support = self.supportUntil != nil && !compact;
+    NSMutableArray *rows = [NSMutableArray array];
+    for (NSDictionary *row in self.rows) {
+        if (rows.count >= 80) break;
+        NSString *status = row[@"status"] ?: @"";
+        NSMutableDictionary *item = [@{@"node": row[@"key"] ?: @"", @"name": row[@"name"] ?: @"", @"status": status, @"text": StatusText(row) ?: @""} mutableCopy];
+        if (![status isEqual:@"same"]) {
+            if (!compact) item[@"detail"] = DetailText(row) ?: @"";
+            item[@"applicable"] = @(Checkable(row) && !NoHistoryOnly(row) && [row[@"key"] length] > 0);
+            item[@"changesMac"] = @(ChangesMac(row));
+            if (support) {
+                NSMutableArray *docs = [NSMutableArray array];
+                for (NSString *path in RowDocumentPaths(row)) {
+                    if (docs.count >= 40) break;
+                    NSDictionary *state = [self forceState:path]; NSMutableArray *actions = [NSMutableArray array];
+                    for (NSString *action in @[@"server", @"mac", @"trashServer", @"trashMac"]) if ([state[action] boolValue]) [actions addObject:action];
+                    [docs addObject:@{@"path": path, @"where": state[@"where"], @"actions": actions}];
+                }
+                item[@"docs"] = docs;
+            }
+        }
+        [rows addObject:item];
+    }
+    NSMutableArray *review = [NSMutableArray array];
+    for (NSDictionary *each in [self reviewItems]) {
+        if (review.count >= (compact ? 30 : 100)) break;
+        [review addObject:@{@"list": each[@"list"] ?: @"", @"title": each[@"title"] ?: @"", @"path": each[@"path"] ?: @"", @"detail": each[@"detail"] ?: @"", @"actions": RemoteActions(each)}];
+    }
+    NSArray *log = self.recentLog ?: @[];
+    if (compact && log.count > 10) log = [log subarrayWithRange:NSMakeRange(log.count - 10, 10)];
+    NSMutableDictionary *report = [@{@"build": @([YB2Update currentBuild]), @"presenter": @(YBPresenterRunning()), @"busy": @(self.busy || self.checking),
+                                     @"summary": self.summary ?: @"", @"rows": rows, @"review": review, @"log": log} mutableCopy];
+    if (self.pendingRelease[@"build"]) report[@"update"] = self.pendingRelease[@"build"];
+    if (self.lastError.length) report[@"error"] = self.lastError;
+    NSString *fullCheck = [self.engine lastFullCheck][@"at"], *lastApply = [self.engine lastApply][@"at"];
+    if ([fullCheck isKindOfClass:NSString.class]) report[@"fullCheckAt"] = fullCheck;
+    if ([lastApply isKindOfClass:NSString.class]) report[@"lastApplyAt"] = lastApply;
+    return report;
+}
+- (void)scheduleStatus {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(sendStatus) object:nil];
+    [self performSelector:@selector(sendStatus) withObject:nil afterDelay:2];
+}
+- (void)sendStatus {
+    if (!self.server.deviceID || !self.window) return;
+    if (self.statusSending) { [self scheduleStatus]; return; }
+    NSDictionary *report = [self statusReport:NO];
+    NSData *data = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingSortedKeys error:NULL];
+    if (data.length > 60000) { report = [self statusReport:YES]; data = [NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingSortedKeys error:NULL]; }
+    if (!data) return;
+    NSString *hash = YBHash(data);
+    if ([hash isEqual:self.statusHash] && self.statusSentAt && -self.statusSentAt.timeIntervalSinceNow < 3600) return;
+    NSMutableDictionary *sent = [report mutableCopy];
+    if (self.lastCycleAt) sent[@"lastCycleAt"] = ISOText(self.lastCycleAt);
+    self.statusSending = YES; YB2Server *server = self.server;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        BOOL ok = NO;
+        @try { [server postStatus:sent]; ok = YES; } @catch (NSException *e) { NSLog(@"status: %@", e.reason); }
+        dispatch_async(dispatch_get_main_queue(), ^{ self.statusSending = NO; if (ok) { self.statusHash = hash; self.statusSentAt = NSDate.date; } });
+    });
+}
+
+- (void)toggleSupport:(id)sender { if (self.supportUntil) [self endSupport:@"Mac에서 끝냄" notifyServer:YES]; else [self startSupport]; }
+- (void)endSupportNow:(id)sender { [self endSupport:@"Mac에서 끝냄" notifyServer:YES]; }
+- (void)startSupport {
+    if (!self.server.deviceID) { [self alert:@"원격 지원을 시작할 수 없습니다" text:@"장치 열쇠로 연결된 뒤에 쓸 수 있습니다. [로그아웃] 뒤 다시 입장해 주세요."]; return; }
+    NSAlert *confirm = [NSAlert new]; confirm.messageText = @"원격 지원을 시작할까요?";
+    confirm.informativeText = [NSString stringWithFormat:@"%ld분 동안 관리자가 예배온 웹에서 이 Mac의 Sync를 조작할 수 있습니다: 다시 비교, 적용, 정리 창 버튼, 강제 동작, 마지막 적용 되돌리기.\n\nMac 파일을 바꾸는 일은 PP6가 켜져 있으면 하지 않습니다. 창 위에 원격 지원 상태가 보이고, 언제든 [끝내기]로 멈출 수 있습니다.", (long)kSupportMinutes];
+    [confirm addButtonWithTitle:@"시작"]; [confirm addButtonWithTitle:@"취소"];
+    if ([confirm runModal] != NSAlertFirstButtonReturn) return;
+    YB2Server *server = self.server;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSString *until = nil; NSException *error = nil;
+        @try { until = [server openSupport:kSupportMinutes]; } @catch (NSException *e) { error = e; }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (error) { [self alert:@"원격 지원을 시작하지 못했습니다" text:error.reason]; return; }
+            self.supportUntil = ISODate(until) ?: [NSDate dateWithTimeIntervalSinceNow:kSupportMinutes * 60];
+            self.supportNote = @"관리자의 명령을 기다리는 중"; self.supportMessage = nil;
+            if (!self.remoteQueue) self.remoteQueue = [NSMutableArray array];
+            [self.supportTimer invalidate];
+            self.supportTimer = [NSTimer timerWithTimeInterval:kSupportPoll target:self selector:@selector(supportTick) userInfo:nil repeats:YES];
+            [NSRunLoop.mainRunLoop addTimer:self.supportTimer forMode:NSRunLoopCommonModes];   // 확인 창이 떠 있어도 묻는다
+            [self note:@"원격 지원 시작"];
+            [self refreshSupport]; [self showWindow:nil];
+        });
+    });
+}
+- (void)endSupport:(NSString *)reason notifyServer:(BOOL)notify {
+    if (!self.supportUntil) return;
+    self.supportUntil = nil; self.supportMessage = nil; [self.supportTimer invalidate]; self.supportTimer = nil;
+    // 가져왔지만 아직 하지 않은 명령은 하지 않았다고 알린다.
+    for (NSDictionary *command in self.remoteQueue) [self finishRemote:command state:@"rejected" message:@"원격 지원이 끝나 하지 않았습니다."];
+    [self.remoteQueue removeAllObjects];
+    if (notify && self.server.deviceID) {
+        YB2Server *server = self.server;
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ @try { [server closeSupport]; } @catch (NSException *e) { NSLog(@"support close: %@", e.reason); } });
+    }
+    [self note:[@"원격 지원 끝 · " stringByAppendingString:reason]];
+    [self refreshSupport];
+}
+- (void)refreshSupport {
+    BOOL on = self.supportUntil != nil;
+    if (on == self.supportBar.hidden) { self.supportBar.hidden = !on; [self layoutBars]; }
+    long left = on ? MAX(0L, (long)ceil(self.supportUntil.timeIntervalSinceNow / 60)) : 0;
+    NSString *message = self.supportMessage.length ? [@" · 관리자 안내: " stringByAppendingString:self.supportMessage] : @"";
+    self.supportLabel.stringValue = on ? [NSString stringWithFormat:@"원격 지원 중 · %ld분 남음 · %@%@", left, self.supportNote ?: @"", message] : @"";
+    self.supportLabel.toolTip = self.supportLabel.stringValue;
+    [self refreshStatusItem];
+}
+- (void)supportTick {
+    if (!self.supportUntil) return;
+    if (self.supportUntil.timeIntervalSinceNow <= 0) { [self endSupport:@"시간이 다 됨" notifyServer:YES]; return; }
+    [self refreshSupport];
+    if (self.remoteQueue.count) { [self runNextRemote]; return; }
+    if (self.supportPolling || self.remoteRunning || self.busy || self.checking) return;
+    self.supportPolling = YES; YB2Server *server = self.server;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSDictionary *result = nil; NSException *error = nil;
+        @try { result = [server takeCommands]; } @catch (NSException *e) { error = e; }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.supportPolling = NO;
+            NSArray *commands = [result[@"commands"] isKindOfClass:NSArray.class] ? result[@"commands"] : @[];
+            if (!self.supportUntil) { for (NSDictionary *command in commands) [self finishRemote:command state:@"rejected" message:@"원격 지원이 끝나 하지 않았습니다."]; return; }
+            if (error) { self.supportNote = [@"서버 확인 실패 · " stringByAppendingString:error.reason ?: @""]; [self refreshSupport]; return; }
+            NSDate *until = ISODate(result[@"supportUntil"]);
+            if (!until) { [self endSupport:@"웹에서 끝냄" notifyServer:NO]; return; }
+            self.supportUntil = until;
+            for (NSDictionary *command in commands) if ([command isKindOfClass:NSDictionary.class]) [self.remoteQueue addObject:command];
+            [self runNextRemote];
+        });
+    });
+}
+- (void)finishRemote:(NSDictionary *)command state:(NSString *)state message:(NSString *)message {
+    NSString *identifier = command[@"id"];
+    if (![identifier isKindOfClass:NSString.class] || !self.server.deviceID) return;
+    YB2Server *server = self.server;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        @try { [server finishCommand:identifier state:state message:message ?: @""]; } @catch (NSException *e) { NSLog(@"remote result: %@", e.reason); }
+    });
+}
+- (void)runNextRemote {
+    if (self.remoteRunning || !self.remoteQueue.count || self.busy || self.checking || !self.supportUntil) return;
+    NSDictionary *command = self.remoteQueue.firstObject; [self.remoteQueue removeObjectAtIndex:0];
+    NSString *label = RemoteLabel(command);
+    self.remoteRunning = YES; self.supportNote = [@"실행 중 · " stringByAppendingString:label]; [self refreshSupport];
+    [self runRemote:command done:^(NSString *state, NSString *message) {
+        self.remoteRunning = NO;
+        NSString *verdict = [state isEqual:@"done"] ? @"완료" : [state isEqual:@"rejected"] ? @"하지 않음" : @"실패";
+        NSString *first = [message componentsSeparatedByString:@"\n"].firstObject ?: @"";
+        self.supportNote = [NSString stringWithFormat:@"%@ · %@%@", label, verdict, first.length ? [@" · " stringByAppendingString:first] : @""];
+        [self note:[@"원격 · " stringByAppendingString:self.supportNote]];
+        [self refreshSupport];
+        [self finishRemote:command state:state message:message];
+        if (self.remoteQueue.count) [self performSelector:@selector(runNextRemote) withObject:nil afterDelay:0.5];
+    }];
+}
+// 작업 큐에서 돌린다. 확인·완료 창을 띄우지 않는다.
+- (void)runRemoteTask:(id (^)(void))task done:(void (^)(id result, NSException *error))done {
+    self.busy = YES; self.statusLabel.stringValue = @"원격 명령 실행 중";
+    dispatch_async(self.work, ^{
+        id result = nil; NSException *error = nil;
+        @try { result = task(); } @catch (NSException *e) { error = e; }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.busy = NO; self.statusLabel.stringValue = error ? error.reason : @"원격 명령 완료";
+            [self refreshReview]; [self reloadOrganizer];
+            done(result, error);
+        });
+    });
+}
+// 원격 명령 하나. done(state, message): state는 done · failed · rejected.
+- (void)runRemote:(NSDictionary *)command done:(void (^)(NSString *state, NSString *message))done {
+    NSString *action = command[@"action"]; NSDictionary *args = [command[@"args"] isKindOfClass:NSDictionary.class] ? command[@"args"] : @{};
+    BOOL presenter = YBPresenterRunning();
+    NSString *pp6 = @"PP6가 켜져 있어 하지 않았습니다. Mac 앞에서 PP6를 닫은 뒤 다시 보내 주세요.";
+    if ([action isEqual:@"message"]) {
+        NSString *text = [args[@"text"] isKindOfClass:NSString.class] ? args[@"text"] : @"";
+        self.supportMessage = text; [self refreshSupport]; [self showWindow:nil]; NSBeep();
+        done(@"done", @"Mac 화면에 띄웠습니다."); return;
+    }
+    if ([action isEqual:@"check"]) {
+        [self runCycleForce:YES upload:NO completion:^(NSException *error) { done(error ? @"failed" : @"done", error ? error.reason : self.summary); }];
+        return;
+    }
+    if ([action isEqual:@"fullCheck"]) {
+        if (self.checking) { done(@"rejected", @"전체 확인이 이미 돌고 있습니다."); return; }
+        [self startFullCheck];
+        done(@"done", @"전체 확인을 시작했습니다. 끝나면 현황의 정리 창 목록이 바뀝니다."); return;
+    }
+    if ([action isEqual:@"undo"]) {
+        if (presenter) { done(@"rejected", pp6); return; }
+        if (![self.engine lastApply]) { done(@"rejected", @"되돌릴 적용이 없습니다."); return; }
+        [self runRemoteTask:^id{ return [self.engine undoLastApply]; } done:^(NSDictionary *result, NSException *error) {
+            NSMutableString *text = [NSMutableString string];
+            if ([result[@"restored"] count]) [text appendFormat:@"되돌림: %@\n", [result[@"restored"] componentsJoinedByString:@", "]];
+            if ([result[@"skipped"] count]) [text appendFormat:@"건너뜀: %@\n", [result[@"skipped"] componentsJoinedByString:@", "]];
+            done(error ? @"failed" : @"done", error ? error.reason : text.length ? text : @"되돌렸습니다.");
+            [self compareNow:nil];
+        }];
+        return;
+    }
+    if ([action isEqual:@"apply"]) {
+        NSArray *nodes = [args[@"nodes"] isKindOfClass:NSArray.class] ? args[@"nodes"] : @[];
+        NSMutableArray *selected = [NSMutableArray array], *missing = [nodes mutableCopy]; BOOL changesMac = NO;
+        for (NSDictionary *row in self.rows) {
+            if (![nodes containsObject:row[@"key"] ?: @""] || !Checkable(row) || NoHistoryOnly(row)) continue;
+            [selected addObject:row]; [missing removeObject:row[@"key"]]; changesMac = changesMac || ChangesMac(row);
+        }
+        if (missing.count || !selected.count) { done(@"rejected", @"지금 비교 결과에서 적용할 수 없는 예배입니다(이미 같거나 정리 창에서 정할 것). [다시 비교] 뒤 현황을 새로 고쳐 주세요."); return; }
+        if (changesMac && presenter) { done(@"rejected", pp6); return; }
+        [self runRemoteTask:^id{ return [self syncRows:selected automatic:NO]; } done:^(NSDictionary *result, NSException *error) {
+            NSString *text = error ? error.reason : Summary(result);
+            done(error ? @"failed" : @"done", text.length ? text : @"바뀐 것이 없습니다.");
+            [self compareNow:nil];
+        }];
+        return;
+    }
+    if ([action isEqual:@"organizer"]) {
+        NSString *what = args[@"do"]; NSDictionary *item = nil;
+        for (NSDictionary *each in [self reviewItems]) if (SamePath(each[@"path"], args[@"path"]) && [RemoteActions(each) containsObject:what ?: @""]) { item = each; break; }
+        if (!item) { done(@"rejected", @"정리 창에 그 항목이 없거나 그 동작을 할 수 없습니다. 현황을 새로 고쳐 다시 골라 주세요."); return; }
+        if (presenter && ![what isEqual:@"mac"] && ![what isEqual:@"trash"]) { done(@"rejected", pp6); return; }
+        NSString *path = item[@"path"];
+        [self runRemoteTask:^id{
+            if ([what isEqual:@"server"]) [self.engine takeServer:path];
+            else if ([what isEqual:@"mac"]) [self.engine takeMac:path];
+            else if ([what isEqual:@"number"]) return [self.engine keepBothNumbered:path];
+            else if ([what isEqual:@"trash"]) [self.engine trashOnServer:path];
+            else if ([what isEqual:@"image"]) [self.engine fetchImage:item[@"item"]];
+            else if ([what isEqual:@"removeNumbered"]) [self.engine removeNumbered:item[@"item"]];
+            else if ([what isEqual:@"import"]) return [self.engine importExternal:item[@"item"]];
+            return @YES;
+        } done:^(id result, NSException *error) {
+            NSString *text = error ? error.reason : @"했습니다.";
+            if (!error && [what isEqual:@"number"]) text = [NSString stringWithFormat:@"Mac 파일을 ‘%@’(으)로 올리고 원래 이름에는 서버 것을 받았습니다.", result];
+            if (!error && [what isEqual:@"import"] && [result isKindOfClass:NSDictionary.class]) {
+                if ([result[@"missing"] count]) text = [@"원본 그림이 없어 건너뜀: " stringByAppendingString:[result[@"missing"] componentsJoinedByString:@", "]];
+                else if ([result[@"copied"] integerValue] && ![result[@"uploaded"] boolValue]) text = @"Mac 문서만 바꿨습니다. 서버와 아직 맞춰 보지 않은 문서입니다.";
+            }
+            done(error ? @"failed" : @"done", text);
+            [self compareNow:nil];
+        }];
+        return;
+    }
+    if ([action isEqual:@"force"]) {
+        NSString *what = args[@"do"], *path = nil;
+        for (NSDictionary *row in self.rows) { for (NSString *each in RowDocumentPaths(row)) if (SamePath(each, args[@"path"])) { path = each; break; } if (path) break; }
+        if (!path || ![@[@"server", @"mac", @"trashServer", @"trashMac"] containsObject:what ?: @""] || ![[self forceState:path][what] boolValue]) { done(@"rejected", @"데일리 창 예배에 그 문서가 없거나 그 동작을 할 수 없습니다."); return; }
+        if (presenter && ([what isEqual:@"server"] || [what isEqual:@"trashMac"])) { done(@"rejected", pp6); return; }
+        [self runRemoteTask:^id{
+            if ([what isEqual:@"server"]) [self.engine takeServer:path];
+            else if ([what isEqual:@"mac"]) [self.engine takeMac:path];
+            else if ([what isEqual:@"trashServer"]) [self.engine trashOnServer:path];
+            else if ([what isEqual:@"trashMac"]) [self.engine trashOnMac:path];
+            return @YES;
+        } done:^(id result, NSException *error) {
+            done(error ? @"failed" : @"done", error ? error.reason : @"했습니다.");
+            [self compareNow:nil];
+        }];
+        return;
+    }
+    done(@"rejected", @"이 버전의 Sync가 모르는 명령입니다. Sync를 업데이트해 주세요.");
+}
+
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)app {
     if (self.busy) { self.statusLabel.stringValue = @"작업 중에는 종료할 수 없습니다. 끝난 뒤 다시 종료해 주세요."; return NSTerminateCancel; }
+    if (self.supportUntil) {   // 앱을 끄면 지원 시간도 닫는다(종료 중이라 기다려서 보낸다)
+        for (NSDictionary *command in self.remoteQueue) {
+            @try { [self.server finishCommand:command[@"id"] state:@"rejected" message:@"Sync가 종료돼 하지 않았습니다."]; } @catch (NSException *e) { NSLog(@"remote result: %@", e.reason); }
+        }
+        [self.remoteQueue removeAllObjects]; self.supportUntil = nil;
+        @try { [self.server closeSupport]; } @catch (NSException *e) { NSLog(@"support close: %@", e.reason); }
+    }
     return NSTerminateNow;
 }
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)app { return !self.resident; }

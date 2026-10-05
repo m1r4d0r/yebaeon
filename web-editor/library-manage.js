@@ -1,5 +1,5 @@
 (function(){'use strict';
- // 문서·재생목록의 보관함·휴지통·이름 바꾸기, 관리자 확인, 카테고리 추가, 편집 중 안내, 교회 Mac 상태, 문서 바로 열기 링크.
+ // 문서·재생목록의 보관함·휴지통·이름 바꾸기, 관리자 확인, 카테고리 추가, 편집 중 안내, 문서 바로 열기 링크.
  // 되돌릴 수 있는 일은 누구나, 휴지통 비우기는 관리자만. 진짜 삭제는 휴지통 비우기뿐이다.
  const $=id=>document.getElementById(id),C=YebaeonCloud;
  const status=text=>window.YebaeonEditor?.status(text);
@@ -160,19 +160,10 @@
  window.addEventListener('yebaeonplaylistsaved',()=>release('node'));
  window.addEventListener('pagehide',()=>{release('doc');release('node');});
 
- // ── 교회 Mac 상태(재설계안 7.2) ──
- async function macStatus(){
-  try{const data=await(await C.api('/sync/devices')).json(),device=data.devices[0],target=$('macStatus');if(!device){target.textContent='';return;}
-   const at=device.appliedAt?new Date(device.appliedAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Seoul'}):'적용 기록 없음';
-   const waiting=device.pending?.length?` · 대기 ${device.pending.length}`:'',behind=data.head>device.appliedSeq?' · 새 변경 있음':'';
-   target.textContent=`${device.name} 마지막 적용 ${at}${waiting}${behind}`;target.title=(device.pending||[]).map(p=>p.reason||p.entity).join('\n');
-  }catch(_){}
- }
-
  // ── 문서 바로 열기: /?doc=<id> (Sync 정리 창의 [웹에서 보기]) ──
  // 입장 직후 Studio가 재생목록을 처음 불러올 때 한 번만 한다(타이머로 기다리지 않는다).
  const wanted=new URLSearchParams(location.search).get('doc'),showPlaylists=YebaeonPlaylists.show;let booted=false;
- YebaeonPlaylists.show=async(...args)=>{const result=await showPlaylists(...args);if(!booted&&C.authenticated()){booted=true;macStatus();
+ YebaeonPlaylists.show=async(...args)=>{const result=await showPlaylists(...args);if(!booted&&C.authenticated()){booted=true;window.YebaeonMacRemote?.refresh();
   if(wanted&&/^[0-9a-f-]{36}$/i.test(wanted)){C.openDocument(wanted).then(ok=>{if(ok)history.replaceState(null,'',location.pathname);});}}return result;};
 
  window.YebaeonLibraryManage={renameDocument,setDocumentState,renamePlaylist,trashPlaylist,openBins,admin};
