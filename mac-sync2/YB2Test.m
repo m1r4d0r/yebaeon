@@ -387,8 +387,13 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check([Doc([@"경로 다름" stringByAppendingString:urlForm]) writeToFile:Local(@"경로 다름") atomically:YES], @"mac copy with another image");
         [web upload:Doc([@"경로 찬양" stringByAppendingString:plainForm]) path:@"경로 찬양.pro6" previous:nil];
         [web upload:Doc([@"경로 다름" stringByAppendingString:otherForm]) path:@"경로 다름.pro6" previous:nil];
+        //     macOS 파일 이름에서 온 자모가 풀린 경로(NFD)와 조합된 경로(NFC)도 같은 내용이다.
+        NSString *nfdForm = [@"<media source=\"/Users/Shared/Renewed Vision Media/Images/찬양 배경.jpg\"/>" decomposedStringWithCanonicalMapping];
+        Check([Doc([@"경로 자모" stringByAppendingString:urlForm]) writeToFile:Local(@"경로 자모") atomically:YES], @"mac copy for the NFD case");
+        [web upload:Doc([@"경로 자모" stringByAppendingString:nfdForm]) path:@"경로 자모.pro6" previous:nil];
         Sync();
         full = [engine fullCheck];
+        Check(![[full[@"collisions"] valueForKey:@"path"] containsObject:@"경로 자모.pro6"] && [full[@"remembered"] integerValue] >= 2, [NSString stringWithFormat:@"NFD and NFC paths are the same content: %@", full]);
         NSArray *collided = [full[@"collisions"] valueForKey:@"path"];
         Check(![collided containsObject:@"경로 찬양.pro6"] && [engine.receipt document:@"경로 찬양.pro6"] != nil, [NSString stringWithFormat:@"file URL and plain path are the same content: %@", collided]);
         Check([collided containsObject:@"경로 다름.pro6"], [NSString stringWithFormat:@"a different image path still differs: %@", collided]);
