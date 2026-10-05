@@ -64,6 +64,32 @@ const assert=require('node:assert/strict');
    const reg=await fetch('/api/media/paths',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:[{path,sha256:sha,size:bytes.length}]})});if(!reg.ok)return 'register '+reg.status;
    const file=await YebaeonResources.media('file://'+encodeURI(path));return file?file.size:'none';});
   assert.equal(image,12,'Studio finds a document image through the server path table');
-  assert.deepEqual(errors,[]);console.log('Library bins passed: server categories, name hint, rename, archive/unarchive, trash/admin purge, playlist trash/restore');
+  // 교회 Mac 현황·원격 지원: Mac(장치 열쇠)이 현황을 올리고 지원 시간을 열면, 관리자가 현황 창에서 명령을 남기고 Mac이 가져가 결과를 보고한다.
+  const token=await page.evaluate(async()=>(await(await fetch('/api/sync/devices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'교회 Mac'})})).json()).token);
+  const deviceId=token.split('_')[1],asMac=(path,method='GET',body)=>mf.dispatchFetch(origin+'/api/sync/devices/'+deviceId+path,{method,headers:{'Content-Type':'application/json',Origin:origin,Authorization:'Bearer '+token},...body?{body:JSON.stringify(body)}:{}});
+  const macStatus={build:57,presenter:true,summary:'받을 예배 1개',rows:[{node:'L/N1',name:'수요예배',status:'receive',text:'받기 2',detail:'받기: 찬양, 광고',applicable:true,changesMac:true}],review:[{list:'같은 이름, 다른 내용',title:'환영.pro6',path:'환영.pro6',detail:'Mac과 서버의 내용이 다름',actions:['server','mac','number']}],log:['10:00 자동 올리기 · 올림: 광고']};
+  assert.equal((await asMac('/status','POST',{status:macStatus})).status,200);
+  await page.evaluate(()=>YebaeonMacRemote.refresh());if(await page.locator('#studioPlaylistsDialog').evaluate(e=>e.open))await page.keyboard.press('Escape');
+  await page.locator('#cloudAccount').click();await page.locator('#macStatus').filter({hasText:'교회 Mac · 받을 예배 1개'}).waitFor();
+  await page.locator('#macStatus').click();await page.locator('#macDialog').waitFor();
+  await page.locator('#macBody').filter({hasText:'PP6 실행 중'}).waitFor();
+  assert.equal(await page.locator('#macBody .mac-row button').count(),0,'no remote buttons outside the support window');
+  assert.match(await page.locator('#macBody .mac-support').textContent(),/원격 지원 시작/);
+  assert.equal((await asMac('/support','POST',{minutes:30})).status,200);
+  await page.locator('#macRefresh').click();await page.locator('#macBody .mac-support.on').waitFor();await page.screenshot({path:'artifacts/mac-remote.png'});
+  await page.locator('#macBody .mac-row button',{hasText:'서버 것 받기'}).click();
+  if(await page.locator('#adminDialog').evaluate(e=>e.open)){await page.locator('#adminPassword').fill('admin-only-1');await page.locator('#adminSubmit').click();}
+  await page.locator('#macMessage').filter({hasText:'보냈습니다'}).waitFor();
+  const taken=await(await asMac('/commands')).json();
+  assert.deepEqual(taken.commands.map(c=>[c.action,c.args]),[['organizer',{path:'환영.pro6',do:'server'}]]);
+  assert.equal((await asMac('/commands/'+taken.commands[0].id,'POST',{state:'rejected',message:'PP6가 켜져 있어 하지 않았습니다.'})).status,200);
+  await page.locator('#macRefresh').click();
+  await page.locator('#macBody .mac-command').filter({hasText:'하지 않음'}).filter({hasText:'PP6가 켜져 있어'}).waitFor();
+  await page.locator('#macBody .mac-row button',{hasText:'적용'}).click();await page.locator('#macMessage').filter({hasText:'보냈습니다'}).waitFor();
+  assert.deepEqual((await(await asMac('/commands')).json()).commands.map(c=>c.args),[{nodes:['L/N1']}]);
+  await page.locator('#macBody button',{hasText:'지원 끝내기'}).click();await page.locator('#macMessage').filter({hasText:'끝냈습니다'}).waitFor();
+  assert.equal((await(await asMac('/commands')).json()).supportUntil,null);
+  await page.locator('#macClose').click();
+  assert.deepEqual(errors,[]);console.log('Library bins passed: server categories, name hint, rename, archive/unarchive, trash/admin purge, playlist trash/restore, Mac status and remote support');
  }finally{await browser.close();await new Promise(r=>server.close(r));await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

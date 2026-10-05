@@ -13,4 +13,11 @@
 - (BOOL)loadDeviceToken;
 - (void)saveDeviceToken;
 - (void)forgetDeviceToken;
+
+// 현황과 원격 지원(sync.md 13.6). 모두 장치 열쇠로만 된다.
+- (void)postStatus:(NSDictionary *)status;               // 현황 한 줄 덮어쓰기
+- (NSString *)openSupport:(NSInteger)minutes;            // 지원 시간 열기. 반환: 서버가 정한 끝 시각(ISO 8601)
+- (void)closeSupport;                                    // 지원 시간 닫기(남은 명령은 서버가 만료시킨다)
+- (NSDictionary *)takeCommands;                          // 기다리는 명령 가져가기 {commands:[…], supportUntil: 끝 시각 또는 NSNull(닫힘)}
+- (void)finishCommand:(NSString *)commandID state:(NSString *)state message:(NSString *)message;   // state: done · failed · rejected
 @end

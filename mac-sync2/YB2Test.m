@@ -227,6 +227,19 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check([result[@"applied"] count] == 1, @"device key applies");
         engine = resident;
 
+        // 15'. 현황·원격 지원(장치 열쇠만). 명령 보내기는 관리자 몫이라 Worker 검사(remote-support.test.mjs)가 맡는다.
+        [keyOnly postStatus:@{@"summary": @"받을 예배 1개", @"presenter": @NO, @"rows": @[@{@"node": n1[@"key"] ?: @"", @"name": @"1부 예배", @"status": @"receive"}]}];
+        device = [web request:@"/api/sync/devices" method:@"GET" body:nil headers:nil][@"devices"][0];
+        Check([device[@"status"][@"summary"] isEqual:@"받을 예배 1개"] && [device[@"statusAt"] length] > 0, @"status report visible on the web");
+        NSDictionary *idle = [keyOnly takeCommands];
+        Check([idle[@"commands"] count] == 0 && [idle[@"supportUntil"] isKindOfClass:NSNull.class], @"no commands outside the support window");
+        NSString *until = [keyOnly openSupport:30];
+        Check(until.length > 0 && [[keyOnly takeCommands][@"supportUntil"] isEqual:until], @"support window opens for the device");
+        BOOL closedCommand = NO; @try { [keyOnly finishCommand:NSUUID.UUID.UUIDString.lowercaseString state:@"done" message:@""]; } @catch (NSException *e) { closedCommand = [e.reason hasPrefix:@"HTTP 409"]; }
+        Check(closedCommand, @"result for a command never taken is refused");
+        [keyOnly closeSupport];
+        Check([[keyOnly takeCommands][@"supportUntil"] isKindOfClass:NSNull.class], @"support window closes");
+
         // ── 3차: 장부 사본·새 문서·서버 휴지통·이름 바꾸기·Mac 새 예배 ──
         NSDictionary *(^Post)(NSString *, id, NSDictionary *) = ^NSDictionary *(NSString *route, id body, NSDictionary *extra) {
             NSMutableDictionary *headers = [@{@"Content-Type": @"application/json"} mutableCopy]; [headers addEntriesFromDictionary:extra ?: @{}];

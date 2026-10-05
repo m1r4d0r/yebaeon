@@ -62,4 +62,35 @@ static NSString *const kService = @"org.yebaeon.sync2.device";
     SecItemDelete((__bridge CFDictionaryRef)[self keychainQuery]);
     self.deviceToken = nil;
 }
+
+#pragma mark - 현황·원격 지원
+
+static NSDictionary *JSONHeaders(void) { return @{@"X-YebaeOn-Sync": @"2", @"Content-Type": @"application/json"}; }
+- (NSString *)devicePath:(NSString *)tail {
+    YBRequire(self.deviceID.length > 0, @"장치 열쇠로 연결된 뒤에 쓸 수 있습니다.");
+    return [NSString stringWithFormat:@"/api/sync/devices/%@/%@", self.deviceID, tail];
+}
+- (void)postStatus:(NSDictionary *)status {
+    NSData *body = [NSJSONSerialization dataWithJSONObject:@{@"status": status} options:0 error:NULL];
+    YBRequire(body != nil, @"현황을 만들지 못했습니다.");
+    [self request:[self devicePath:@"status"] method:@"POST" body:body headers:JSONHeaders() timeout:30];
+}
+- (NSString *)openSupport:(NSInteger)minutes {
+    NSDictionary *result = [self request:[self devicePath:@"support"] method:@"POST" body:[NSJSONSerialization dataWithJSONObject:@{@"minutes": @(minutes)} options:0 error:NULL] headers:JSONHeaders() timeout:30];
+    YBRequire([result[@"supportUntil"] isKindOfClass:NSString.class], @"원격 지원을 열지 못했습니다. 서버 업데이트가 필요할 수 있습니다.");
+    return result[@"supportUntil"];
+}
+- (void)closeSupport {
+    [self request:[self devicePath:@"support"] method:@"POST" body:[NSJSONSerialization dataWithJSONObject:@{@"close": @YES} options:0 error:NULL] headers:JSONHeaders() timeout:10];
+}
+- (NSDictionary *)takeCommands {
+    NSDictionary *result = [self request:[self devicePath:@"commands"] method:@"GET" body:nil headers:@{@"X-YebaeOn-Sync": @"2"} timeout:20];
+    YBRequire([result[@"commands"] isKindOfClass:NSArray.class], @"원격 명령을 받지 못했습니다.");
+    return result;
+}
+- (void)finishCommand:(NSString *)commandID state:(NSString *)state message:(NSString *)message {
+    NSString *text = message.length > 4000 ? [message substringToIndex:4000] : message ?: @"";
+    NSData *body = [NSJSONSerialization dataWithJSONObject:@{@"state": state, @"message": text} options:0 error:NULL];
+    [self request:[self devicePath:[@"commands/" stringByAppendingString:commandID]] method:@"POST" body:body headers:JSONHeaders() timeout:30];
+}
 @end
