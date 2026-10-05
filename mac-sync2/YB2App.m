@@ -212,14 +212,10 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     NSMenu *tools = [NSMenu new]; tools.title = @"도구";
     [tools addItemWithTitle:@"다시 비교" action:@selector(compareNow:) keyEquivalent:@"r"];
     [tools addItemWithTitle:@"정리…" action:@selector(showOrganizer:) keyEquivalent:@"o"];
-    [tools addItemWithTitle:@"예배온 Studio 열기" action:@selector(openStudio:) keyEquivalent:@"s"];
     [tools addItemWithTitle:@"백업 폴더 열기" action:@selector(openBackups:) keyEquivalent:@""];
     [tools addItem:NSMenuItem.separatorItem];
     [tools addItemWithTitle:@"상주 확인 (15분마다)" action:@selector(toggleResident:) keyEquivalent:@""];
     [tools addItemWithTitle:@"로그인 시 실행" action:@selector(toggleLoginItem:) keyEquivalent:@""];
-    [tools addItem:NSMenuItem.separatorItem];
-    [tools addItemWithTitle:@"업데이트 확인" action:@selector(checkUpdateNow:) keyEquivalent:@""];
-    NSMenuItem *version = [tools addItemWithTitle:[NSString stringWithFormat:@"버전: 빌드 %ld", (long)[YB2Update currentBuild]] action:nil keyEquivalent:@""]; version.enabled = NO;
     toolsItem.submenu = tools;
     NSApp.mainMenu = bar;
 }
@@ -710,12 +706,16 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
 - (void)buildStatusItem {
     self.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSVariableStatusItemLength];
     self.statusItem.button.title = @"예배온";
-    // 메뉴 막대 아이콘은 상주용으로 짧게: 지금 상태 한 줄, 창 열기, (새 버전이 있을 때만) 설치, 종료. 나머지 동작은 창과 앱 메뉴에 있다.
+    // 메뉴 막대 아이콘: 지금 상태 한 줄, 창 열기, Studio 열기, 업데이트(새 버전이 있을 때만 설치)·버전, 종료. 비교·정리·설정은 창과 「도구」 메뉴에 있다.
     NSMenu *menu = [NSMenu new];
     self.statusLineItem = [menu addItemWithTitle:@"확인 전" action:nil keyEquivalent:@""]; self.statusLineItem.enabled = NO;
     [menu addItem:NSMenuItem.separatorItem];
     [menu addItemWithTitle:@"예배온 Sync 2 창 열기" action:@selector(showWindow:) keyEquivalent:@""];
+    [menu addItemWithTitle:@"예배온 Studio 열기" action:@selector(openStudio:) keyEquivalent:@""];
+    [menu addItem:NSMenuItem.separatorItem];
     self.statusUpdateItem = [menu addItemWithTitle:@"새 버전 설치…" action:@selector(installUpdate:) keyEquivalent:@""]; self.statusUpdateItem.hidden = YES;
+    [menu addItemWithTitle:@"업데이트 확인" action:@selector(checkUpdateNow:) keyEquivalent:@""];
+    NSMenuItem *version = [menu addItemWithTitle:[NSString stringWithFormat:@"버전: 빌드 %ld", (long)[YB2Update currentBuild]] action:nil keyEquivalent:@""]; version.enabled = NO;
     [menu addItem:NSMenuItem.separatorItem];
     [menu addItemWithTitle:@"예배온 Sync 2 종료" action:@selector(terminate:) keyEquivalent:@""];
     for (NSMenuItem *item in menu.itemArray) if (item.action != @selector(terminate:)) item.target = self;
