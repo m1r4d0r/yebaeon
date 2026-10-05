@@ -25,6 +25,9 @@ async function allocateImportPaths(request, db, user) {
   sameOrigin(request);
   const body = await bodyJSON(request, 64 * 1024), hashes = Array.isArray(body?.items) ? [...new Set(body.items.map(i => i?.sha256))] : [];
   if (!hashes.length || hashes.length > 200 || hashes.some(h => !SHA.test(h || ''))) throw new HttpError(400, 'invalid_media_paths', '이미지 sha256은 200개씩 보내 주세요.');
+  // ext: 올린 원본의 확장자(그림 추가는 원본을 그대로 올린다). 없으면 png(PPT·PDF 가져오기).
+  const ext = body.ext === undefined ? 'png' : String(body.ext).toLowerCase().replace(/^jpeg$/, 'jpg');
+  if (!['png', 'jpg', 'webp', 'gif', 'bmp'].includes(ext)) throw new HttpError(400, 'invalid_media_paths', '그림 확장자를 확인해 주세요.');
   const stem = importStem(body.name), input = JSON.stringify(hashes);
   const sizes = new Map((await db.prepare('SELECT sha256,size FROM yebaeon_media_assets WHERE sha256 IN (SELECT value FROM json_each(?))').bind(input).all()).results.map(r => [r.sha256, r.size]));
   if (sizes.size !== hashes.length) throw new HttpError(409, 'import_image_missing', '이미지 업로드가 완료되지 않았습니다. 다시 시도해 주세요.');
@@ -33,10 +36,10 @@ async function allocateImportPaths(request, db, user) {
     if (!found.has(r.sha256) || (r.path.startsWith(own) && !found.get(r.sha256).startsWith(own))) found.set(r.sha256, r.path);
   const fresh = hashes.filter(h => !found.has(h));
   if (fresh.length) {
-    const numbered = new RegExp('^' + own.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([1-9][0-9]{0,5})\\.png$');
+    const numbered = new RegExp('^' + own.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([1-9][0-9]{0,5})\\.(?:png|jpg|webp|gif|bmp)$');
     let last = 0;
     for (const r of (await db.prepare('SELECT path FROM yebaeon_media_paths WHERE path>=? AND path<?').bind(own, own + '\uffff').all()).results) { const m = numbered.exec(r.path); if (m) last = Math.max(last, Number(m[1])); }
-    const items = fresh.map((sha256, i) => ({ path: `${own}${last + i + 1}.png`, sha256, size: sizes.get(sha256) }));
+    const items = fresh.map((sha256, i) => ({ path: `${own}${last + i + 1}.${ext}`, sha256, size: sizes.get(sha256) }));
     const now = new Date().toISOString(), rows = JSON.stringify(items);
     const newOnly = `FROM (SELECT json_extract(j.value,'$.path') AS path, json_extract(j.value,'$.sha256') AS sha256, json_extract(j.value,'$.size') AS size FROM json_each(?) j) i WHERE NOT EXISTS (SELECT 1 FROM yebaeon_media_paths m WHERE m.path=i.path)`;
     const [, written] = await db.batch([

@@ -33,7 +33,7 @@ export default {
       }
       const route = /^\/api\/documents(?:\/([^/]+)(?:\/(content|versions|usage|policy|state|rename))?)?$/.exec(pathname);
       const playlist = /^\/api\/playlists(?:\/([^/]+)(?:\/(content|versions|plan|nodes|archive|restore|structure|trash|untrash|rename))?)?$/.exec(pathname);
-      const media = /^\/api\/media(?:\/([a-f0-9]{64})(?:\/(content|protection))?)?$/.exec(pathname);
+      const media = /^\/api\/media(?:\/([a-f0-9]{64})(?:\/(content|protection|thumbnail))?)?$/.exec(pathname);
       const dropbox = /^\/api\/dropbox\/(config|list|file)$/.exec(pathname);
       const mediaReferences = pathname === '/api/media/references', mediaPaths = pathname === '/api/media/paths';
       const admin = /^\/api\/admin(\/trash)?$/.exec(pathname), categories = /^\/api\/categories(?:\/([^/]{1,40}))?$/.exec(pathname), editing = pathname === '/api/editing';

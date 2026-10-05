@@ -19,6 +19,9 @@ function sniff(data){
   return null;
 }
 function mediaKey(hash){return `media/sha256/${hash.slice(0,2)}/${hash}`;}
+// 미리보기 그림(가로 320px 안팎): R2에만 둔다. D1에는 쓰지 않고, 있는지는 R2 head로 안다. 원본이 서버에 있을 때만 받는다.
+const MAX_THUMBNAIL=256*1024;
+function thumbnailKey(hash){return `media/thumb/${hash.slice(0,2)}/${hash}`;}
 async function parseBody(request,limit){
   if(!request.headers.get('Content-Type')?.startsWith('application/json'))throw new HttpError(415,'json_required','JSON 요청이 필요합니다.');
   try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(request,limit)));}
@@ -30,6 +33,8 @@ export async function mediaRoute(request,env,user,hash,action){
     method(request,['GET']);
     const values=url.searchParams.getAll('hash');
     if(!values.length||values.length>100||values.some(h=>!HASH.test(h)))throw new HttpError(400,'invalid_hashes','조회할 이미지 hash를 1~100개 선택해 주세요.');
+    // ?thumbnails=1: 미리보기 그림이 이미 있는 hash만 돌려준다(R2 head, D1 읽기 없음).
+    if(url.searchParams.get('thumbnails')==='1'){const have=[];for(const h of [...new Set(values)])if(await env.FILES.head(thumbnailKey(h)))have.push(h);return json({thumbnails:have});}
     const found=[];
     for(let i=0;i<values.length;i+=80){const part=values.slice(i,i+80);found.push(...(await env.DB.prepare(`SELECT sha256,size,content_type AS contentType,protected,revision FROM yebaeon_media_assets WHERE sha256 IN (${part.map(()=>'?').join(',')})`).bind(...part).all()).results);}
     return json({assets:found.map(a=>({...a,protected:!!a.protected}))});
@@ -62,6 +67,20 @@ export async function mediaRoute(request,env,user,hash,action){
     const object=await env.FILES.get(asset.objectKey);if(!object)throw new HttpError(503,'media_unavailable','서버 이미지 원본을 읽지 못했습니다.');
     if(object.size!==asset.size)throw new HttpError(503,'media_size_mismatch','서버 이미지 크기 확인에 실패했습니다.');
     const responseHeaders={...headers,'Content-Type':asset.contentType,'Content-Length':String(asset.size),'X-Yebaeon-SHA256':asset.sha256,'Cache-Control':'private, max-age=31536000, immutable'};
+    return request.method==='HEAD'?new Response(null,{headers:responseHeaders}):new Response(object.body,{headers:responseHeaders});
+  }
+  if(action==='thumbnail'&&request.method==='PUT'){
+    sameOrigin(request);
+    const data=await bytes(request,MAX_THUMBNAIL),contentType=sniff(data);
+    if(!['image/webp','image/jpeg','image/png'].includes(contentType))throw new HttpError(415,'unsupported_thumbnail','미리보기는 WebP·JPEG·PNG만 받습니다.');
+    if(!await env.DB.prepare('SELECT 1 FROM yebaeon_media_assets WHERE sha256=?').bind(hash).first())throw new HttpError(404,'media_not_found','서버에 원본 이미지가 없습니다.');
+    await env.FILES.put(thumbnailKey(hash),data,{httpMetadata:{contentType}});
+    return json({thumbnail:hash,size:data.length});
+  }
+  if(action==='thumbnail'){
+    method(request,['GET','HEAD']);
+    const object=await env.FILES.get(thumbnailKey(hash));if(!object)throw new HttpError(404,'thumbnail_not_found','미리보기 그림이 아직 없습니다.');
+    const responseHeaders={...headers,'Content-Type':object.httpMetadata?.contentType||'image/webp','Content-Length':String(object.size),'Cache-Control':'private, max-age=31536000, immutable'};
     return request.method==='HEAD'?new Response(null,{headers:responseHeaders}):new Response(object.body,{headers:responseHeaders});
   }
   if(action==='protection'){

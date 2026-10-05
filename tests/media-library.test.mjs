@@ -35,7 +35,20 @@ test('media library: folder listing without ImportedImages, cacheable bytes, sha
   let favorites=(await ok(await call('/favorites'))).items;assert.deepEqual(favorites.map(f=>[f.kind,f.key,f.addedBy]).sort(),[['media',hash(a),'시험'],['template','104','시험']]);
   await ok(await call('/favorites','PUT',JSON.stringify({kind:'template',key:'104',on:false})));
   favorites=(await ok(await call('/favorites'))).items;assert.deepEqual(favorites.map(f=>f.kind),['media']);
+  // 미리보기: 원본이 있을 때만 받는다(R2만), 있는지 묻기, 캐시 허용, PNG/JPEG/WebP만.
+  assert.equal((await call('/media/'+hash(a)+'/thumbnail')).status,404);
+  assert.deepEqual((await ok(await call('/media?thumbnails=1&hash='+hash(a)+'&hash='+hash(b)))).thumbnails,[]);
+  await ok(await call('/media/'+hash(a)+'/thumbnail','PUT',png,{'Content-Type':'image/png'}));
+  assert.equal((await call('/media/'+'c'.repeat(64)+'/thumbnail','PUT',png,{'Content-Type':'image/png'})).status,404,'no thumbnail without an original');
+  assert.equal((await call('/media/'+hash(b)+'/thumbnail','PUT',Buffer.from('not an image'),{'Content-Type':'image/png'})).status,415);
+  assert.equal((await call('/media/'+hash(b)+'/thumbnail','PUT',png,{'Content-Type':'image/png',Origin:'https://other.test'})).status,403);
+  const thumb=await call('/media/'+hash(a)+'/thumbnail');assert.equal(thumb.status,200);assert.match(thumb.headers.get('Cache-Control'),/immutable/);assert.deepEqual(Buffer.from(await thumb.arrayBuffer()),png);
+  assert.deepEqual((await ok(await call('/media?thumbnails=1&hash='+hash(a)+'&hash='+hash(b)))).thumbnails,[hash(a)]);
+  // 그림 추가는 원본 확장자 그대로 경로를 받는다.
+  const jpg=Buffer.from([0xff,0xd8,0xff,0xe0,1,2,3,4]);await ok(await call('/media/'+hash(jpg)+'/content','PUT',jpg,{'Content-Type':'image/jpeg','X-Yebaeon-SHA256':hash(jpg)}),201);
+  const allocated=await ok(await call('/media/paths','POST',JSON.stringify({name:'가을 배경',ext:'jpeg',items:[{sha256:hash(jpg)}]})));assert.deepEqual(allocated.paths.map(p=>p.path),[ROOT+'YebaeOn/가을 배경-1.jpg']);
+  assert.equal((await call('/media/paths','POST',JSON.stringify({name:'x',ext:'exe',items:[{sha256:hash(jpg)}]}))).status,400);
   const status=await ok(await call('/status?details=1'));
-  assert.deepEqual(status.storage.images,{count:2,bytes:a.length+b.length});
-  assert.deepEqual(status.storage.imageFolders.map(f=>[f.folder,f.count]),[['Images',2],['ImportedImages',1],['YebaeOn',1]]);
+  assert.deepEqual(status.storage.images,{count:3,bytes:a.length+b.length+8});
+  assert.deepEqual(status.storage.imageFolders.map(f=>[f.folder,f.count]),[['Images',2],['ImportedImages',1],['YebaeOn',2]]);
 });
