@@ -150,7 +150,9 @@
   body.append(el('p',{id:'macMessage',class:'panel-foot',role:'status',textContent:note}));
  }
  function schedule(){clearTimeout(timer);if(!$('macDialog').open)return;timer=setTimeout(async()=>{await refresh();render();schedule();},supporting()?5000:60000);}
+ // 관리자 창이다. 열 때 관리자 확인을 먼저 받는다(하루 유지).
  async function open(){
+  try{if(!await window.YebaeonAdmin.ensure())return;}catch(error){alert(error.message);return;}
   note='';
   $('macDialog').showModal();$('macBody').replaceChildren(el('p',{class:'dialog-help',textContent:'불러오는 중…'}));
   try{await load();}catch(error){$('macBody').replaceChildren(el('p',{class:'dialog-message',textContent:error.message}));return;}

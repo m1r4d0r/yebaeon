@@ -72,7 +72,10 @@ const assert=require('node:assert/strict');
   await page.evaluate(()=>YebaeonMacRemote.refresh());if(await page.locator('#studioPlaylistsDialog').evaluate(e=>e.open))await page.keyboard.press('Escape');
   await page.locator('#cloudAccount').click();await page.locator('#macStatus').filter({hasText:'받을 예배 1개'}).waitFor();
   assert.equal(await page.locator('#macStatus .admin-chip').textContent(),'관리자');assert.equal(await page.locator('#studioSettings .admin-chip').count(),1);assert.equal(await page.locator('#serverStatus .admin-chip').count(),0);
-  await page.locator('#macStatus').click();await page.locator('#macDialog').waitFor();assert.equal(await page.locator('#accountMenu').isHidden(),true,'menu closes when an item opens a window');
+  // 관리자 항목은 열 때 관리자 확인을 받는다(이 브라우저는 앞에서 휴지통 비우기로 이미 확인했으면 묻지 않는다).
+  await page.evaluate(()=>fetch('/api/admin',{method:'DELETE'}));
+  await page.locator('#macStatus').click();await page.locator('#adminDialog[open]').waitFor();await page.locator('#adminCancel').click();assert.equal(await page.locator('#macDialog').evaluate(e=>e.open),false,'cancel keeps the admin window closed');
+  await page.locator('#cloudAccount').click();await page.locator('#macStatus').click();await page.locator('#adminPassword').fill('admin-only-1');await page.locator('#adminSubmit').click();await page.locator('#macDialog').waitFor();assert.equal(await page.locator('#accountMenu').isHidden(),true,'menu closes when an item opens a window');
   await page.locator('#macBody').filter({hasText:'PP6 실행 중'}).waitFor();
   assert.equal(await page.locator('#macBody .mac-table').count(),0,'no remote table outside the support window');
   assert.match(await page.locator('#macBody .mac-wait').textContent(),/원격 지원 요청이 없습니다/);
@@ -100,6 +103,17 @@ const assert=require('node:assert/strict');
   await page.locator('#macBody button',{hasText:'지원 끝내기'}).click();await page.locator('#macMessage').filter({hasText:'끝냈습니다'}).waitFor();
   assert.equal((await(await asMac('/commands')).json()).supportUntil,null);
   await page.locator('#macClose').click();
+  // 설정·관리: 휴지통·카테고리·보관본·검색 자료. 관리자 확인이 있으면 바로 열린다.
+  await page.evaluate(async()=>{const r=await fetch('/api/documents?path='+encodeURIComponent('버릴 문서.pro6'),{method:'POST',headers:{'Content-Type':'application/xml'},body:PP6.documentXML({})});const d=(await r.json()).document;await fetch(`/api/documents/${d.id}/state`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'trash'})});});
+  await page.locator('#cloudAccount').click();await page.locator('#studioSettings').click();await page.locator('#adminPanel[open]').waitFor();
+  assert.match(await page.locator('#adminPanelState').textContent(),/관리자 확인됨 · .*까지/);
+  const docTrash=page.locator('#adminPanel .admin-section',{hasText:'문서 휴지통'});await docTrash.locator('.line-row',{hasText:'버릴 문서'}).waitFor();
+  await page.screenshot({path:'artifacts/admin-panel.png'});assert.equal(await page.locator('#adminPanel .admin-section',{hasText:'검색·이력 설정'}).count(),1);assert.equal(await page.locator('#adminPanel #indexMaintenance').count(),1);
+  await page.screenshot({path:'artifacts/admin-panel.png'});
+  await docTrash.getByRole('button',{name:'비우기'}).click();await page.locator('#adminPanelMessage').filter({hasText:'비웠습니다'}).waitFor();
+  assert.equal(await docTrash.locator('.line-row').count(),0);
+  await page.locator('#adminPanel .admin-state button').click();await page.waitForFunction(()=>!document.getElementById('adminPanel').open);
+  assert.equal((await page.evaluate(async()=>(await(await fetch('/api/admin')).json()).admin)),false,'관리자 확인 끝내기 clears the cookie');
   assert.deepEqual(errors,[]);console.log('Library bins passed: server categories, name hint, rename, archive/unarchive, trash/admin purge, playlist trash/restore, Mac status and remote support');
  }finally{await browser.close();await new Promise(r=>server.close(r));await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

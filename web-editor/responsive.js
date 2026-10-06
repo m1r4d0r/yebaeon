@@ -18,10 +18,7 @@
  const help=button('studioHelp','?','사용설명서');help.className='studio-help';top.querySelector('.brand-name').after(help);
  const settings=button('studioSettings','설정·관리');settings.setAttribute('role','menuitem');settings.removeAttribute('aria-label');settings.removeAttribute('title');
  settings.innerHTML=svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/>')+'<span>설정·관리</span><span class="admin-chip">관리자</span>';$('macStatus').after(settings);
- const settingsDialog=dialog('studioSettingsDialog','설정·관리');
- settingsDialog.append(make('p','dialog-help','새로 올리거나 저장한 문서는 검색 자료도 함께 갱신됩니다.'));
- const legacy=make('details','studio-legacy','<summary>기존 자료 점검</summary><p class="dialog-help">예전 자료의 본문·사용일이 검색에서 빠졌을 때만 실행하세요.</p>');settingsDialog.append(legacy);legacy.append($('indexMaintenance'));$('indexMaintenance').textContent='누락 검색 자료 점검';
- settings.onclick=()=>{YebaeonPanels.hideAccount();settingsDialog.showModal();};$('indexMaintenance').addEventListener('click',()=>settingsDialog.close());
+ settings.onclick=()=>{YebaeonPanels.hideAccount();YebaeonAdmin.open();};
  const heading=make('header','responsive-heading','<div class="responsive-title"><button id="responsiveBack" type="button" aria-label="순서로 돌아가기">‹</button><strong id="responsiveTitle"></strong></div><div id="responsiveSave" class="studio-save"></div>');studio.prepend(heading);
  const nav=make('nav','responsive-nav');nav.setAttribute('aria-label','작업 화면');for(const [value,label]of[['playlists','재생목록'],['order','순서'],['edit','편집']]){const b=button('',label);b.dataset.page=value;b.onclick=()=>navigate(value);nav.append(b);}studio.after(nav);
  const toolbar=make('div','studio-editor-toolbar');const viewSelect=make('select','studio-view-select','<option value="slides">슬라이드</option><option value="reflow">리플로우</option><option value="editor">편집기</option>');viewSelect.id='studioViewSelect';viewSelect.setAttribute('aria-label','편집 화면');viewSelect.onchange=()=>E.setView(viewSelect.value);

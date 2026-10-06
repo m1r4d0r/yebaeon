@@ -98,7 +98,7 @@ test('admin lock: empty trash and revision resolution need the admin password',{
  assert.equal((await user.call('/admin/trash','POST',JSON.stringify({kind:'documents'}))).status,403);
  assert.equal((await user.call('/admin','POST',JSON.stringify({password:'틀림'}))).status,401);
  const granted=await user.call('/admin','POST',JSON.stringify({password:'admin-secret-1'}));await read(granted);user.addCookie(granted.headers.get('Set-Cookie'));
- assert.equal((await read(await user.call('/admin'))).admin,true);
+ const state=await read(await user.call('/admin'));assert.equal(state.admin,true);assert.ok(state.expiresAt*1000-Date.now()>23*3600e3,'admin check lasts a day');
  // 관리자 표시는 그 세션에만 묶인다.
  other.addCookie(granted.headers.get('Set-Cookie'));assert.equal((await read(await other.call('/admin'))).admin,false);
  const head=(await read(await user.call('/sync/changes?since=0&limit=0'))).head;
