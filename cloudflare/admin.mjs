@@ -2,9 +2,9 @@ import { HttpError, bodyJSON, json, method, sameOrigin } from './http.mjs';
 import { referencedDocumentPaths } from './playlists.mjs';
 
 // 관리자 잠금. 되돌릴 수 없는 일(휴지통 비우기, 카테고리 정책 변경, 보관본 해결, 고아 이미지 정리)만 요구한다.
-// Worker 비밀값 ADMIN_PASSWORD 하나. 맞으면 15분짜리 서명 쿠키를 준다. 계정·D1 행은 쓰지 않는다.
+// Worker 비밀값 ADMIN_PASSWORD 하나. 맞으면 하루짜리 서명 쿠키를 준다. 계정·D1 행은 쓰지 않는다.
 export const ADMIN_COOKIE = '__Host-yebaeon-admin';
-const TTL = 15 * 60;
+const TTL = 24 * 60 * 60;
 const hex = buffer => Array.from(new Uint8Array(buffer), n => n.toString(16).padStart(2, '0')).join('');
 async function sign(secret, value) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);

@@ -206,12 +206,13 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     const before = await (await call('/status', { cookie })).json();
     const totals = await db.prepare('SELECT COUNT(*) AS count, SUM(size) AS size FROM yebaeon_documents').first();
     assert.equal(before.storage,undefined);assert.equal(before.workers,undefined);
-    assert.equal(before.documents, totals.count); assert.equal(before.bytes, totals.size); assert.ok(before.recent.length <= 12);
+    assert.equal(before.documents, totals.count); assert.equal(before.bytes, totals.size); assert.ok(before.recent.length <= 20); assert.deepEqual(before.images, { count: 0, bytes: 0 }); assert.ok(Array.isArray(before.studio) && Array.isArray(before.syncEvents));
     const native = { 'User-Agent': 'YebaeOn-Sync/0.3 (macOS)' };
     await code(await call('/session', { cookie, headers: native }), 200);
     await code(await call('/documents', { cookie, headers: native }), 200);
     const after = await (await call('/status', { cookie })).json();
-    assert.equal(after.sync.length, 1); assert.ok(after.sync[0].connectedAt); assert.ok(after.sync[0].comparedAt);
+    const seen = (await db.prepare('SELECT connected_at, compared_at FROM yebaeon_sync_status').all()).results;
+    assert.equal(seen.length, 1); assert.ok(seen[0].connected_at); assert.ok(seen[0].compared_at); assert.equal(after.sync, undefined);
     const protectedAsset = await mf.dispatchFetch(origin + '/resources/catalog.json');
     await code(protectedAsset, 401, 'login_required');
     await code(await mf.dispatchFetch(origin + '/resources%2fcatalog.json'), 401, 'login_required');

@@ -8,7 +8,7 @@
 
 // 예배온 Sync 2: 데일리 창 하나 + 메뉴 막대 상주.
 // - Mac 파일을 바꾸는 일은 모두 [적용]으로만 한다: 받기, 서버 휴지통 예배 빼기, 문서 이름 바꾸기·휴지통.
-//   원격 지원 시간(Mac 앞에서 연 30분)에는 관리자가 웹에서 같은 버튼을 누를 수 있다.
+//   원격 지원 시간(Mac 앞에서 연 60분)에는 관리자가 웹에서 같은 버튼을 누를 수 있다.
 // - 올리기(서버에 더하기만 함): Mac에서만 바뀐 문서·순서·사용일, Mac에서 만든 예배·새 문서·그 문서의 새 이미지.
 // - 상주: 15분마다 변경 일지만 묻고(요청 1번), 바뀐 것이 있을 때만 비교해 창에 보여 준다. 적용하지 않는다.
 //   PP6가 닫히면 Mac 수정분과 새 문서를 올린다. 잠자기에서 깨면 다시 확인한다.
@@ -1207,10 +1207,10 @@ static NSString *DetailText(NSDictionary *row) {
 #pragma mark - 현황·원격 지원
 
 // 현황: 비교·작업이 끝날 때와 PP6를 켜고 끌 때 서버에 한 줄로 올린다. 내용이 같으면 한 시간에 한 번만 보낸다.
-// 원격 지원: Mac 앞에서 도구 메뉴 › [원격 지원 시작…]을 누르면 30분 동안 10초마다 원격 명령을 묻는다. 지원 시간이 아니면 묻지 않는다.
+// 원격 지원: Mac 앞에서 도구 메뉴 › [원격 지원 시작…]을 누르면 60분 동안 10초마다 원격 명령을 묻는다. 지원 시간이 아니면 묻지 않는다.
 // 명령은 이 창·정리 창·오른쪽 클릭 강제 동작과 같은 동작뿐이고 확인 창 없이 실행해 결과를 보고한다.
 // Mac 파일을 바꾸는 명령은 PP6가 켜져 있으면 하지 않는다. 대상은 지금 비교 결과·정리 창 목록에 있는 것만 받는다.
-static const NSInteger kSupportMinutes = 30;
+static const NSInteger kSupportMinutes = 60;
 static const NSTimeInterval kSupportPoll = 10;
 
 static NSString *ISOText(NSDate *date) {
@@ -1271,6 +1271,7 @@ static NSString *RemoteLabel(NSDictionary *command) {
         if (rows.count >= 80) break;
         NSString *status = row[@"status"] ?: @"";
         NSMutableDictionary *item = [@{@"node": row[@"key"] ?: @"", @"name": row[@"name"] ?: @"", @"status": status, @"text": StatusText(row) ?: @""} mutableCopy];
+        if ([row[@"updatedAt"] length]) { item[@"updatedAt"] = row[@"updatedAt"]; item[@"updatedBy"] = row[@"updatedBy"] ?: @""; }
         if (![status isEqual:@"same"]) {
             if (!compact) item[@"detail"] = DetailText(row) ?: @"";
             item[@"applicable"] = @(Checkable(row) && !NoHistoryOnly(row) && [row[@"key"] length] > 0);
