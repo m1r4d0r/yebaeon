@@ -51,37 +51,37 @@
     catch(error){clearing=false;report(error);alert('브라우저 수정 내역을 지우지 못했습니다. '+error.message);}
   }
   async function show() {
-    const dialog = $('draftDialog'); if (!dialog.open) dialog.showModal();
-    $('accountMenu').hidden=true;$('cloudAccount').setAttribute('aria-expanded','false');
+    const dialog = $('draftDialog'), P = window.YebaeonPanels; if (!dialog.open) dialog.showModal();
+    P.hideAccount();
     const list = $('draftList'); list.replaceChildren(); $('draftMessage').textContent = '확인 중…';
     try {
       const records = (await store.all()).sort((a,b) => b.updatedAt.localeCompare(a.updatedAt));
-      $('draftMessage').textContent = records.length ? '이 브라우저에 보존된 작업입니다. 복구해도 서버 내용은 저장 버튼을 누르기 전까지 바뀌지 않습니다.' : '보존된 초안이 없습니다.';
+      P.draftCount(records.length); $('draftClear').disabled = !records.length;
+      $('draftMessage').textContent = records.length ? `저장하지 않고 남은 작업 ${records.length}개` : '';
+      if (!records.length) list.append(P.el('p', {class:'line-empty'}, '보존된 초안이 없습니다.'));
       for (const record of records) {
-        const row = document.createElement('div'); row.className = 'library-row';
-        const copy = document.createElement('div'), title = document.createElement('strong'), detail = document.createElement('small');
-        title.textContent = record.name;
-        detail.textContent = `${record.kind === 'playlist' ? '순서' : '문서'} · ${record.author || '로컬 작업'} · ${new Date(record.updatedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})} · 기준 ${record.base?.version ? 'v' + record.base.version : '로컬 파일'}`;
-        copy.append(title,detail); row.append(copy);
-        const restore = document.createElement('button'); restore.textContent = '복구';
+        const restore = P.el('button', {type:'button', class:'line-btn primary', textContent:'복구'});
         restore.onclick = async () => { restore.disabled = true; try {
           const handler = record.kind === 'playlist' ? window.YebaeonPlaylists : window.YebaeonCloud;
           if (await handler.restoreDraft(record)) { dialog.close(); notify('초안을 복구했습니다. 서버에 적용하려면 저장하세요.'); }
         } catch(error) { $('draftMessage').textContent = error.message; } finally { restore.disabled = false; } };
-        const download = document.createElement('button'); download.textContent = '파일로 보관';
-        download.onclick = () => {
+        const download = () => {
           const blob = new Blob([record.kind === 'document' ? record.xml : JSON.stringify(record,null,2)], {type: record.kind === 'document' ? 'application/xml' : 'application/json'});
           const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href=url; a.download=record.kind === 'document' ? record.name : record.name + '-초안.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
         };
-        const remove = document.createElement('button'); remove.textContent = '삭제';
-        remove.onclick = async () => { if (confirm(record.tab === tab ? '이 초안을 삭제할까요? 지금 화면에서 고친 내용은 다시 고치면 새로 보존됩니다. 서버 문서는 그대로 남습니다.' : '이 초안을 삭제할까요? 서버 문서는 그대로 남습니다.')) { try { await store.remove(record.id); await show(); } catch(error) { report(error); } } };
-        row.append(restore,download,remove); list.append(row);
+        const remove = async () => { if (confirm(record.tab === tab ? '이 초안을 버릴까요? 지금 화면에서 고친 내용은 다시 고치면 새로 보존됩니다. 서버 문서는 그대로 남습니다.' : '이 초안을 버릴까요? 서버 문서는 그대로 남습니다.')) { try { await store.remove(record.id); await show(); } catch(error) { report(error); } } };
+        list.append(P.el('div', {class:'line-row draft-row'}, P.kind(record.kind === 'playlist' ? 'playlist' : 'document'),
+          P.el('span', {class:'line-title', title:record.name}, record.name),
+          P.el('span', {class:'line-meta'}, `${P.when(record.updatedAt)} · ${record.author || '로컬 작업'} · ${record.base?.version ? 'v' + record.base.version + ' 기준' : '로컬 파일 기준'}`),
+          restore, P.kebab(() => [{label:'파일로 내려받기', onclick:download}, {label:'이 초안 버리기', danger:true, onclick:remove}])));
       }
     } catch(error) { $('draftMessage').textContent=error.message; report(error); }
   }
   window.YebaeonDrafts = { ...store, tab, report, notify, show, clearAll };
   $('draftClear').onclick=clearAll;
-  $('draftOpen').onclick = show; $('draftClose').onclick=()=> $('draftDialog').close();
-  store.all().then(records => { if(records.length)notify(`복구 가능한 초안 ${records.length}개 · ‘브라우저 초안’에서 확인`); }).catch(report);
+  // 작업자 메뉴를 열 때마다 초안 수를 다시 센다.
+  $('cloudAccount').addEventListener('click', () => store.all().then(records => window.YebaeonPanels?.draftCount(records.length)).catch(() => {}));
+  $('draftOpen').onclick = show; $('draftClose').onclick = $('draftDone').onclick = () => $('draftDialog').close();
+  store.all().then(records => { window.YebaeonPanels?.draftCount(records.length); if(records.length)notify(`복구 가능한 초안 ${records.length}개 · ‘브라우저 초안’에서 확인`); }).catch(report);
 })();
 

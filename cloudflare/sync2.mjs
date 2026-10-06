@@ -92,15 +92,28 @@ async function devicesRoute(request, env, user, id, sub) {
   await env.DB.prepare('INSERT INTO yebaeon_sync_devices(id,name,token_hash,created_at,created_by) VALUES (?,?,?,?,?)').bind(deviceId, name, await sha256(secret), now, user.author).run();
   return json({ device: { id: deviceId, name, createdAt: now }, token: `ybd_${deviceId}_${secret}` }, 201);
 }
+// 커서가 앞으로 간 만큼 다른 사람이 서버에 쓴 것을 받은 것으로 보고 Sync 기록 한 줄을 만든다.
+// 장치 자신이 올린 것만 지나갔으면 남기지 않는다. 이름은 앞 8개만, 개수는 40개까지 센다.
+async function appliedEvent(db, id, device, seq, now) {
+  const rows = (await db.prepare('SELECT kind,path,name FROM yebaeon_sync_log WHERE seq>? AND seq<=? AND author<>? ORDER BY seq LIMIT 41').bind(device.applied_seq, seq, device.name).all()).results;
+  if (!rows.length) return null;
+  const label = r => r.kind === 'doc' ? (r.path || '').split('/').pop().replace(/\.pro6$/i, '') : r.kind === 'media' ? null : r.name;
+  const names = [...new Set(rows.map(label).filter(Boolean))];
+  const summary = { count: Math.min(rows.length, 40), more: rows.length > 40, images: rows.filter(r => r.kind === 'media').length, names: names.slice(0, 8) };
+  return db.prepare('INSERT INTO yebaeon_sync_events(device_id,kind,summary,at) VALUES (?,?,?,?)').bind(id, 'applied', JSON.stringify(summary), now);
+}
 // 장치가 "어디까지 적용했나 + 보류 목록"을 한 줄로 보고한다. Studio는 이것과 일지 번호로 적용 상태를 계산한다.
 async function appliedRoute(request, env, user, id) {
   method(request, ['POST']); sameOrigin(request);
   if (user.device !== id) throw new HttpError(403, 'device_forbidden', '이 장치의 열쇠로만 보고할 수 있습니다.');
   const body = await jsonBody(request, 32 * 1024), seq = body?.seq, pending = body?.pending ?? [];
   if (!Number.isSafeInteger(seq) || seq < 0 || !Array.isArray(pending) || pending.length > 200 || pending.some(p => typeof p?.kind !== 'string' || p.kind.length > 20 || typeof p?.entity !== 'string' || p.entity.length > 200 || (p.reason !== undefined && (typeof p.reason !== 'string' || p.reason.length > 200)))) throw new HttpError(400, 'invalid_report', '적용 보고를 확인해 주세요.');
-  const now = new Date().toISOString();
+  const now = new Date().toISOString(), db = env.DB;
   // 커서는 뒤로 가지 않는다(늦게 도착한 옛 보고가 덮지 않게).
-  await env.DB.prepare('UPDATE yebaeon_sync_devices SET applied_seq=MAX(applied_seq,?),applied_at=?,pending=? WHERE id=?').bind(seq, now, JSON.stringify(pending.map(({ kind, entity, reason }) => ({ kind, entity, ...(reason ? { reason } : {}) }))), id).run();
+  const update = db.prepare('UPDATE yebaeon_sync_devices SET applied_seq=MAX(applied_seq,?),applied_at=?,pending=? WHERE id=?').bind(seq, now, JSON.stringify(pending.map(({ kind, entity, reason }) => ({ kind, entity, ...(reason ? { reason } : {}) }))), id);
+  const device = await db.prepare('SELECT name,applied_seq FROM yebaeon_sync_devices WHERE id=?').bind(id).first();
+  const event = device && seq > device.applied_seq ? await appliedEvent(db, id, device, seq, now) : null;
+  if (event) await db.batch([update, event]); else await update.run();
   return json({ ok: true, appliedAt: now });
 }
 

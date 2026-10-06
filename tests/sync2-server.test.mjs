@@ -23,7 +23,7 @@ test('Sync 2 change log follows document and node writes; node GET/PUT; manifest
  const changes=(since,limit=200)=>call(`/sync/changes?since=${since}&limit=${limit}`).then(r=>read(r));
  assert.deepEqual(await changes(0),{changes:[],next:0,head:0,more:false});
  // 요청 경로의 스키마 확인은 표시 행 하나다.
- assert.ok(await db.prepare("SELECT name FROM yebaeon_schema_migrations WHERE name='schema-ready-remote-v1'").first());
+ assert.ok(await db.prepare("SELECT name FROM yebaeon_schema_migrations WHERE name='schema-ready-events-v1'").first());
 
  // 문서 생성·수정 → 'doc' 두 줄. 같은 내용 재저장·버전 충돌은 남지 않는다.
  let d=(await read(await call('/documents?path=찬양/주님.pro6','POST',doc('하나')),201)).document;
@@ -175,4 +175,25 @@ test('Studio sync lights follow Sync 2: applied cursor, held services, the devic
  await read(await report(await head(),[{kind:'node',entity:library.id+':A',reason:'적용 대기'}]));
  const nodes=await lights([{kind:'playlist',id:library.id,node:'A'},{kind:'playlist',id:library.id,node:'B'}]);
  assert.equal(nodes['playlist/'+library.id+'/A'].state,'pending');assert.match(nodes['playlist/'+library.id+'/A'].reason,/적용 대기/);assert.equal(nodes['playlist/'+library.id+'/B'].state,'synced');
+});
+
+test('server status: Studio work by person, Mac uploads, applied events and image totals',{timeout:90000},async t=>{
+ const {mf,call,read}=await fixture(t);
+ const issued=await read(await call('/sync/devices','POST',JSON.stringify({name:'본당 Mac'})),201);
+ const asDevice=(path,method='GET',body)=>mf.dispatchFetch(origin+'/api'+path,{method,body,headers:{'Content-Type':'application/json',Origin:origin,Authorization:'Bearer '+issued.token}});
+ await read(await call('/documents?path=찬양/은혜.pro6','POST',doc('은혜')),201);
+ await read(await call('/documents?path=광고/이번주.pro6','POST',doc('광고')),201);
+ await read(await asDevice('/documents?path=말씀/요한.pro6','POST',doc('요한')),201);
+ const head=(await read(await call('/sync/changes?since=0&limit=0'))).head;
+ // 커서가 앞으로 가면 다른 사람이 쓴 것만 받은 기록으로 남는다. 같은 커서 다시 보고는 남기지 않는다.
+ await read(await asDevice(`/sync/devices/${issued.device.id}/applied`,'POST',JSON.stringify({seq:head,pending:[]})));
+ await read(await asDevice(`/sync/devices/${issued.device.id}/applied`,'POST',JSON.stringify({seq:head,pending:[]})));
+ const status=await read(await call('/status'));
+ assert.deepEqual(status.images,{count:0,bytes:0});
+ assert.deepEqual(status.studio.map(s=>[s.author,s.docs.sort(),s.docCount]),[['시험',['은혜','이번주'],2]]);
+ assert.deepEqual(status.syncEvents.map(e=>[e.kind,e.device]).sort(),[['applied','본당 Mac'],['uploaded','본당 Mac']]);
+ const applied=status.syncEvents.find(e=>e.kind==='applied');assert.deepEqual(applied.names.sort(),['은혜','이번주']);assert.equal(applied.count,2);
+ assert.deepEqual(status.syncEvents.find(e=>e.kind==='uploaded').names,['요한']);
+ assert.deepEqual(status.recent.map(r=>[r.path,r.device]).sort(),[['광고/이번주.pro6',false],['말씀/요한.pro6',true],['찬양/은혜.pro6',false]]);
+ assert.deepEqual(status.devices.map(d=>d.name),['본당 Mac']);
 });

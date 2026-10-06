@@ -8,10 +8,10 @@
  const stem=path=>path.split('/').pop().replace(/\.pro6$/i,'');
  const busy=()=>YebaeonPlaylists.state().dirty||YebaeonPlaylists.state().busy||window.YebaeonSave?.busy();
 
- // ── 관리자 확인(15분) ──
+ // ── 관리자 확인(하루) ──
  function admin(){
   return new Promise(resolve=>{
-   const dialog=$('adminDialog');$('adminPassword').value='';$('adminMessage').textContent='휴지통 비우기처럼 되돌릴 수 없는 일에만 묻습니다. 15분 동안 유지됩니다.';dialog.showModal();$('adminPassword').focus();
+   const dialog=$('adminDialog');$('adminPassword').value='';$('adminMessage').textContent='휴지통 비우기·원격 지원처럼 되돌리기 어려운 일에만 묻습니다. 하루 동안 유지됩니다.';dialog.showModal();$('adminPassword').focus();
    const done=value=>{dialog.close();resolve(value);};
    $('adminCancel').onclick=()=>done(false);dialog.oncancel=()=>resolve(false);
    $('adminForm').onsubmit=async e=>{e.preventDefault();$('adminSubmit').disabled=true;

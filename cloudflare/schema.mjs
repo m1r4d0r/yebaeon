@@ -51,6 +51,8 @@ export const schema = [
 ];
 schema.push(`CREATE INDEX IF NOT EXISTS yebaeon_documents_recent ON yebaeon_documents(updated_at DESC,path)`);
 schema.push(`CREATE INDEX IF NOT EXISTS yebaeon_sync_recent ON yebaeon_sync_status(COALESCE(compared_at,connected_at) DESC)`);
+// 교회 Mac이 서버 변경을 받아 적용한 기록. 적용 보고에서 커서가 앞으로 갈 때만 한 줄 쓴다(서버 현황의 Sync 기록).
+schema.push(`CREATE TABLE IF NOT EXISTS yebaeon_sync_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT NOT NULL, kind TEXT NOT NULL, summary TEXT NOT NULL, at TEXT NOT NULL)`);
 // Additive, one-time metadata migration. It never deletes originals or old backups.
 async function migrateCurrentMetadata(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS yebaeon_schema_migrations (name TEXT PRIMARY KEY)').run();
@@ -87,7 +89,7 @@ const pending = new WeakMap();
 // 요청 경로에서는 표시 행 1개만 확인한다(예전에는 isolate 첫 요청마다 약 29개 문장).
 // 표시가 없을 때만(새 DB, 새 배포의 첫 요청) 전체 초기화·이전을 돌리고 표시를 남긴다.
 // 스키마나 이전을 더하면 이 이름을 올려야 새 배포에서 한 번 실행된다.
-export const SCHEMA_READY = 'schema-ready-remote-v1';
+export const SCHEMA_READY = 'schema-ready-events-v1';
 export function ensureSchema(db) {
   if (!pending.has(db)) {
     const job = (async () => {
