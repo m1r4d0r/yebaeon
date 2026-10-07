@@ -2,9 +2,9 @@
 
 이 파일은 세션마다 **덮어써서** 갱신한다. 새 인계 파일을 만들지 않는다. 끝난 일은 [CHANGELOG](CHANGELOG.md), 남은 일은 [BACKLOG](BACKLOG.md)에 둔다.
 
-갱신: 2026-10-07 · 작업 브랜치 `claude/admiring-planck-hlmzov`(main 병합·배포 전, 사용자 승인 대기) · 그 전: main f644c0e(관리자 항목 잠금·설정·관리 창, 사용자 승인) · Deploy run #82 성공 · 그 전: 2026-10-06 · main a43dc17(작업자 메뉴·이력 창·현황판 개편) · Deploy run 37410821514(#81) 성공 · Verify Mac Sync 2 run 37410821742(#78) 성공 · 더 앞의 배포 기록은 CHANGELOG
+갱신: 2026-10-07 밤 · main be612c4(고아 이미지·Mac 이름 바꾸기·주보 주중 끝 제목 장, 사용자 승인) · Deploy run 37689998130(#83) 성공 · Verify Mac Sync 2 run 37689998187(#81, 빌드 81 서버 게시) 성공 · 그 전: main f644c0e(관리자 항목 잠금·설정·관리 창, 사용자 승인) · Deploy run #82 성공 · 그 전: 2026-10-06 · main a43dc17(작업자 메뉴·이력 창·현황판 개편) · Deploy run 37410821514(#81) 성공 · Verify Mac Sync 2 run 37410821742(#78) 성공 · 더 앞의 배포 기록은 CHANGELOG
 
-## 10-07 작업 — 작업 브랜치, main 병합·배포 전
+## 10-07 작업 — main be612c4, 운영 배포됨(사용자 승인)
 
 - 주보 주중 말씀 문서(`web-editor/bulletin-documents.js` `titlePassage`, made:true): 말씀 장 뒤에 첫 제목 장과 같은 제목 장을 한 번 더 붙인다(큐 비움·notes·chordChartPath 비움). 검사: `tests/browser/bulletin.cjs`가 [표지, 제목, 말씀…, 제목] 순서와 첫·끝 제목 글자가 같은지 본다.
 - 고아 이미지 정리(sync.md 13.2, media.md 정리): 서버가 문서를 저장할 때마다 그 문서가 쓰는 이미지 경로를 적는다(새 표 `yebaeon_document_media`·`yebaeon_document_media_state`, 스키마 표시 `schema-ready-orphans-v1`). 설정·관리 창 › 고아 이미지: 예전 문서는 [색인 채우기](40개씩 R2에서 읽음)로 한 번 채우고, 다 차면 `ImportedImages`·`YebaeOn`에서 어느 문서(사용 중·보관·휴지통)도 쓰지 않고 즐겨찾기도 아닌 경로를 보여 준다. [Images 포함]을 켜면 미디어 서랍 `Images`도 함께 고른다(사용자 결정: 처음 한 번 싹 정리, 이후에는 두 폴더로 한정). 골라 휴지통에 넣으면 경로표 `trashed` + 일지 `media trashed`. Sync 2는 다음 [적용] 때 "문서·그림 정리(서버)" 줄로 그 파일을 macOS 휴지통에 옮긴다(되돌리기 가능). Mac 파일이 서버 바이트와 다르거나 Mac 문서가 아직 쓰면 확인 필요로 남긴다. 서버 R2 바이트는 지우지 않는다. 원격 지원 시간은 필요 없다(일지가 명령 역할).
@@ -12,7 +12,8 @@
 - BACKLOG 닫음(사용자 판단): PP6 재저장 오탐, 렌더 정밀도, 1부 말씀 이름.
 - 검사(로컬): Node 91개 통과(새 고아 이미지 서버 검사), `deploy:check` 통과, 브라우저 `library-bins`(설정·관리 창에서 고아 이미지 목록 → 휴지통 → 서버 `trashed`)·`library-management`·`studio`·`bulletin` 통과. Mac 통합 검사(YB2Test 17-1 Mac 이름 바꾸기 8개, 18-1 고아 그림 12개)는 작업 브랜치 수동 실행 Verify Mac Sync 2 run 37686179154(#80) 성공 — 엔진 검사 155 → 175개, 10.13 대상 빌드 통과, 서버 게시는 하지 않음(main 전용). 최신 macOS CI 결과이며 교회 High Sierra 실기는 아니다. main 병합 때 `[verify-mac]`로 한 번 더 돌고 그때 빌드가 서버에 게시된다.
 - D1 비용(추산): 문서 저장마다 이미지 경로 행 수만큼 쓰기 + 상태 1행(대부분 문서 0~수 행). 고아 목록은 설정·관리 창을 열 때만 이미지 경로표 폴더 범위(수천 행)를 읽는다. [색인 채우기]는 문서 수(약 2.9천)만큼 R2 읽기·D1 쓰기를 한 번.
-- 남음: 사용자 승인 뒤 main 병합(`[verify-mac]`)·배포, 운영에서 [색인 채우기] 한 번, 교회 Mac 실기.
+- 배포: 첫 요청에서 `schema-ready-orphans-v1` 이전이 한 번 돈다. 교회 Mac Sync에 빌드 81 [지금 설치]가 뜬다(최신 macOS CI 통과, High Sierra 실기는 아님).
+- 남음: 운영 설정·관리 › 고아 이미지 [색인 채우기] 한 번 → [Images 포함]으로 첫 정리 → 교회 Mac 빌드 81 설치 후 [적용]으로 그림 휴지통 이동·되돌리기 실기 확인, Mac 이름 바꾸기 실기.
 
 ## 관리자 항목 잠금·설정·관리 창 (10-06) — main f644c0e, 운영 배포됨(사용자 승인)
 
