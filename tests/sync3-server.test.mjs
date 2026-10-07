@@ -207,3 +207,35 @@ test('Sync 2 app update: latest build and download, only after CI publishes',{ti
  await bucket.put('apps/sync2/latest.json',JSON.stringify({build:25,sha256:sha,size:1,key:'../x'}));
  assert.equal((await call('/sync/app')).status,404,'a malformed manifest is not offered');
 });
+
+test('orphan images: per-document image index, backfill, admin trash writes a media trashed log',{timeout:90000},async t=>{
+ const {read,person,db}=await fixture(t,{ADMIN_PASSWORD:'admin-secret-1'});const user=await person('지은');const {call}=user;
+ const R='/Users/Shared/Renewed Vision Media/',png=n=>Buffer.from([137,80,78,71,13,10,26,10,n]),sha=b=>createHash('sha256').update(b).digest('hex');
+ const files=[['ImportedImages/찬양/Slide1.png',1],['ImportedImages/찬양/Slide2.png',2],['YebaeOn/광고-1.png',3],['Images/배경.jpg',4]];
+ for(const [,n] of files){const b=png(n);assert.ok([200,201].includes((await call('/media/'+sha(b)+'/content','PUT',b,{'Content-Type':'application/octet-stream','X-Yebaeon-SHA256':sha(b)})).status));}
+ await read(await call('/media/paths','PUT',JSON.stringify({items:files.map(([p,n])=>({path:R+p,sha256:sha(png(n)),size:png(n).length}))})));
+ // 문서 하나는 file://localhost 로, 하나는 평문 경로로 이미지를 쓴다.
+ const img=src=>`<RVPresentationDocument><RVDisplaySlide><RVImageElement source="${src}"/></RVDisplaySlide></RVPresentationDocument>`;
+ await read(await call('/documents?path=찬양.pro6','POST',img('file://localhost/Users/Shared/Renewed%20Vision%20Media/ImportedImages/%EC%B0%AC%EC%96%91/Slide1.png')),201);
+ const ad=(await read(await call('/documents?path=광고.pro6','POST',img(R+'YebaeOn/광고-1.png')),201)).document;
+ assert.equal((await call('/admin/orphans')).status,403,'admin only');
+ const granted=await call('/admin','POST',JSON.stringify({password:'admin-secret-1'}));await read(granted);user.addCookie(granted.headers.get('Set-Cookie'));
+ let list=await read(await call('/admin/orphans'));assert.equal(list.remaining,0);
+ assert.deepEqual(list.candidates.map(c=>c.path),[R+'ImportedImages/찬양/Slide2.png'],'by default only unused slide images, not the Images library');
+ assert.deepEqual((await read(await call('/admin/orphans?images=1'))).candidates.map(c=>c.path),[R+'Images/배경.jpg',R+'ImportedImages/찬양/Slide2.png'],'the Images library only when asked');
+ assert.deepEqual(await read(await call('/admin/orphans','POST',JSON.stringify({trash:[R+'Images/배경.jpg']}))),{trashed:0,skipped:[R+'Images/배경.jpg']},'Images paths need the images switch');
+ // 문서를 고쳐 이미지를 빼면 그 이미지도 후보가 된다. 색인이 없는 문서가 있으면 후보를 주지 않고 색인부터 채운다.
+ await read(await call(`/documents/${ad.id}`,'PUT',img(''),{'Content-Type':'application/xml','If-Match':'"1"'}));
+ await db.prepare('DELETE FROM yebaeon_document_media_state').run();await db.prepare('DELETE FROM yebaeon_document_media').run();
+ list=await read(await call('/admin/orphans'));assert.equal(list.remaining,2);assert.equal(list.candidates,null);
+ assert.equal((await call('/admin/orphans','POST',JSON.stringify({trash:[R+'ImportedImages/찬양/Slide2.png']}))).status,409,'no trashing while the index is incomplete');
+ assert.deepEqual(await read(await call('/admin/orphans','POST',JSON.stringify({index:true}))),{indexed:2,remaining:0});
+ list=await read(await call('/admin/orphans'));assert.deepEqual(list.candidates.map(c=>c.path).sort(),[R+'ImportedImages/찬양/Slide2.png',R+'YebaeOn/광고-1.png']);
+ const head=(await read(await call('/sync/changes?since=0&limit=0'))).head;
+ const done=await read(await call('/admin/orphans','POST',JSON.stringify({trash:[R+'YebaeOn/광고-1.png',R+'ImportedImages/찬양/Slide1.png']})));
+ assert.deepEqual(done,{trashed:1,skipped:[R+'ImportedImages/찬양/Slide1.png']},'a used image is never trashed');
+ assert.deepEqual((await changes(call,read,head)).map(c=>[c.kind,c.action,c.path]),[['media','trashed',R+'YebaeOn/광고-1.png']]);
+ assert.equal((await db.prepare('SELECT state FROM yebaeon_media_paths WHERE path=?').bind(R+'YebaeOn/광고-1.png').first()).state,'trashed');
+ assert.deepEqual((await read(await call('/media/paths?path='+encodeURIComponent(R+'YebaeOn/광고-1.png')))).paths.map(p=>p.state),['trashed'],'Sync only downloads active paths');
+ assert.equal((await read(await call('/admin/orphans','POST',JSON.stringify({trash:[R+'Images/배경.jpg'],images:true})))).trashed,1,'Images library cleanup with the switch');
+});

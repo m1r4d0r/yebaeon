@@ -515,7 +515,7 @@ static BOOL ChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"ac
         else if ([status isEqual:@"receive"] && ![row[@"macDeleted"] boolValue]) receive++;
         else if ([status isEqual:@"mac"] || [status isEqual:@"macNew"]) mac++;
         else if ([status isEqual:@"trash"]) trash++;
-        else if ([status isEqual:@"actions"]) trash += [row[@"renames"] count] + [row[@"trashes"] count];
+        else if ([status isEqual:@"actions"]) trash += [row[@"renames"] count] + [row[@"trashes"] count] + [row[@"imageTrashes"] count];
         else if ([status isEqual:@"hold"]) hold++;
     }
     NSMutableArray *parts = [NSMutableArray array];
@@ -548,6 +548,7 @@ static NSString *Summary(NSDictionary *result) {
     NSMutableString *text = [NSMutableString string];
     NSDictionary *upload = result[@"upload"], *apply = result[@"apply"], *created = result[@"created"];
     if ([created[@"created"] count]) [text appendFormat:@"새 문서 올림: %@\n", [created[@"created"] componentsJoinedByString:@", "]];
+    if ([created[@"renamed"] count]) { NSMutableArray *names = [NSMutableArray array]; for (NSDictionary *item in created[@"renamed"]) [names addObject:[NSString stringWithFormat:@"%@ → %@", [item[@"from"] stringByDeletingPathExtension], [item[@"to"] stringByDeletingPathExtension]]]; [text appendFormat:@"Mac에서 바꾼 이름 서버에 반영: %@\n", [names componentsJoinedByString:@", "]]; }
     if ([created[@"media"] integerValue]) [text appendFormat:@"새 이미지 올림: %@개\n", created[@"media"]];
     if ([created[@"collisions"] count]) [text appendFormat:@"서버에 같은 이름이 있어 올리지 않음(정리 창): %@\n", [created[@"collisions"] componentsJoinedByString:@", "]];
     for (NSString *name in created[@"failed"]) [text appendFormat:@"새 문서 올리기 실패 · %@: %@\n", name, created[@"failed"][name]];
@@ -1092,6 +1093,7 @@ static NSString *StatusText(NSDictionary *row) {
         NSMutableArray *parts = [NSMutableArray array];
         if ([row[@"renames"] count]) [parts addObject:[NSString stringWithFormat:@"이름 바꾸기 %lu", (unsigned long)[row[@"renames"] count]]];
         if ([row[@"trashes"] count]) [parts addObject:[NSString stringWithFormat:@"휴지통으로 %lu", (unsigned long)[row[@"trashes"] count]]];
+        if ([row[@"imageTrashes"] count]) [parts addObject:[NSString stringWithFormat:@"그림 휴지통으로 %lu", (unsigned long)[row[@"imageTrashes"] count]]];
         if ([row[@"actionHolds"] count]) [parts addObject:[NSString stringWithFormat:@"확인 필요 %lu(정리 창)", (unsigned long)[row[@"actionHolds"] count]]];
         return [parts componentsJoinedByString:@" · "];
     }
@@ -1148,6 +1150,10 @@ static NSString *DetailText(NSDictionary *row) {
         for (NSDictionary *item in row[@"renames"]) [renames addObject:[NSString stringWithFormat:@"%@ → %@", [item[@"from"] stringByDeletingPathExtension], [item[@"to"] stringByDeletingPathExtension]]];
         if (renames.count) [lines addObject:[@"이름 바꾸기: " stringByAppendingString:[renames componentsJoinedByString:@", "]]];
         if ([row[@"trashes"] count]) [lines addObject:[@"macOS 휴지통으로: " stringByAppendingString:Names(row[@"trashes"])]];
+        if ([row[@"imageTrashes"] count]) {   // 서버가 고아 이미지로 정리한 그림(파일 이름만)
+            NSMutableArray *names = [NSMutableArray array]; for (NSDictionary *item in row[@"imageTrashes"]) [names addObject:[item[@"path"] lastPathComponent]];
+            [lines addObject:[@"그림을 macOS 휴지통으로(서버에서 쓰지 않음): " stringByAppendingString:[names componentsJoinedByString:@", "]]];
+        }
         if ([row[@"actionHolds"] count]) [lines addObject:[@"확인 필요(정리 창): " stringByAppendingString:Names(row[@"actionHolds"])]];
         return [lines componentsJoinedByString:@"\n"];
     }

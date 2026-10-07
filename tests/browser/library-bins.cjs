@@ -109,11 +109,16 @@ const assert=require('node:assert/strict');
   assert.match(await page.locator('#adminPanelState').textContent(),/관리자 확인됨 · .*까지/);
   const docTrash=page.locator('#adminPanel .admin-section',{hasText:'문서 휴지통'});await docTrash.locator('.line-row',{hasText:'버릴 문서'}).waitFor();
   await page.screenshot({path:'artifacts/admin-panel.png'});assert.equal(await page.locator('#adminPanel .admin-section',{hasText:'검색·이력 설정'}).count(),1);assert.equal(await page.locator('#adminPanel #indexMaintenance').count(),1);
+  const orphanSection=page.locator('#adminPanel .admin-section',{hasText:'고아 이미지'});await orphanSection.locator('.line-row',{hasText:'ImportedImages/시험/Slide1.png'}).waitFor();
+  await orphanSection.getByRole('button',{name:'고른 1개 휴지통으로'}).click();await page.locator('#adminPanelMessage').filter({hasText:'그림 1개를 휴지통에'}).waitFor();
+  await orphanSection.locator('.line-empty',{hasText:'쓰지 않는 그림이 없습니다'}).waitFor();
+  await orphanSection.getByLabel('Images 포함').check();await page.locator('#adminPanel .admin-section',{hasText:'고아 이미지'}).getByLabel('Images 포함').and(page.locator(':checked')).waitFor();
+  assert.deepEqual(await page.evaluate(async()=>(await(await fetch('/api/media/paths')).json()).paths.filter(p=>p.path.endsWith('시험/Slide1.png')).map(p=>p.state)),['trashed'],'orphan image trashed on the server');
   await page.screenshot({path:'artifacts/admin-panel.png'});
   await docTrash.getByRole('button',{name:'비우기'}).click();await page.locator('#adminPanelMessage').filter({hasText:'비웠습니다'}).waitFor();
   assert.equal(await docTrash.locator('.line-row').count(),0);
   await page.locator('#adminPanel .admin-state button').click();await page.waitForFunction(()=>!document.getElementById('adminPanel').open);
   assert.equal((await page.evaluate(async()=>(await(await fetch('/api/admin')).json()).admin)),false,'관리자 확인 끝내기 clears the cookie');
-  assert.deepEqual(errors,[]);console.log('Library bins passed: server categories, name hint, rename, archive/unarchive, trash/admin purge, playlist trash/restore, Mac status and remote support');
+  assert.deepEqual(errors,[]);console.log('Library bins passed: server categories, name hint, rename, archive/unarchive, trash/admin purge, orphan images, playlist trash/restore, Mac status and remote support');
  }finally{await browser.close();await new Promise(r=>server.close(r));await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

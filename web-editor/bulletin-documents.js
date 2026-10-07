@@ -73,14 +73,17 @@
  function madeTitle(model,proto,fromTemplate,{series,title,ref}){const slide=clone(model,proto);if(fromTemplate){P.ivar(slide,'array','cues')?.replaceChildren();P.ivar(slide,'RVMediaCue','backgroundMediaCue')?.remove();for(const a of ['notes','chordChartPath'])slide.setAttribute(a,'');}
   const boxes=P.textElements(slide);if(boxes.length<2)throw Error('말씀 서식 슬라이드에 본문·장절 글상자가 필요합니다.');const {empty}=lineStyles(boxes[0]),big={...empty,size:Math.round((empty.size||60)*1.35),bold:true},small={...empty,size:Math.round((empty.size||60)*0.8)};
   setLines(boxes[0],series?[{text:series,style:small},{text:'',style:small},{text:title,style:big}]:[{text:title,style:big}]);P.setText(boxes[1],ref?`(${ref})`:'');boxes.slice(2).forEach(b=>P.setText(b,''));slide.setAttribute('label',title.split('\n')[0]);return slide;}
- // 문서 전체를 [제목 → 말씀]으로 다시 만든다.
+ // 문서 전체를 [제목 → 말씀]으로 다시 만든다. 주중 말씀 문서(made)는 [표지 → 제목 → 말씀 → 제목].
  // 주중 말씀 문서(made)는 첫 말씀(NKRV) 장 바로 앞 장을 지난 제목 장으로 보고, 그보다 앞의 장(표지)은 맨 앞에 그대로 둔다.
  // 그 밖에는 첫 장을 제목 서식으로 쓰고, 첫 장에 글상자가 없을 때만 말씀 서식으로 만든다.
  async function titlePassage(xml,name,data,materials,{made=false}={}){const model=P.parse(xml,name),slides=P.slides(model),first=slides[0],{proto,fromTemplate}=await scriptureProto(model,materials);let s,covers=[];if(made){const verse=slides.findIndex(isScripture),before=verse<0?slides.slice(0,1):slides.slice(0,verse),old=before.at(-1);covers=before.slice(0,-1);
    // 지난 제목 장에 글상자가 있으면 그 장의 디자인(배경·글상자·글꼴)을 그대로 두고 글자만 바꾼다. 그림뿐인 제목 장이면 말씀 서식으로 만든다.
    if(old&&P.textElements(old).length){s=clone(model,old);fillTitle(s,data);s.setAttribute('label',data.title.split('\n')[0]);}else s=madeTitle(model,proto,fromTemplate,data);}
   else if(!P.textElements(first).length)s=madeTitle(model,proto,fromTemplate,data);else{s=clone(model,first);fillTitle(s,data);}
-  const list=[...covers,s,...(data.passage?await verseSlides(model,proto,data.passage,materials,fromTemplate):[])];replaceSlides(model,list);return {xml:P.serialize(model),count:list.length,notes:covers.length?[`표지 ${covers.length}장은 맨 앞에 그대로 두었습니다.`]:[]};}
+  const list=[...covers,s,...(data.passage?await verseSlides(model,proto,data.passage,materials,fromTemplate):[])];
+  // 주중 말씀 문서는 말씀 뒤에 같은 제목 장을 한 번 더 둔다(새 ID, 큐·단축키·메모·코드 차트 없음).
+  if(made){const end=clone(model,s);P.ivar(end,'array','cues')?.replaceChildren();for(const a of ['notes','chordChartPath'])end.setAttribute(a,'');list.push(end);}
+  replaceSlides(model,list);return {xml:P.serialize(model),count:list.length,notes:covers.length?[`표지 ${covers.length}장은 맨 앞에 그대로 두었습니다.`]:[]};}
  // 기도 장은 정본(1부 ‘대표기도 / 고웅 목사’) 모양으로 고정한다: 한 글상자, 가운데 정렬, ‘대표기도’ 120 · 줄바꿈 · ‘이름 직함’ 150.
  // 글꼴·색·그림자는 고치는 글상자의 첫 글자 서식을 따른다. 기도 장이 여럿이면 정본 모양(두 줄)인 장 하나만 남기고, 글자가 없는 장(표지·첫화면)은 그대로 둔다.
  const PRAYER_HEAD=/^대표\s*기도$/,PRAYER_WORD=/대표\s*기도/;
