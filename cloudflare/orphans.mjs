@@ -1,6 +1,7 @@
 import { HttpError, bodyJSON, json, method, sameOrigin } from './http.mjs';
 import { requireAdmin } from './admin.mjs';
 import { MEDIA_ROOT, mediaPathKey } from './ledger.mjs';
+import { mediaKey, thumbnailKey } from './media-assets.mjs';
 
 // 고아 이미지 정리(sync.md 13). 문서가 쓰는 이미지 경로를 문서별로 적어 두고(저장할 때마다 현재본 기준),
 // 어느 문서(사용 중·보관·휴지통)도 쓰지 않는 이미지 경로를 관리자가 골라 휴지통에 넣는다.
@@ -50,6 +51,10 @@ async function candidates(db, images) {
 export async function orphansRoute(request, env, user) {
   method(request, ['GET', 'POST']); await requireAdmin(request, env, user);
   const db = env.DB;
+  if (request.method === 'GET' && new URL(request.url).searchParams.get('trashed') === '1') {
+    const list = (await db.prepare("SELECT path,sha256,size,updated_at AS updatedAt,updated_by AS updatedBy FROM yebaeon_media_paths WHERE state='trashed' ORDER BY updated_at DESC,path LIMIT 2000").all()).results;
+    return json({ trashed: list, bytes: list.reduce((n, r) => n + (r.size || 0), 0) });
+  }
   if (request.method === 'GET') {
     const remaining = await unindexed(db);
     if (remaining) return json({ remaining, candidates: null });
@@ -81,5 +86,46 @@ export async function orphansRoute(request, env, user) {
     }
     return json({ trashed: chosen.length, skipped: paths.filter(p => !allowed.has(p)) });
   }
+  for (const action of ['untrash', 'purge']) if (Array.isArray(body?.[action])) {
+    const paths = [...new Set(body[action].map(mediaPathKey).filter(Boolean))];
+    if (!paths.length || paths.length > 200 || paths.length !== body[action].length) throw new HttpError(400, 'invalid_paths', '이미지 경로를 확인해 주세요.');
+    return json(await (action === 'untrash' ? untrash : purge)(env, user, paths));
+  }
   throw new HttpError(400, 'invalid_request', '요청을 확인해 주세요.');
+}
+
+// 그림 휴지통에서 꺼내기: 경로표를 다시 `active`로, 일지에 `media untrashed`. 교회 Mac은 기다리던 휴지통 이동을 지운다.
+async function untrash(env, user, paths) {
+  const db = env.DB, list = JSON.stringify(paths), now = new Date().toISOString();
+  const results = await db.batch([
+    db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) SELECT 'media',path,'untrashed',sha256,size,path,?,? FROM yebaeon_media_paths WHERE state='trashed' AND path IN (SELECT value FROM json_each(?))`).bind(user.author, now, list),
+    db.prepare(`UPDATE yebaeon_media_paths SET state='active',updated_at=?,updated_by=? WHERE state='trashed' AND path IN (SELECT value FROM json_each(?))`).bind(now, user.author, list)
+  ]);
+  return { untrashed: results[1].meta.changes || 0 };
+}
+// 그림 휴지통 비우기: 경로표에서 지우고 일지에 `media purged`. 그 바이트(sha)를 가리키는 경로·문서 버전 참조·즐겨찾기가 하나도 남지 않으면 R2 원본·미리보기와 자산 행도 지운다.
+// 그사이 어느 문서가 다시 쓰기 시작한 경로는 비우지 않는다. 교회 Mac은 기다리던 휴지통 이동을 그대로 한다.
+async function purge(env, user, paths) {
+  const db = env.DB, list = JSON.stringify(paths), now = new Date().toISOString();
+  const rows = (await db.prepare(`SELECT p.path,p.sha256 FROM yebaeon_media_paths p WHERE p.state='trashed' AND p.path IN (SELECT value FROM json_each(?)) AND NOT EXISTS(SELECT 1 FROM yebaeon_document_media m WHERE m.path=p.path)`).bind(list).all()).results;
+  if (!rows.length) return { purged: 0, deleted: 0, skipped: paths };
+  const chosen = JSON.stringify(rows.map(r => r.path));
+  await db.batch([
+    db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) SELECT 'media',path,'purged',sha256,size,path,?,? FROM yebaeon_media_paths WHERE state='trashed' AND path IN (SELECT value FROM json_each(?))`).bind(user.author, now, chosen),
+    db.prepare(`DELETE FROM yebaeon_media_paths WHERE state='trashed' AND path IN (SELECT value FROM json_each(?))`).bind(chosen)
+  ]);
+  let favorites = new Set();
+  try { favorites = new Set((await db.prepare("SELECT key FROM yebaeon_favorites WHERE kind='media'").all()).results.map(r => r.key)); } catch { /* 즐겨찾기 표가 아직 없다 */ }
+  let deleted = 0;
+  for (const sha of new Set(rows.map(r => r.sha256))) {
+    if (favorites.has(sha)) continue;
+    const used = await db.prepare('SELECT (SELECT COUNT(*) FROM yebaeon_media_paths WHERE sha256=?)+(SELECT COUNT(*) FROM yebaeon_media_references WHERE asset_sha256=?) AS n').bind(sha, sha).first();
+    if (used.n) continue;
+    const asset = await db.prepare('SELECT object_key AS objectKey FROM yebaeon_media_assets WHERE sha256=?').bind(sha).first();
+    await env.FILES.delete([asset?.objectKey || mediaKey(sha), thumbnailKey(sha)]);
+    await db.prepare('DELETE FROM yebaeon_media_assets WHERE sha256=?').bind(sha).run();
+    deleted++;
+  }
+  const done = new Set(rows.map(r => r.path));
+  return { purged: rows.length, deleted, skipped: paths.filter(p => !done.has(p)) };
 }

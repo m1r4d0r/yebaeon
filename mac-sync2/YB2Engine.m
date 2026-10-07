@@ -1211,8 +1211,8 @@ static NSString *WithAttribute(NSString *tag, NSString *name, NSString *value) {
 // 일지 한 줄을 장부 사본에 반영한다. 줄을 지우지 않고 상태로 남긴다.
 - (void)applyToLedger:(NSDictionary *)change {
     NSString *kind = change[@"kind"], *action = change[@"action"], *path = change[@"path"];
-    if ([kind isEqual:@"media"]) { if (([action isEqual:@"created"] || [action isEqual:@"updated"]) && [change[@"sha256"] isKindOfClass:NSString.class]) [self.receipt setMedia:change[@"entity"] sha:change[@"sha256"]];
-        else if ([action isEqual:@"trashed"] && [change[@"entity"] isKindOfClass:NSString.class]) [self.receipt forgetMedia:change[@"entity"]];
+    if ([kind isEqual:@"media"]) { if (([action isEqual:@"created"] || [action isEqual:@"updated"] || [action isEqual:@"untrashed"]) && [change[@"sha256"] isKindOfClass:NSString.class]) [self.receipt setMedia:change[@"entity"] sha:change[@"sha256"]];
+        else if (([action isEqual:@"trashed"] || [action isEqual:@"purged"]) && [change[@"entity"] isKindOfClass:NSString.class]) [self.receipt forgetMedia:change[@"entity"]];
         return; }
     if (![kind isEqual:@"doc"] || ![path isKindOfClass:NSString.class]) return;
     NSDictionary *states = @{@"created": @"active", @"updated": @"active", @"unarchived": @"active", @"untrashed": @"active", @"renamed": @"active", @"archived": @"archived", @"trashed": @"trashed", @"purged": @"purged"};
@@ -1225,10 +1225,10 @@ static NSString *WithAttribute(NSString *tag, NSString *name, NSString *value) {
 }
 // 일지 한 줄이 [적용]을 기다리는 동작이면 기록한다.
 - (void)recordPending:(NSDictionary *)change {
-    // 고아 이미지 정리: 서버가 휴지통에 넣은 그림은 [적용] 때 옮긴다. 다시 경로표에 올라오면 기다리던 것을 지운다.
+    // 고아 이미지 정리: 서버가 휴지통에 넣은 그림은 [적용] 때 옮긴다. 서버 휴지통을 비워도(`purged`) 그대로 옮기고, 꺼내거나 다시 경로표에 올라오면 기다리던 것을 지운다.
     if ([change[@"kind"] isEqual:@"media"] && [change[@"entity"] isKindOfClass:NSString.class]) {
         if ([change[@"action"] isEqual:@"trashed"]) [self.receipt addPending:@{@"kind": @"media", @"entity": change[@"entity"], @"action": @"trashed", @"path": change[@"entity"], @"sha": change[@"sha256"] ?: @""}];
-        else [self.receipt removePending:@"media" entity:change[@"entity"] action:@"trashed"];
+        else if (![change[@"action"] isEqual:@"purged"]) [self.receipt removePending:@"media" entity:change[@"entity"] action:@"trashed"];
         return;
     }
     if (![change[@"kind"] isEqual:@"doc"] || ![change[@"path"] isKindOfClass:NSString.class]) return;

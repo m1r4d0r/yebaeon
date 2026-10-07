@@ -164,3 +164,4 @@ dialog.panel-dialog[open]{display:flex}
 .admin-section .line-list{max-height:260px;overflow:auto}.admin-section .line-row{padding-left:16px}.admin-section .line-row:last-child{border-bottom:0}
 .admin-toggle{display:inline-flex;align-items:center;gap:4px;font-size:12px;flex:none}
 .admin-section .line-btn.text-danger{border:1px solid #f0c7c2}
+.admin-preview{padding:8px 16px 12px;border-bottom:1px solid var(--row-line);background:#fff}.admin-preview img{display:block;max-width:100%;max-height:220px;border:1px solid var(--line);border-radius:6px;background:repeating-conic-gradient(#eef1f5 0 25%,#fff 0 50%) 0 0/16px 16px}

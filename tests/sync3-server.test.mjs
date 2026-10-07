@@ -209,7 +209,7 @@ test('Sync 2 app update: latest build and download, only after CI publishes',{ti
 });
 
 test('orphan images: per-document image index, backfill, admin trash writes a media trashed log',{timeout:90000},async t=>{
- const {read,person,db}=await fixture(t,{ADMIN_PASSWORD:'admin-secret-1'});const user=await person('지은');const {call}=user;
+ const {mf,read,person,db}=await fixture(t,{ADMIN_PASSWORD:'admin-secret-1'});const user=await person('지은');const {call}=user;
  const R='/Users/Shared/Renewed Vision Media/',png=n=>Buffer.from([137,80,78,71,13,10,26,10,n]),sha=b=>createHash('sha256').update(b).digest('hex');
  const files=[['ImportedImages/찬양/Slide1.png',1],['ImportedImages/찬양/Slide2.png',2],['YebaeOn/광고-1.png',3],['Images/배경.jpg',4]];
  for(const [,n] of files){const b=png(n);assert.ok([200,201].includes((await call('/media/'+sha(b)+'/content','PUT',b,{'Content-Type':'application/octet-stream','X-Yebaeon-SHA256':sha(b)})).status));}
@@ -238,4 +238,15 @@ test('orphan images: per-document image index, backfill, admin trash writes a me
  assert.equal((await db.prepare('SELECT state FROM yebaeon_media_paths WHERE path=?').bind(R+'YebaeOn/광고-1.png').first()).state,'trashed');
  assert.deepEqual((await read(await call('/media/paths?path='+encodeURIComponent(R+'YebaeOn/광고-1.png')))).paths.map(p=>p.state),['trashed'],'Sync only downloads active paths');
  assert.equal((await read(await call('/admin/orphans','POST',JSON.stringify({trash:[R+'Images/배경.jpg'],images:true})))).trashed,1,'Images library cleanup with the switch');
+ // 그림 휴지통: 목록·꺼내기·비우기. 비우면 경로를 지우고, 그 바이트를 아무도 안 쓰면 R2 원본과 자산 행도 지운다.
+ const bin=await read(await call('/admin/orphans?trashed=1'));assert.deepEqual(bin.trashed.map(r=>r.path).sort(),[R+'Images/배경.jpg',R+'YebaeOn/광고-1.png']);assert.equal(bin.bytes,2*png(1).length);
+ const before=(await read(await call('/sync/changes?since=0&limit=0'))).head;
+ assert.deepEqual(await read(await call('/admin/orphans','POST',JSON.stringify({untrash:[R+'YebaeOn/광고-1.png']}))),{untrashed:1});
+ assert.equal((await db.prepare('SELECT state FROM yebaeon_media_paths WHERE path=?').bind(R+'YebaeOn/광고-1.png').first()).state,'active','untrashed path is active again');
+ const bucket=await mf.getR2Bucket('FILES'),key=s=>`media/sha256/${s.slice(0,2)}/${s}`,bg=sha(png(4));assert.ok(await bucket.head(key(bg)));
+ assert.deepEqual(await read(await call('/admin/orphans','POST',JSON.stringify({purge:[R+'Images/배경.jpg',R+'YebaeOn/광고-1.png']}))),{purged:1,deleted:1,skipped:[R+'YebaeOn/광고-1.png']},'only trashed paths are purged');
+ assert.equal(await bucket.head(key(bg)),null,'unused bytes leave R2');assert.equal(await db.prepare('SELECT 1 FROM yebaeon_media_assets WHERE sha256=?').bind(bg).first(),null);
+ assert.equal(await db.prepare('SELECT 1 FROM yebaeon_media_paths WHERE path=?').bind(R+'Images/배경.jpg').first(),null);
+ assert.deepEqual((await changes(call,read,before)).map(c=>[c.action,c.path]),[['untrashed',R+'YebaeOn/광고-1.png'],['purged',R+'Images/배경.jpg']]);
+ assert.deepEqual((await read(await call('/admin/orphans?trashed=1'))).trashed,[]);
 });

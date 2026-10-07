@@ -1,4 +1,5 @@
 import { json, method } from './http.mjs';
+import { latest } from './app-update.mjs';
 export async function recordSync(request, env, user, kind) {
   if (!(request.headers.get('User-Agent') || '').startsWith('YebaeOn-Sync/')) return;
   const now = new Date().toISOString();
@@ -21,7 +22,7 @@ export async function statusRoute(request, env) {
   const recent = await query('recent',`SELECT id, path, current_version AS version, updated_by AS author,
     updated_at AS updatedAt, size FROM yebaeon_documents ORDER BY updated_at DESC, path LIMIT 20`);
   const images = await query('media-summary','SELECT COUNT(*) AS count, COALESCE(SUM(size),0) AS bytes FROM yebaeon_media_assets',true);
-  const devices = await query('devices','SELECT id,name,status_at AS statusAt FROM yebaeon_sync_devices WHERE revoked_at IS NULL');
+  const devices = await query('devices',"SELECT id,name,status_at AS statusAt,json_extract(status,'$.build') AS build FROM yebaeon_sync_devices WHERE revoked_at IS NULL");
   const deviceNames = new Set(devices.map(d => d.name));
   // 최근 서버 쓰기 300줄만 읽어 Studio 작업(사람)과 Mac 올리기(장치 이름)로 나눈다.
   const log = await query('sync-log',`SELECT seq,kind,action,path,name,author,at FROM yebaeon_sync_log ORDER BY seq DESC LIMIT 300`);
@@ -39,8 +40,11 @@ export async function statusRoute(request, env) {
     storage={currentDocuments:{count:totals.documents,bytes:totals.bytes},currentPlaylists:playlists,documentHistory,playlistHistory,images,imageFolders:folders,trackedBytes:totals.bytes+playlists.bytes+documentHistory.bytes+playlistHistory.bytes+images.bytes};
   }
   console.log(JSON.stringify({event:'d1-read-cost',route:detailed?'status-details':'status',queries:costs}));
-  return json({ ...totals,...catalog,playlists:playlists.count,images,...(storage?{storage}:{}),recent,studio,syncEvents,devices:devices.map(({name,statusAt})=>({name,statusAt})),observedAt:new Date().toISOString() });
+  return json({ ...totals,...catalog,playlists:playlists.count,images,...(storage?{storage}:{}),recent,studio,syncEvents,devices:devices.map(({name,statusAt,build})=>({name,statusAt,build:Number.isSafeInteger(build)?build:null})),syncApp:await latestBuild(env),observedAt:new Date().toISOString() });
 }
+
+// 서버에 게시된 최신 Sync 2 빌드(R2 latest.json, D1 읽기 없음). 없거나 읽지 못하면 null.
+async function latestBuild(env) { try { const v = await latest(env); return v ? { build: v.build, createdAt: v.createdAt || null } : null; } catch { return null; } }
 
 const docName = path => (path || '').split('/').pop().replace(/\.pro6$/i, '');
 // 한국 날짜(UTC+9)로 묶는다.

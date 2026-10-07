@@ -195,5 +195,10 @@ test('server status: Studio work by person, Mac uploads, applied events and imag
  const applied=status.syncEvents.find(e=>e.kind==='applied');assert.deepEqual(applied.names.sort(),['은혜','이번주']);assert.equal(applied.count,2);
  assert.deepEqual(status.syncEvents.find(e=>e.kind==='uploaded').names,['요한']);
  assert.deepEqual(status.recent.map(r=>[r.path,r.device]).sort(),[['광고/이번주.pro6',false],['말씀/요한.pro6',true],['찬양/은혜.pro6',false]]);
- assert.deepEqual(status.devices.map(d=>d.name),['본당 Mac']);
+ assert.deepEqual(status.devices.map(d=>[d.name,d.build]),[['본당 Mac',null]]);assert.equal(status.syncApp,null);
+ // Mac 현황 보고의 빌드와 서버에 게시된 최신 빌드(R2 latest.json)
+ await read(await asDevice(`/sync/devices/${issued.device.id}/status`,'POST',JSON.stringify({status:{build:80,summary:'같음'}})));
+ await (await mf.getR2Bucket('FILES')).put('apps/sync2/latest.json',JSON.stringify({build:81,sha256:'a'.repeat(64),size:10,key:'apps/sync2/YebaeOn-Sync-81.zip',createdAt:'2026-10-07T21:34:00Z'}));
+ const later=await read(await call('/status'));
+ assert.deepEqual(later.devices.map(d=>[d.name,d.build]),[['본당 Mac',80]]);assert.deepEqual(later.syncApp,{build:81,createdAt:'2026-10-07T21:34:00Z'});
 });
