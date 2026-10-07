@@ -75,11 +75,13 @@
  }
  // ── 고아 이미지 ──
  // 슬라이드에서 가져온 그림(ImportedImages·YebaeOn) 중 어느 문서도 쓰지 않는 것. 휴지통에 넣으면 교회 Mac이 다음 [적용] 때 macOS 휴지통으로 옮긴다.
+ let withImages=false;
  const size=b=>b>=1024**3?(b/1024**3).toFixed(2)+' GB':(b/1024/1024).toFixed(1)+' MB';
  async function orphans(){
   const {el,when}=P(),button=el('button',{type:'button',class:'line-btn text-danger',disabled:true},'고른 것 휴지통으로');
-  const s=section('고아 이미지','슬라이드에서 가져온 그림(ImportedImages·YebaeOn) 중 어느 문서(사용 중·보관·휴지통)도 쓰지 않는 것입니다. 휴지통에 넣으면 교회 Mac이 다음 [적용] 때 macOS 휴지통으로 옮깁니다. 미디어 서랍(Images)은 고르지 않습니다.',button);
-  let data=await(await C().api('/admin/orphans')).json();
+  const images=el('input',{type:'checkbox',checked:withImages,onchange:()=>{withImages=images.checked;render();}});
+  const s=section('고아 이미지','슬라이드에서 가져온 그림(ImportedImages·YebaeOn) 중 어느 문서(사용 중·보관·휴지통)도 쓰지 않는 것입니다. 휴지통에 넣으면 교회 Mac이 다음 [적용] 때 macOS 휴지통으로 옮깁니다. 미디어 서랍(Images)은 PP6에서 직접 쓰므로 처음 정리할 때만 켜서 함께 고릅니다.',el('label',{class:'admin-toggle'},images,'Images 포함'),button);
+  let data=await(await C().api('/admin/orphans'+(withImages?'?images=1':''))).json();
   if(data.remaining){
    s.count(null);const run=el('button',{type:'button',class:'line-btn'},'색인 채우기');const text=el('span',{class:'line-title'},`문서 이미지 색인이 ${data.remaining}개 남았습니다. 다 채워야 후보를 계산합니다.`);
    run.onclick=async()=>{run.disabled=true;try{let left=data.remaining;while(left>0){const r=await(await C().api('/admin/orphans',json('POST',{index:true}))).json();if(!r.indexed&&r.remaining)throw Error('색인하지 못한 문서가 있습니다. 다시 눌러 주세요.');left=r.remaining;text.textContent=`색인 중… 남은 문서 ${left}개`;}await render();}catch(error){say(error.message);run.disabled=false;}};
@@ -92,7 +94,7 @@
    s.list.append(el('label',{class:'line-row'},box,el('span',{class:'line-title',title:r.path},r.path.replace(/^\/Users\/Shared\/Renewed Vision Media\//,'')),el('span',{class:'line-meta'},`${size(r.size||0)} · ${when(r.updatedAt)}`)));}
   update();
   button.onclick=async()=>{const chosen=[...picked];if(!confirm(`그림 ${chosen.length}개를 휴지통에 넣을까요?\n서버에서 받을 수 없게 되고, 교회 Mac은 다음 [적용] 때 그 파일을 macOS 휴지통으로 옮깁니다(Mac 파일이 서버와 다르면 옮기지 않고 정리 창에 남깁니다).`))return;
-   button.disabled=true;try{let total=0;for(let i=0;i<chosen.length;i+=200){const r=await(await C().api('/admin/orphans',json('POST',{trash:chosen.slice(i,i+200)}))).json();total+=r.trashed;}await render();say(`그림 ${total}개를 휴지통에 넣었습니다. 교회 Mac은 다음 [적용] 때 옮깁니다.`);}catch(error){say(error.message);button.disabled=false;}};
+   button.disabled=true;try{let total=0;for(let i=0;i<chosen.length;i+=200){const r=await(await C().api('/admin/orphans',json('POST',{trash:chosen.slice(i,i+200),images:withImages}))).json();total+=r.trashed;}await render();say(`그림 ${total}개를 휴지통에 넣었습니다. 교회 Mac은 다음 [적용] 때 옮깁니다.`);}catch(error){say(error.message);button.disabled=false;}};
  }
  // ── 교회 Mac 보관본 ──
  const REASON={'both-changed':'양쪽 수정(서버 것 받음)'};

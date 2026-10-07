@@ -221,7 +221,9 @@ test('orphan images: per-document image index, backfill, admin trash writes a me
  assert.equal((await call('/admin/orphans')).status,403,'admin only');
  const granted=await call('/admin','POST',JSON.stringify({password:'admin-secret-1'}));await read(granted);user.addCookie(granted.headers.get('Set-Cookie'));
  let list=await read(await call('/admin/orphans'));assert.equal(list.remaining,0);
- assert.deepEqual(list.candidates.map(c=>c.path),[R+'ImportedImages/찬양/Slide2.png'],'only unused slide images; the Images library is never a candidate');
+ assert.deepEqual(list.candidates.map(c=>c.path),[R+'ImportedImages/찬양/Slide2.png'],'by default only unused slide images, not the Images library');
+ assert.deepEqual((await read(await call('/admin/orphans?images=1'))).candidates.map(c=>c.path),[R+'Images/배경.jpg',R+'ImportedImages/찬양/Slide2.png'],'the Images library only when asked');
+ assert.deepEqual(await read(await call('/admin/orphans','POST',JSON.stringify({trash:[R+'Images/배경.jpg']}))),{trashed:0,skipped:[R+'Images/배경.jpg']},'Images paths need the images switch');
  // 문서를 고쳐 이미지를 빼면 그 이미지도 후보가 된다. 색인이 없는 문서가 있으면 후보를 주지 않고 색인부터 채운다.
  await read(await call(`/documents/${ad.id}`,'PUT',img(''),{'Content-Type':'application/xml','If-Match':'"1"'}));
  await db.prepare('DELETE FROM yebaeon_document_media_state').run();await db.prepare('DELETE FROM yebaeon_document_media').run();
@@ -235,4 +237,5 @@ test('orphan images: per-document image index, backfill, admin trash writes a me
  assert.deepEqual((await changes(call,read,head)).map(c=>[c.kind,c.action,c.path]),[['media','trashed',R+'YebaeOn/광고-1.png']]);
  assert.equal((await db.prepare('SELECT state FROM yebaeon_media_paths WHERE path=?').bind(R+'YebaeOn/광고-1.png').first()).state,'trashed');
  assert.deepEqual((await read(await call('/media/paths?path='+encodeURIComponent(R+'YebaeOn/광고-1.png')))).paths.map(p=>p.state),['trashed'],'Sync only downloads active paths');
+ assert.equal((await read(await call('/admin/orphans','POST',JSON.stringify({trash:[R+'Images/배경.jpg'],images:true})))).trashed,1,'Images library cleanup with the switch');
 });

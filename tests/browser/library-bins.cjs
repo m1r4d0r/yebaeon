@@ -112,6 +112,7 @@ const assert=require('node:assert/strict');
   const orphanSection=page.locator('#adminPanel .admin-section',{hasText:'고아 이미지'});await orphanSection.locator('.line-row',{hasText:'ImportedImages/시험/Slide1.png'}).waitFor();
   await orphanSection.getByRole('button',{name:'고른 1개 휴지통으로'}).click();await page.locator('#adminPanelMessage').filter({hasText:'그림 1개를 휴지통에'}).waitFor();
   await orphanSection.locator('.line-empty',{hasText:'쓰지 않는 그림이 없습니다'}).waitFor();
+  await orphanSection.getByLabel('Images 포함').check();await page.locator('#adminPanel .admin-section',{hasText:'고아 이미지'}).getByLabel('Images 포함').and(page.locator(':checked')).waitFor();
   assert.deepEqual(await page.evaluate(async()=>(await(await fetch('/api/media/paths')).json()).paths.filter(p=>p.path.endsWith('시험/Slide1.png')).map(p=>p.state)),['trashed'],'orphan image trashed on the server');
   await page.screenshot({path:'artifacts/admin-panel.png'});
   await docTrash.getByRole('button',{name:'비우기'}).click();await page.locator('#adminPanelMessage').filter({hasText:'비웠습니다'}).waitFor();
