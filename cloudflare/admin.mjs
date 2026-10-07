@@ -14,19 +14,21 @@ function same(a, b) { let d = a.length ^ b.length; for (let i = 0; i < Math.max(
 export function adminConfigured(env) { return typeof env.ADMIN_PASSWORD === 'string' && env.ADMIN_PASSWORD.length > 0; }
 function cookieValue(request) { return (request.headers.get('Cookie') || '').split(';').map(v => v.trim()).find(v => v.startsWith(ADMIN_COOKIE + '='))?.slice(ADMIN_COOKIE.length + 1); }
 // 관리자 표시는 그 입장 세션에 묶인다. 다른 세션·장치 열쇠로는 쓸 수 없다.
-export async function isAdmin(request, env, user) {
-  if (!adminConfigured(env) || user.device) return false;
+// 유효한 관리자 쿠키면 만료 시각(초), 아니면 null.
+async function adminExpiry(request, env, user) {
+  if (!adminConfigured(env) || user.device) return null;
   const value = cookieValue(request), match = /^(\d{10})\.([0-9a-f]{64})$/.exec(value || '');
-  if (!match || Number(match[1]) < Math.floor(Date.now() / 1000)) return false;
-  return same(match[2], await sign(env.ADMIN_PASSWORD, `${user.id}:${match[1]}`));
+  if (!match || Number(match[1]) < Math.floor(Date.now() / 1000)) return null;
+  return same(match[2], await sign(env.ADMIN_PASSWORD, `${user.id}:${match[1]}`)) ? Number(match[1]) : null;
 }
+export async function isAdmin(request, env, user) { return await adminExpiry(request, env, user) !== null; }
 export async function requireAdmin(request, env, user) {
   if (!adminConfigured(env)) throw new HttpError(503, 'admin_unavailable', '관리자 비밀번호가 서버에 설정되지 않았습니다.');
   if (!await isAdmin(request, env, user)) throw new HttpError(403, 'admin_required', '관리자 확인이 필요합니다. 관리자 비밀번호를 입력해 주세요.');
 }
 export async function adminRoute(request, env, user) {
   method(request, ['GET', 'POST', 'DELETE']);
-  if (request.method === 'GET') return json({ configured: adminConfigured(env), admin: await isAdmin(request, env, user) });
+  if (request.method === 'GET') { const expiresAt = await adminExpiry(request, env, user); return json({ configured: adminConfigured(env), admin: expiresAt !== null, expiresAt }); }
   sameOrigin(request);
   const clear = `${ADMIN_COOKIE}=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0`;
   if (request.method === 'DELETE') return json({ admin: false }, 200, { 'Set-Cookie': clear });
