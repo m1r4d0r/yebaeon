@@ -21,7 +21,7 @@
  }
  // 목록에 날짜 머리줄을 끼워 넣는다. 더 보기로 이어 붙일 때도 같은 날이면 머리줄을 다시 넣지 않는다.
  function dayed(list,at){if(list.dataset.day!==dayKey(at)){list.dataset.day=dayKey(at);list.append(el('div',{class:'line-day'},dayLabel(at)));}}
- const kinds={document:['문서','kind-doc'],playlist:['순서','kind-order'],file:['파일','kind-file']};
+ const kinds={document:['문서','kind-doc'],playlist:['순서','kind-order'],file:['파일','kind-file'],image:['그림','kind-file']};
  const kind=k=>el('span',{class:'line-kind '+(kinds[k]||kinds.file)[1]},(kinds[k]||kinds.file)[0]);
  const chip=(text,cls='')=>el('span',{class:'line-chip '+cls},text);
 

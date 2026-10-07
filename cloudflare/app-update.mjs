@@ -4,7 +4,7 @@ import { HttpError, headers, json, method } from './http.mjs';
 // 앱은 장치 열쇠로 최신 빌드 번호를 묻고, 사람이 [지금 설치]를 누를 때만 ZIP을 받는다.
 const LATEST = 'apps/sync2/latest.json';
 const SHA = /^[0-9a-f]{64}$/;
-async function latest(env) {
+export async function latest(env) {
   const object = await env.FILES.get(LATEST);
   if (!object) return null;
   const value = await object.json();

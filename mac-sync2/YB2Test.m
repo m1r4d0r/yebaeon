@@ -322,7 +322,7 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check(RowNamed(rows, @"문서 정리(서버)") == nil, @"untrash cancels the waiting move");
         Check([[engine uploadNew][@"created"] count] == 0, @"a trashed server document is not uploaded again");
 
-        // 18-1. 고아 그림: 관리자가 서버에서 휴지통에 넣으면 [적용] 때 서버가 알던 그대로인 파일만 macOS 휴지통으로 옮긴다. Mac 문서가 아직 쓰는 그림은 둔다.
+        // 18-1. 고아 그림: 관리자가 서버에서 휴지통에 넣으면(그 뒤 비워도) [적용] 때 서버가 알던 그대로인 파일만 macOS 휴지통으로 옮긴다. Mac 문서가 아직 쓰는 그림은 둔다.
         NSString *orphanPath = [mediaDir stringByAppendingPathComponent:[NSString stringWithFormat:@"sync2-orphan-%@.png", NSUUID.UUID.UUIDString]];
         NSString *usedPath = [mediaDir stringByAppendingPathComponent:[NSString stringWithFormat:@"sync2-orphan-used-%@.png", NSUUID.UUID.UUIDString]];
         unsigned char orphanBytes[] = {0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 'o', 'r', 'p', 'h'}, usedBytes[] = {0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 'u', 's', 'e', 'd'};
@@ -350,6 +350,7 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
             NSArray *candidatePaths = [orphans[@"candidates"] valueForKey:@"path"];
             Check([candidatePaths containsObject:orphanPath] && [candidatePaths containsObject:usedPath] && ![candidatePaths containsObject:imagePath], @"orphan candidates exclude images any server document uses");
             Check([Post(@"/api/admin/orphans", @{@"trash": @[orphanPath, usedPath]}, admin)[@"trashed"] integerValue] == 2, @"orphans trashed on the server");
+            Check([Post(@"/api/admin/orphans", @{@"purge": @[orphanPath]}, admin)[@"purged"] integerValue] == 1, @"image trash emptied before the mac applies");
             NSData *hymn = [NSData dataWithContentsOfFile:Local(@"오 신실하신 주")];
             Check([Doc([@"찬양 1 " stringByAppendingString:ImageXML(usedPath)]) writeToFile:Local(@"오 신실하신 주") atomically:YES], @"mac document starts using a trashed image");
             rows = Sync(); actions = RowNamed(rows, @"문서·그림 정리(서버)");

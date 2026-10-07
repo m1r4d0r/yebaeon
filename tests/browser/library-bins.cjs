@@ -112,13 +112,22 @@ const assert=require('node:assert/strict');
   const orphanSection=page.locator('#adminPanel .admin-section',{hasText:'고아 이미지'});await orphanSection.locator('.line-row',{hasText:'ImportedImages/시험/Slide1.png'}).waitFor();
   await orphanSection.getByRole('button',{name:'고른 1개 휴지통으로'}).click();await page.locator('#adminPanelMessage').filter({hasText:'그림 1개를 휴지통에'}).waitFor();
   await orphanSection.locator('.line-empty',{hasText:'쓰지 않는 그림이 없습니다'}).waitFor();
-  await orphanSection.getByLabel('Images 포함').check();await page.locator('#adminPanel .admin-section',{hasText:'고아 이미지'}).getByLabel('Images 포함').and(page.locator(':checked')).waitFor();
   assert.deepEqual(await page.evaluate(async()=>(await(await fetch('/api/media/paths')).json()).paths.filter(p=>p.path.endsWith('시험/Slide1.png')).map(p=>p.state)),['trashed'],'orphan image trashed on the server');
+  await orphanSection.getByLabel('Images 포함').check();await page.locator('#adminPanel .admin-section',{hasText:'고아 이미지'}).getByLabel('Images 포함').and(page.locator(':checked')).waitFor();
+  // 그림 휴지통: 미리보기 → 꺼내기(고아 이미지 목록으로 돌아감) → 다시 넣고 비우기
+  const imageBin=()=>page.locator('#adminPanel .admin-section',{hasText:'그림 휴지통'});const binRow=()=>imageBin().locator('.line-row',{hasText:'ImportedImages/시험/Slide1.png'});
+  const shown=page.waitForResponse(r=>/\/api\/media\/[0-9a-f]{64}\/content$/.test(r.url()));await binRow().getByRole('button',{name:'미리보기'}).click();assert.equal((await shown).status(),200);await imageBin().locator('.admin-preview').waitFor();await binRow().getByRole('button',{name:'접기'}).click();
+  await binRow().getByRole('button',{name:'꺼내기'}).click();await page.locator('#adminPanelMessage').filter({hasText:'그림을 꺼냈습니다'}).waitFor();
+  await page.locator('#adminPanel .admin-section',{hasText:'고아 이미지'}).locator('.line-row',{hasText:'ImportedImages/시험/Slide1.png'}).waitFor();
+  await page.locator('#adminPanel .admin-section',{hasText:'고아 이미지'}).getByRole('button',{name:/고른 \d+개 휴지통으로/}).click();await page.locator('#adminPanelMessage').filter({hasText:'휴지통에 넣었습니다'}).waitFor();
+  await binRow().waitFor();await imageBin().getByRole('button',{name:'비우기'}).click();await page.locator('#adminPanelMessage').filter({hasText:'그림 1개를 비웠습니다'}).waitFor();
+  await imageBin().locator('.line-empty',{hasText:'휴지통이 비어 있습니다'}).waitFor();
+  assert.equal(await page.evaluate(async()=>(await(await fetch('/api/media/paths')).json()).paths.filter(p=>p.path.endsWith('시험/Slide1.png')).length),0,'purged image path removed');
   await page.screenshot({path:'artifacts/admin-panel.png'});
   await docTrash.getByRole('button',{name:'비우기'}).click();await page.locator('#adminPanelMessage').filter({hasText:'비웠습니다'}).waitFor();
-  assert.equal(await docTrash.locator('.line-row').count(),0);
+  await page.locator('#adminPanel .admin-section',{hasText:'문서 휴지통'}).locator('.line-empty').waitFor();assert.equal(await docTrash.locator('.line-row').count(),0);
   await page.locator('#adminPanel .admin-state button').click();await page.waitForFunction(()=>!document.getElementById('adminPanel').open);
   assert.equal((await page.evaluate(async()=>(await(await fetch('/api/admin')).json()).admin)),false,'관리자 확인 끝내기 clears the cookie');
-  assert.deepEqual(errors,[]);console.log('Library bins passed: server categories, name hint, rename, archive/unarchive, trash/admin purge, orphan images, playlist trash/restore, Mac status and remote support');
+  assert.deepEqual(errors,[]);console.log('Library bins passed: server categories, name hint, rename, archive/unarchive, trash/admin purge, orphan images/image trash, playlist trash/restore, Mac status and remote support');
  }finally{await browser.close();await new Promise(r=>server.close(r));await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

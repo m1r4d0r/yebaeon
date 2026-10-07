@@ -1,6 +1,6 @@
 (function(){'use strict';
  // 설정·관리 창. 열 때 관리자 확인을 먼저 받는다(하루 유지). 관리자 일만 모은다:
- // 휴지통 보기·비우기, 고아 이미지 정리, 카테고리 검색·이력 설정, 교회 Mac 보관본 정리, 누락 검색 자료 점검.
+ // 휴지통 보기·비우기, 고아 이미지 정리·그림 휴지통, 카테고리 검색·이력 설정, 교회 Mac 보관본 정리, 누락 검색 자료 점검.
  const $=id=>document.getElementById(id),C=()=>window.YebaeonCloud,P=()=>window.YebaeonPanels,M=()=>window.YebaeonLibraryManage;
  const json=(method,body)=>({method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const stem=path=>(path||'').split('/').pop().replace(/\.pro6$/i,'');
@@ -91,10 +91,35 @@
   if(!list.length){empty(s.list,'쓰지 않는 그림이 없습니다.');return;}
   const picked=new Set(list.map(r=>r.path)),update=()=>{button.disabled=!picked.size;button.textContent=picked.size?`고른 ${picked.size}개 휴지통으로`:'고른 것 휴지통으로';};
   for(const r of list){const box=el('input',{type:'checkbox',checked:true,'aria-label':r.path,onchange:()=>{box.checked?picked.add(r.path):picked.delete(r.path);update();}});
-   s.list.append(el('label',{class:'line-row'},box,el('span',{class:'line-title',title:r.path},r.path.replace(/^\/Users\/Shared\/Renewed Vision Media\//,'')),el('span',{class:'line-meta'},`${size(r.size||0)} · ${when(r.updatedAt)}`)));}
+   imageRow(s.list,r,box,`${size(r.size||0)} · ${when(r.updatedAt)}`);}
   update();
   button.onclick=async()=>{const chosen=[...picked];if(!confirm(`그림 ${chosen.length}개를 휴지통에 넣을까요?\n서버에서 받을 수 없게 되고, 교회 Mac은 다음 [적용] 때 그 파일을 macOS 휴지통으로 옮깁니다(Mac 파일이 서버와 다르면 옮기지 않고 정리 창에 남깁니다).`))return;
    button.disabled=true;try{let total=0;for(let i=0;i<chosen.length;i+=200){const r=await(await C().api('/admin/orphans',json('POST',{trash:chosen.slice(i,i+200),images:withImages}))).json();total+=r.trashed;}await render();say(`그림 ${total}개를 휴지통에 넣었습니다. 교회 Mac은 다음 [적용] 때 옮깁니다.`);}catch(error){say(error.message);button.disabled=false;}};
+ }
+ // 그림 한 줄: [미리보기]를 누르면 그 줄 아래에 서버 원본을 펼친다(누를 때만 받는다).
+ function imageRow(list,r,lead,meta,...actions){
+  const {el}=P(),shown={box:null},preview=el('button',{type:'button',class:'line-btn'},'미리보기');
+  const row=el('div',{class:'line-row'},lead,el('span',{class:'line-title',title:r.path},r.path.replace(/^\/Users\/Shared\/Renewed Vision Media\//,'')),el('span',{class:'line-meta'},meta),preview,...actions);
+  preview.onclick=()=>{if(shown.box){shown.box.remove();shown.box=null;preview.textContent='미리보기';return;}
+   const img=el('img',{src:`/api/media/${r.sha256}/content`,alt:r.path});img.addEventListener('error',()=>img.replaceWith(el('span',{class:'line-meta'},'미리보기를 열지 못했습니다(서버에 원본이 없거나 브라우저가 못 여는 형식).')));
+   shown.box=el('div',{class:'admin-preview'},img);row.after(shown.box);preview.textContent='접기';};
+  list.append(row);return row;
+ }
+ // ── 그림 휴지통 ──
+ // 고아 이미지에서 휴지통에 넣은 그림. 꺼내면 다시 쓰는 경로가 되고, 비우면 경로를 지우고 그 바이트를 아무도 안 쓰면 서버 원본도 지운다.
+ async function imageTrash(){
+  const {el,when,kind}=P(),purgeAll=el('button',{type:'button',class:'line-btn text-danger',disabled:true},'비우기');
+  const s=section('그림 휴지통','고아 이미지에서 휴지통에 넣은 그림입니다. 교회 Mac은 다음 [적용] 때 그 파일을 macOS 휴지통으로 옮깁니다(비운 뒤에도). 비우면 서버 경로표에서 지우고, 그 그림을 쓰는 곳이 하나도 없으면 서버 원본도 지웁니다. 되살릴 수 없습니다.',purgeAll);
+  const data=await(await C().api('/admin/orphans?trashed=1')).json(),list=data.trashed;
+  s.count(list.length?`${list.length}개 · ${size(data.bytes)}`:0);
+  if(!list.length){empty(s.list,'휴지통이 비어 있습니다.');return;}
+  const send=async(action,paths)=>{let done=0;for(let i=0;i<paths.length;i+=200){const r=await(await C().api('/admin/orphans',json('POST',{[action]:paths.slice(i,i+200)}))).json();done+=action==='purge'?r.purged:r.untrashed;}return done;};
+  for(const r of list){const out=el('button',{type:'button',class:'line-btn'},'꺼내기');
+   out.onclick=async()=>{out.disabled=true;try{await send('untrash',[r.path]);await render();say('그림을 꺼냈습니다.');}catch(error){say(error.message);out.disabled=false;}};
+   imageRow(s.list,r,kind('image'),[r.updatedBy,r.updatedAt?when(r.updatedAt):''].filter(Boolean).join(' · '),out);}
+  purgeAll.disabled=false;
+  purgeAll.onclick=async()=>{if(!confirm(`그림 휴지통 ${list.length}개를 비울까요? 비운 그림은 되살릴 수 없습니다.\n그 그림을 쓰는 다른 경로·문서 버전·즐겨찾기가 없으면 서버 원본도 지웁니다.`))return;
+   purgeAll.disabled=true;try{const n=await send('purge',list.map(r=>r.path));await render();say(`그림 ${n}개를 비웠습니다.`);}catch(error){say(error.message);purgeAll.disabled=false;}};
  }
  // ── 교회 Mac 보관본 ──
  const REASON={'both-changed':'양쪽 수정(서버 것 받음)'};
@@ -119,7 +144,7 @@
  async function render(){
   const {el}=P(),body=$('adminPanelBody');body.replaceChildren();
   $('adminPanelState').textContent=expiresAt?`관리자 확인됨 · ${P().when(expiresAt*1000)}까지`:'관리자 확인됨';
-  for(const part of [trashDocs,trashPlaylists,orphans,categories,revisions]){try{await part();}catch(error){body.append(el('p',{class:'line-empty'},error.message));}}
+  for(const part of [trashDocs,trashPlaylists,orphans,imageTrash,categories,revisions]){try{await part();}catch(error){body.append(el('p',{class:'line-empty'},error.message));}}
   maintenance();
  }
  async function signOut(){

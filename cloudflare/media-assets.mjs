@@ -18,10 +18,10 @@ function sniff(data){
   if(b.length>=12&&ascii(4,8)==='ftyp'&&/(heic|heix|hevc|hevx|mif1|msf1|avif|avis)/.test(ascii(8,12)))return 'image/heic';
   return null;
 }
-function mediaKey(hash){return `media/sha256/${hash.slice(0,2)}/${hash}`;}
+export function mediaKey(hash){return `media/sha256/${hash.slice(0,2)}/${hash}`;}
 // 미리보기 그림(가로 320px 안팎): R2에만 둔다. D1에는 쓰지 않고, 있는지는 R2 head로 안다. 원본이 서버에 있을 때만 받는다.
 const MAX_THUMBNAIL=256*1024;
-function thumbnailKey(hash){return `media/thumb/${hash.slice(0,2)}/${hash}`;}
+export function thumbnailKey(hash){return `media/thumb/${hash.slice(0,2)}/${hash}`;}
 async function parseBody(request,limit){
   if(!request.headers.get('Content-Type')?.startsWith('application/json'))throw new HttpError(415,'json_required','JSON 요청이 필요합니다.');
   try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await bytes(request,limit)));}
