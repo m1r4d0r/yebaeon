@@ -2,6 +2,7 @@ import { deviceSession, sync2Route } from './sync2.mjs';
 import { remoteSupportRoute } from './remote-support.mjs';
 import { appUpdateRoute } from './app-update.mjs';
 import { adminRoute, emptyTrashRoute } from './admin.mjs';
+import { orphansRoute } from './orphans.mjs';
 import { categoriesRoute } from './categories.mjs';
 import { editingRoute } from './editing.mjs';
 import { mediaPathsRoute } from './ledger.mjs';
@@ -37,7 +38,7 @@ export default {
       const media = /^\/api\/media(?:\/([a-f0-9]{64})(?:\/(content|protection|thumbnail))?)?$/.exec(pathname);
       const dropbox = /^\/api\/dropbox\/(config|list|file)$/.exec(pathname);
       const mediaReferences = pathname === '/api/media/references', mediaPaths = pathname === '/api/media/paths';
-      const admin = /^\/api\/admin(\/trash)?$/.exec(pathname), categories = /^\/api\/categories(?:\/([^/]{1,40}))?$/.exec(pathname), editing = pathname === '/api/editing';
+      const admin = /^\/api\/admin(\/trash|\/orphans)?$/.exec(pathname), categories = /^\/api\/categories(?:\/([^/]{1,40}))?$/.exec(pathname), editing = pathname === '/api/editing';
       const appUpdate = /^\/api\/sync\/app(\/download)?$/.exec(pathname);
       const remote = /^\/api\/sync\/devices\/([0-9a-f]{32})\/(status|support|commands)(?:\/([^/]+))?$/.exec(pathname);
       const sync2 = /^\/api\/sync\/(devices|changes|manifest|usage|revisions|ledger)(?:\/([0-9a-f-]{32,36})(?:\/(applied|content|resolve))?)?$/.exec(pathname);
@@ -62,7 +63,7 @@ export default {
       if (appUpdate) return await appUpdateRoute(request, env, !!appUpdate[1]);
       if (remote) return await remoteSupportRoute(request, env, user, remote[1], remote[2], remote[3]);
       if (sync2) return await sync2Route(request, env, user, sync2[1], sync2[2], sync2[3]);
-      if (admin) return admin[1] ? await emptyTrashRoute(request, env, user) : await adminRoute(request, env, user);
+      if (admin) return admin[1] === '/orphans' ? await orphansRoute(request, env, user) : admin[1] ? await emptyTrashRoute(request, env, user) : await adminRoute(request, env, user);
       if (categories) return await categoriesRoute(request, env, user, categories[1]);
       if (editing) return await editingRoute(request, env, user);
       if (pathname === '/api/favorites') return await favoritesRoute(request, env, user);

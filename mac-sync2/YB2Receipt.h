@@ -32,6 +32,7 @@
 // 서버 이미지 경로표 사본: 경로 → sha
 - (NSString *)mediaSha:(NSString *)path;
 - (void)setMedia:(NSString *)path sha:(NSString *)sha;
+- (void)forgetMedia:(NSString *)path;                   // 서버가 휴지통에 넣은 경로. 다시 올리면 서버에 다시 등록된다
 // 일지에서 받은 "뜻이 실린" 동작(문서 휴지통·이름 바꾸기). [적용] 때 실행하고 지운다.
 // 각 줄: {kind, entity, action, path, previous?, sha?, version?}
 - (NSArray *)pending;

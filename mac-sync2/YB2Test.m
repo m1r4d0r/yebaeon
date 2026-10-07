@@ -309,6 +309,49 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check(RowNamed(rows, @"문서 정리(서버)") == nil, @"untrash cancels the waiting move");
         Check([[engine uploadNew][@"created"] count] == 0, @"a trashed server document is not uploaded again");
 
+        // 18-1. 고아 그림: 관리자가 서버에서 휴지통에 넣으면 [적용] 때 서버가 알던 그대로인 파일만 macOS 휴지통으로 옮긴다. Mac 문서가 아직 쓰는 그림은 둔다.
+        NSString *orphanPath = [mediaDir stringByAppendingPathComponent:[NSString stringWithFormat:@"sync2-orphan-%@.png", NSUUID.UUID.UUIDString]];
+        NSString *usedPath = [mediaDir stringByAppendingPathComponent:[NSString stringWithFormat:@"sync2-orphan-used-%@.png", NSUUID.UUID.UUIDString]];
+        unsigned char orphanBytes[] = {0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 'o', 'r', 'p', 'h'}, usedBytes[] = {0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 'u', 's', 'e', 'd'};
+        if (withImage && [[NSData dataWithBytes:orphanBytes length:sizeof orphanBytes] writeToFile:orphanPath atomically:YES] && [[NSData dataWithBytes:usedBytes length:sizeof usedBytes] writeToFile:usedPath atomically:YES]) {
+            NSString *(^ImageXML)(NSString *) = ^NSString *(NSString *path) { return [NSString stringWithFormat:@"<RVImageElement source=\"file://%@\"/>", [path stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]]; };
+            Check([[engine uploadMediaForDocuments:@[Doc([ImageXML(orphanPath) stringByAppendingString:ImageXML(usedPath)])]][@"registered"] integerValue] == 2, @"orphan test images registered");
+            NSMutableURLRequest *login = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[origin stringByAppendingString:@"/api/admin"]]];
+            login.HTTPMethod = @"POST"; login.HTTPShouldHandleCookies = NO; login.HTTPBody = [NSJSONSerialization dataWithJSONObject:@{@"password": @"native-integration-only-admin"} options:0 error:NULL];
+            [login setValue:web.cookie forHTTPHeaderField:@"Cookie"]; [login setValue:origin forHTTPHeaderField:@"Origin"]; [login setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+            __block NSString *adminCookie = nil; dispatch_semaphore_t loggedIn = dispatch_semaphore_create(0);
+            [[NSURLSession.sharedSession dataTaskWithRequest:login completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+                NSDictionary *fields = [(NSHTTPURLResponse *)response allHeaderFields];
+                for (NSString *key in fields) if ([key caseInsensitiveCompare:@"Set-Cookie"] == NSOrderedSame) adminCookie = [fields[key] componentsSeparatedByString:@";"].firstObject;
+                dispatch_semaphore_signal(loggedIn);
+            }] resume];
+            dispatch_semaphore_wait(loggedIn, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC));
+            Check([adminCookie hasPrefix:@"__Host-yebaeon-admin="], @"admin cookie for the orphan cleanup");
+            NSDictionary *admin = @{@"Cookie": [NSString stringWithFormat:@"%@; %@", web.cookie, adminCookie]};
+            NSDictionary *orphans = nil;
+            for (int round = 0; round < 20; round++) {
+                orphans = [web request:@"/api/admin/orphans" method:@"GET" body:nil headers:admin];
+                if ([orphans[@"remaining"] integerValue] == 0) break;
+                Post(@"/api/admin/orphans", @{@"index": @YES}, admin);
+            }
+            NSArray *candidatePaths = [orphans[@"candidates"] valueForKey:@"path"];
+            Check([candidatePaths containsObject:orphanPath] && [candidatePaths containsObject:usedPath] && ![candidatePaths containsObject:imagePath], @"orphan candidates exclude images any server document uses");
+            Check([Post(@"/api/admin/orphans", @{@"trash": @[orphanPath, usedPath]}, admin)[@"trashed"] integerValue] == 2, @"orphans trashed on the server");
+            NSData *hymn = [NSData dataWithContentsOfFile:Local(@"오 신실하신 주")];
+            Check([Doc([@"찬양 1 " stringByAppendingString:ImageXML(usedPath)]) writeToFile:Local(@"오 신실하신 주") atomically:YES], @"mac document starts using a trashed image");
+            rows = Sync(); actions = RowNamed(rows, @"문서·그림 정리(서버)");
+            Check([actions[@"status"] isEqual:@"actions"] && [actions[@"imageTrashes"] count] == 1 && [actions[@"imageTrashes"][0][@"path"] isEqual:orphanPath], @"server-trashed image waits for apply");
+            Check([[actions[@"actionHolds"] valueForKey:@"path"] containsObject:usedPath], @"image still used on the mac is held");
+            Check([NSFileManager.defaultManager fileExistsAtPath:orphanPath], @"compare does not trash images");
+            result = [engine apply:@[actions]];
+            Check([result[@"failed"] count] == 0 && ![NSFileManager.defaultManager fileExistsAtPath:orphanPath] && [NSFileManager.defaultManager fileExistsAtPath:[trashBin stringByAppendingPathComponent:orphanPath.lastPathComponent]], @"orphan image moved to the trash");
+            Check([NSFileManager.defaultManager fileExistsAtPath:usedPath], @"held image stays");
+            Check([hymn writeToFile:Local(@"오 신실하신 주") atomically:YES], @"mac document restored");
+            [NSFileManager.defaultManager removeItemAtPath:usedPath error:NULL];
+            rows = Sync();
+            Check(RowNamed(rows, @"문서·그림 정리(서버)") == nil && RowNamed(rows, @"문서 정리(서버)") == nil, @"nothing left once the held image is gone");
+        }
+
         // 19. 웹에서 예배를 휴지통에: [적용] 때 그 노드만 뺀다. 꺼내면 서버에 새로 생긴 예배로 다시 받는다.
         NSData *n1Raw = [YBPlaylistNode(YBReadPlaylist(playlistURL), @"N1")[@"raw"] dataUsingEncoding:NSUTF8StringEncoding];
         Post([NSString stringWithFormat:@"/api/playlists/%@/trash?node=N2", libraryID], @{}, LibraryTag());

@@ -1,6 +1,7 @@
 import { documentLog } from './sync2.mjs';
 import { documentStateRoute } from './document-state.mjs';
 import {importedMedia,importMediaStatements} from './import-media.mjs';
+import {documentMediaPaths,documentMediaStatements} from './orphans.mjs';
 import { referenceCounts } from './references.mjs';
 import { catalogList } from './library-catalog.mjs';
 import { searchData,searchStatement } from './document-search.mjs';
@@ -101,6 +102,7 @@ export async function documentsRoute(request, env, user, id, action) {
         db.prepare('INSERT INTO yebaeon_versions(document_id, version, object_key, sha256, size, author, created_at) VALUES (?, 1, ?, ?, ?, ?, ?)').bind(newId, key, content.hash, content.size, user.author, now),
         ...(p.search_enabled?[searchStatement(db,newId,1,content.search)]:[]),
         ...importMediaStatements(db,importRefs,newId,1,writeId,now),
+        ...documentMediaStatements(db,newId,1,documentMediaPaths(content.data),writeId),
         documentLog(db,{id:newId,writeId,action:'created',author:user.author,now})
       ]);
     } catch (error) {
@@ -173,6 +175,7 @@ export async function documentsRoute(request, env, user, id, action) {
     // Keep all historical backups from before the policy was changed.
     db.prepare(`DELETE FROM yebaeon_versions WHERE document_id=? AND version>=? AND version<? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=? AND history_enabled=0)`).bind(id,p.history_start||next,next,id,writeId),
     ...importMediaStatements(db,importRefs,id,next,writeId,now),
+    ...documentMediaStatements(db,id,next,documentMediaPaths(content.data),writeId),
     documentLog(db,{id,writeId,action:'updated',author:user.author,now})
   ]);
   if (results[0].meta.changes !== 1) { await env.FILES.delete(key); throw conflict(); }

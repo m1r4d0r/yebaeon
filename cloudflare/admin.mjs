@@ -62,7 +62,7 @@ export async function emptyTrashRoute(request, env, user) {
       // 행을 먼저 지운다. R2 객체가 남아도 가리키는 행이 없으므로 다시 보이지 않는다.
       await db.batch([
         db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,size,path,author,at) SELECT 'doc',id,'purged',current_version,sha256,size,path,?,? FROM yebaeon_documents WHERE state='trashed' AND id IN (${marks})`).bind(user.author, new Date().toISOString(), ...ids),
-        ...['yebaeon_versions', 'yebaeon_document_search', 'yebaeon_document_usage', 'yebaeon_media_references'].map(table => db.prepare(`DELETE FROM ${table} WHERE document_id IN (${marks})`).bind(...ids)),
+        ...['yebaeon_versions', 'yebaeon_document_search', 'yebaeon_document_usage', 'yebaeon_media_references', 'yebaeon_document_media', 'yebaeon_document_media_state'].map(table => db.prepare(`DELETE FROM ${table} WHERE document_id IN (${marks})`).bind(...ids)),
         db.prepare(`DELETE FROM yebaeon_editing WHERE kind='doc' AND entity IN (${marks})`).bind(...ids),
         db.prepare(`DELETE FROM yebaeon_documents WHERE state='trashed' AND id IN (${marks})`).bind(...ids)
       ]);

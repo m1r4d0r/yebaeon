@@ -135,6 +135,10 @@ static NSString *Column(sqlite3_stmt *stmt, int index) {
     sqlite3_stmt *stmt = Prepare(_db, "INSERT OR REPLACE INTO media(path, sha) VALUES(?,?)"); BindText(stmt, 1, path); BindText(stmt, 2, sha);
     int rc = sqlite3_step(stmt); sqlite3_finalize(stmt); YBRequire(rc == SQLITE_DONE, @"이미지 경로 사본을 기록하지 못했습니다.");
 }
+- (void)forgetMedia:(NSString *)path {
+    sqlite3_stmt *stmt = Prepare(_db, "DELETE FROM media WHERE path = ?"); BindText(stmt, 1, path);
+    int rc = sqlite3_step(stmt); sqlite3_finalize(stmt); YBRequire(rc == SQLITE_DONE, @"이미지 경로 사본을 고치지 못했습니다.");
+}
 - (NSArray *)pending {
     sqlite3_stmt *stmt = Prepare(_db, "SELECT kind, entity, action, path, previous, sha, version FROM pending ORDER BY rowid");
     NSMutableArray *items = [NSMutableArray array];
