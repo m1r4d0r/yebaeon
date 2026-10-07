@@ -296,6 +296,19 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check(RowNamed(rows, @"문서 정리(서버)") == nil && [RowNamed(rows, @"1부 예배")[@"status"] isEqual:@"same"], @"same after rename");
         Check([engine.receipt document:@"1부 기도문.pro6"] != nil && [engine.receipt document:@"1부기도.pro6"] == nil, @"receipt follows the rename");
 
+        // 17-1. Mac에서 이름만 바꾼 문서: 바이트가 같은 "옛 경로 사라짐 + 새 경로 생김"은 새 문서가 아니라 서버 이름 바꾸기로 올린다(id 유지).
+        Check([Doc(@"이름 시험") writeToFile:Local(@"이름 시험") atomically:YES], @"document to rename on the mac");
+        Check([[engine uploadNew][@"created"] isEqual:@[@"이름 시험.pro6"]], @"document before the mac rename uploaded");
+        NSString *renameID = [engine.receipt ledger:@"이름 시험.pro6"][@"id"];
+        Check([NSFileManager.defaultManager moveItemAtPath:Local(@"이름 시험") toPath:Local(@"이름 바꾼 시험") error:NULL], @"mac renames the file");
+        NSDictionary *macRename = [engine uploadNew];
+        Check([macRename[@"created"] count] == 0 && [macRename[@"renamed"] count] == 1 && [macRename[@"renamed"][0][@"to"] isEqual:@"이름 바꾼 시험.pro6"] && [macRename[@"failed"] count] == 0, @"mac rename sent as a rename, not a new document");
+        Check([[web request:[@"/api/documents/" stringByAppendingString:renameID] method:@"GET" body:nil headers:nil][@"document"][@"path"] isEqual:@"이름 바꾼 시험.pro6"], @"server keeps the id under the new name");
+        Check([[web request:[@"/api/documents?checkPath=" stringByAppendingString:Query(@"이름 시험.pro6")] method:@"GET" body:nil headers:nil][@"available"] boolValue], @"old name freed on the server");
+        Check([engine.receipt document:@"이름 바꾼 시험.pro6"] != nil && [engine.receipt document:@"이름 시험.pro6"] == nil && [[engine.receipt ledger:@"이름 바꾼 시험.pro6"][@"id"] isEqual:renameID], @"receipt and ledger follow the mac rename");
+        rows = Sync();
+        Check(RowNamed(rows, @"문서 정리(서버)") == nil && [[engine uploadNew][@"created"] count] == 0, @"own rename leaves nothing to apply or upload");
+
         // 18. 웹에서 휴지통: 예배가 아직 쓰는 문서는 두고, 안 쓰는 문서는 [적용] 때 macOS 휴지통으로.
         NSDictionary *opening = Meta(@"첫화면.pro6");
         Post([NSString stringWithFormat:@"/api/documents/%@/state", opening[@"id"]], @{@"action": @"trash"}, nil);

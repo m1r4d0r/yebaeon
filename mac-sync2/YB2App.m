@@ -548,6 +548,7 @@ static NSString *Summary(NSDictionary *result) {
     NSMutableString *text = [NSMutableString string];
     NSDictionary *upload = result[@"upload"], *apply = result[@"apply"], *created = result[@"created"];
     if ([created[@"created"] count]) [text appendFormat:@"새 문서 올림: %@\n", [created[@"created"] componentsJoinedByString:@", "]];
+    if ([created[@"renamed"] count]) { NSMutableArray *names = [NSMutableArray array]; for (NSDictionary *item in created[@"renamed"]) [names addObject:[NSString stringWithFormat:@"%@ → %@", [item[@"from"] stringByDeletingPathExtension], [item[@"to"] stringByDeletingPathExtension]]]; [text appendFormat:@"Mac에서 바꾼 이름 서버에 반영: %@\n", [names componentsJoinedByString:@", "]]; }
     if ([created[@"media"] integerValue]) [text appendFormat:@"새 이미지 올림: %@개\n", created[@"media"]];
     if ([created[@"collisions"] count]) [text appendFormat:@"서버에 같은 이름이 있어 올리지 않음(정리 창): %@\n", [created[@"collisions"] componentsJoinedByString:@", "]];
     for (NSString *name in created[@"failed"]) [text appendFormat:@"새 문서 올리기 실패 · %@: %@\n", name, created[@"failed"][name]];

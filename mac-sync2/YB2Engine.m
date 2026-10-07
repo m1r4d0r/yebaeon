@@ -1421,6 +1421,30 @@ static NSArray *MediaPaths(NSData *document) {
         NSData *bytes = YBReadSafeFile(self.root, path, NULL);
         if (bytes) [candidates addObject:@{@"path": path, @"bytes": bytes}];
     }
+    // 1-1. Mac에서 이름만 바꾼 문서: 영수증·장부에 있던 활성 경로가 사라지고, 바이트가 완전히 같은 새 경로가 생겼으면 새 문서가 아니라 서버 이름 바꾸기다.
+    // 같은 sha의 사라진 경로·새 경로가 각각 하나일 때만 짝짓는다. 그 밖(내용도 고침, 여럿이 겹침)은 새 문서로 올리고 정리는 사람에게 맡긴다.
+    NSMutableArray *renamed = [NSMutableArray array];
+    NSDictionary *pairs = [self macRenamesFor:candidates];
+    if (pairs.count) {
+        NSMutableArray *rest = [NSMutableArray array];
+        for (NSDictionary *item in candidates) {
+            NSDictionary *from = pairs[item[@"path"]];
+            if (!from) { [rest addObject:item]; continue; }
+            @try {
+                [self report:[NSString stringWithFormat:@"이름 바뀐 문서 · %@ → %@", [from[@"path"] stringByDeletingPathExtension], [item[@"path"] stringByDeletingPathExtension]]];
+                NSMutableDictionary *headers = [JSONHeaders() mutableCopy]; headers[@"If-Match"] = [NSString stringWithFormat:@"\"%@\"", from[@"version"]];
+                NSDictionary *result = [self.server request:[NSString stringWithFormat:@"/api/documents/%@/rename", from[@"id"]] method:@"POST" body:JSONData(@{@"path": item[@"path"]}) headers:headers];
+                YBRequire([result[@"document"][@"path"] isEqual:item[@"path"]], @"서버가 이름 바꾸기를 확인하지 않았습니다.");
+                [self.receipt transaction:^{
+                    [self.receipt moveDocument:from[@"path"] to:item[@"path"]];
+                    [self.receipt setLedger:item[@"path"] id:from[@"id"] version:from[@"version"] sha:from[@"sha"] state:@"active"];
+                    [self.receipt setLedger:from[@"path"] id:from[@"id"] version:from[@"version"] sha:from[@"sha"] state:@"renamed"];
+                }];
+                [renamed addObject:@{@"from": from[@"path"], @"to": item[@"path"]}];
+            } @catch (NSException *e) { failed[item[@"path"]] = e.reason ?: @"이름 바꾸기 실패"; }
+        }
+        candidates = rest;
+    }
     // 2. 문서는 문서끼리 4개씩
     __block NSUInteger done = 0;
     NSArray *results = Parallel(candidates, ^id(NSDictionary *item) {
@@ -1446,7 +1470,28 @@ static NSArray *MediaPaths(NSData *document) {
     NSUInteger media = 0;
     @try { media = [[self uploadMediaForDocuments:uploadedBytes][@"uploaded"] unsignedIntegerValue]; } @catch (NSException *e) { failed[@"이미지"] = e.reason ?: @"이미지 올리기 실패"; }
     [self addCollisions:collisions];
-    return @{@"created": created, @"collisions": collisions, @"media": @(media), @"failed": failed};
+    return @{@"created": created, @"renamed": renamed, @"collisions": collisions, @"media": @(media), @"failed": failed};
+}
+// 새 경로 → 사라진 옛 경로 {path, id, version, sha}. 옛 경로는 Mac이 서버와 같은 바이트로 갖고 있던(영수증 sha = 장부 sha) 활성 문서다.
+- (NSDictionary *)macRenamesFor:(NSArray *)candidates {
+    if (!candidates.count) return @{};
+    NSMutableDictionary *gone = [NSMutableDictionary dictionary], *goneCount = [NSMutableDictionary dictionary];
+    for (NSString *path in [self.receipt documentPaths]) {
+        NSDictionary *known = [self.receipt document:path], *ledger = [self.receipt ledger:path];
+        if (!known || ![ledger[@"state"] isEqual:@"active"] || ![ledger[@"id"] length] || ![known[@"sha"] isEqual:ledger[@"sha"]] || [self diskPath:path]) continue;
+        gone[known[@"sha"]] = @{@"path": path, @"id": ledger[@"id"], @"version": ledger[@"version"] ?: @0, @"sha": ledger[@"sha"]};
+        goneCount[known[@"sha"]] = @([goneCount[known[@"sha"]] integerValue] + 1);
+    }
+    if (!gone.count) return @{};
+    NSMutableDictionary *found = [NSMutableDictionary dictionary], *foundCount = [NSMutableDictionary dictionary];
+    for (NSDictionary *item in candidates) {
+        NSString *hash = YBHash(item[@"bytes"]);
+        if (!gone[hash]) continue;
+        found[hash] = item[@"path"]; foundCount[hash] = @([foundCount[hash] integerValue] + 1);
+    }
+    NSMutableDictionary *pairs = [NSMutableDictionary dictionary];
+    for (NSString *hash in found) if ([goneCount[hash] integerValue] == 1 && [foundCount[hash] integerValue] == 1) pairs[found[hash]] = gone[hash];
+    return pairs;
 }
 
 #pragma mark - 올리기 (2차)
