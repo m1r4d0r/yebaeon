@@ -76,7 +76,7 @@
 .ppt-candidates{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.ppt-candidate{padding:7px 12px;border:1px solid var(--line,#dce2ed);border-radius:6px;background:#f6f8fb;font-weight:600}.ppt-candidate[aria-pressed=true]{background:#edf1ff;border-color:#8c9de6;color:var(--blue,#3e55cf)}.ppt-candidate-other{font-weight:400;color:#465269;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #pptSearch{margin:4px 0 8px}
 
-#pptConversion{min-width:0;max-width:100%;width:100%;padding:7px}
+
 
 .ppt-field{display:grid;grid-template-columns:110px minmax(0,1fr);align-items:start;gap:8px 12px}
 .ppt-field>label{padding-top:8px}.ppt-field>select{width:100%;min-width:0;padding:8px;border:1px solid var(--line,#dce2ed);border-radius:6px;background:#fff}.ppt-field>.ppt-help{grid-column:2;margin:0}
@@ -91,7 +91,7 @@
 .ppt-dialog .ppt-field>label{padding:0}
 .ppt-dialog .ppt-field>select,.ppt-dialog .ppt-name-controls select,.ppt-dialog #pptName{height:34px;padding:5px 8px;font-size:13px}
 .ppt-dialog .ppt-field>.ppt-help{grid-column:1;font-size:11px;line-height:1.4;margin:0}
-.ppt-dialog .ppt-name-controls{align-items:start;margin:10px 0 0;gap:12px}
+.ppt-dialog .ppt-name-controls{align-items:start;margin:0 0 12px;gap:12px}
 .ppt-dialog .ppt-name-controls label{gap:4px}
 .ppt-dialog .ppt-name-controls .ppt-category{flex:0 1 180px}
 #pptScoreOptions{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;border-top:1px solid var(--line,#dce2ed);padding-top:10px;margin-top:10px}
@@ -101,3 +101,7 @@
 #pptTargetInfo:empty{display:none}
 #pptTransparencyHelp{margin:8px 0}
 @media(max-width:540px){.ppt-settings-grid{gap:10px;grid-template-columns:1fr}.ppt-dialog .ppt-name-controls .ppt-category{flex:1 1 100%}#pptScoreOptions{grid-template-columns:1fr}.ppt-dialog .ppt-field>select{height:34px}}
+
+.ppt-radios{display:grid;gap:8px;min-width:0;padding-top:4px}
+.ppt-dialog .ppt-radios label{display:flex;align-items:flex-start;gap:7px;min-width:0;font-size:13px;line-height:1.5}
+.ppt-radios input[type=radio]{flex:none;width:15px;height:15px;margin:2px 0 0;accent-color:var(--blue,#3e55cf)}

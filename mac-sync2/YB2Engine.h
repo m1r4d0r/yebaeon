@@ -68,8 +68,8 @@
 - (NSUInteger)uploadMediaFor:(NSData *)document;
 // 여러 문서의 이미지를 한꺼번에(서버 확인 100개씩, 올리기 4개씩, 경로 등록 200개씩). 반환: {uploaded, registered, skipped}
 - (NSDictionary *)uploadMediaForDocuments:(NSArray *)documents;
-// 전체 확인(7일 규칙). Mac 디스크와 장부 사본·영수증만 본다(서버 요청 없음). Mac 파일을 바꾸지 않는다.
-// 반환·저장: {at, macDeleted:[{path,id}], collisions:[{path,id}], external:[{path,references}], imageFill:[{path,sha}]}
+// 전체 확인(7일 규칙). 변경 일지로 장부를 갱신하고 Mac 디스크·영수증과 대조한다. Mac 파일을 바꾸지 않는다.
+// 반환·저장: {at, serverOnly:[{path,id}], macDeleted:[{path,id}], collisions:[{path,id}], external:[{path,references}], imageFill:[{path,sha}]}
 - (NSDictionary *)fullCheck;
 // 나눠 부르기: scan은 읽기만(다른 작업과 함께 돌 수 있음), save는 영수증 쓰기(작업 큐에서)
 - (NSDictionary *)scanFullCheck;
@@ -79,6 +79,7 @@
 // 정리 창 버튼. 모두 사용자가 누를 때만 돈다.
 - (void)trashOnServer:(NSString *)path;          // Mac에서 지운 문서를 서버 휴지통으로
 - (void)trashOnMac:(NSString *)path;             // 강제 동작: Mac 파일을 macOS 휴지통으로(백업 사본)
+- (void)receiveNewServerDocument:(NSString *)path; // 서버에만 있는 문서·연결 이미지 받기, 기존 Mac 파일은 거절
 - (void)takeServer:(NSString *)path;             // 같은 이름 다른 내용: 서버 것으로(Mac 것은 백업·서버 보관본)
 - (void)takeMac:(NSString *)path;                // 같은 이름 다른 내용: Mac 것을 서버 새 버전으로
 - (NSString *)keepBothNumbered:(NSString *)path; // 같은 이름 다른 내용: Mac 파일에 번호를 붙여 둘 다 둔다. 반환: 새 경로
