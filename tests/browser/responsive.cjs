@@ -72,7 +72,7 @@ const assert=require('node:assert/strict');
  // Start multiple selection from a verified card after switching out of the swipeable editor.
  await setView('slides');await page.locator('.slide-card').nth(0).tap();await page.waitForFunction(()=>YebaeonEditor.selection.values().join(',')==='0');
  await page.locator('#responsiveMultiple').click();await page.locator('.slide-card').nth(1).tap();assert.deepEqual(await page.evaluate(()=>YebaeonEditor.selection.values()),['0','1']);assert.equal(await page.locator('.slide-card.selected').count(),2);
- await page.locator('.slide-card').nth(1).tap();assert.deepEqual(await page.evaluate(()=>YebaeonEditor.selection.values()),['0']);await page.locator('#responsiveMultiple').click();
+ await page.locator('.slide-card').nth(1).tap();assert.deepEqual(await page.evaluate(()=>YebaeonEditor.selection.values()),['0']);assert.equal(await page.evaluate(()=>YebaeonEditor.view()),'slides','repeated taps in multiple mode must not open the editor');await page.locator('#responsiveMultiple').click();
  // Finger drag: hold a card, then drag it below the last card to move it to the end; a plain swipe only scrolls.
  const slideLabels=()=>page.evaluate(()=>PP6.slides(YebaeonEditor.model()).map(s=>s.getAttribute('label'))),beforeTouch=await slideLabels(),held=await page.locator('.slide-card').nth(0).boundingBox(),end=await page.locator('.slide-card').last().boundingBox();
  await page.locator('.slide-card').nth(0).click();await stageTouch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:held.x+30,y:held.y+30}]});await page.waitForTimeout(420);
