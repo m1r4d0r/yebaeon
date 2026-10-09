@@ -80,3 +80,5 @@
 ## 문서
 
 - `web-editor/README.md`·`cloudflare/README.md`·`mac-sync2/README.md` 본문 현행화(옛 검증 기록·0.6.x 서술 제거) (미완)
+
+- Studio CI: 모바일 다중 선택 검사 `tests/browser/responsive.cjs:72` 실패(선택 2장 기대, 실제 0). PPT 회귀 검사는 별도 통과. 원인 점검 필요.

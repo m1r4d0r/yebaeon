@@ -72,7 +72,7 @@ async function full(deck,i,backgroundOnly=false){
  const errors=[],handle=renderSlide(deck.pres,raw,{pdfjs:false,onNavigate:()=>{},onNodeError:(id,e)=>errors.push(id)});
  try{await handle.ready;
   // CSS 배경의 빈 srcRect/확장 fillRect도 캔버스로 직접 합성한다. DOM은 나머지 개체만 그린다.
-  if(s.backgroundPicture){handle.element.style.background='none';for(const el of handle.element.querySelectorAll('[data-pptx-background-image]'))el.remove();}
+  if(s.backgroundPicture){handle.element.style.background='none';for(const el of [...handle.element.children])if(el.matches('[data-pptx-background-image]'))el.remove();}
   const overlay=await rasterDOM(handle.element,deck.width,deck.height);if(errors.length)throw Error('일부 개체를 변환하지 못했습니다. PowerPoint에서 이미지로 저장한 파일을 사용해 주세요.');
   if(!s.backgroundPicture)return overlay;
   const c=makeCanvas(overlay.width,overlay.height),ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);drawPicture(ctx,s.backgroundPicture,c.width/deck.width,0);ctx.drawImage(overlay,0,0);return c;
