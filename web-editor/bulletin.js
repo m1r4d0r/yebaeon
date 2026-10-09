@@ -15,8 +15,9 @@
  const recoveryKey='yebaeon.bulletin.work',plans=new Map();
  let aliases={};try{aliases=JSON.parse(localStorage.getItem('yebaeon.bulletin.songs')||'{}');}catch{}
  const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e;};
- const dateLabel=el('label','file-start-date'),dateInput=el('input');dateInput.type='date';dateInput.id='bulletinDate';dateInput.setAttribute('aria-label','주보 날짜');dateLabel.append(dateInput);start.info.append(dateLabel);dateLabel.hidden=true;
- dateInput.onchange=()=>{if(!work)return;work.date=dateInput.value;pickTargets();save();render();};
+ const dateLabel=el('label','file-start-date'),dateInput=el('input');dateInput.type='text';dateInput.placeholder='YYYY. MM. DD.';dateInput.id='bulletinDate';dateInput.setAttribute('aria-label','주보 날짜');dateLabel.append(dateInput);start.info.append(dateLabel);dateLabel.hidden=true;
+ dateInput.oninput=()=>dateInput.setCustomValidity('');
+ dateInput.onchange=()=>{if(!work)return;const parts=dateInput.value.trim().match(/^(\d{4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})\.?$/),value=parts?`${parts[1]}-${parts[2].padStart(2,'0')}-${parts[3].padStart(2,'0')}`:'';if(!value||Number.isNaN(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value){dateInput.setCustomValidity('날짜를 2026. 10. 11. 형식으로 입력하세요.');dateInput.reportValidity();return;}dateInput.setCustomValidity('');work.date=value;pickTargets();save();render();};
  const mobile=()=>matchMedia('(max-width:600px)').matches;
  const message=s=>$('bulletinMessage').textContent=s;
  const get=id=>work.slots[id];
@@ -70,15 +71,24 @@
  function inStep(s){if(s.step!==work.step)return false;return work.step!=='song'||s.svc===work.svc;}
  function marks(){const m=new Map(),add=(r,c)=>{const k=r.key+':'+r.line;if(!m.has(k))m.set(k,[]);m.get(k).push({...r,c});};for(const s of Object.values(work.slots))if((work.step==='song'?s.step==='song':inStep(s))&&!s.skip)for(const r of s.src)add(r,'sug');const a=ui.active&&get(ui.active);if(a)for(const r of a.src)add(r,'act');return m;}
  function tree(root,keys){const m=marks(),a=ui.active&&get(ui.active),small=mobile();
-  for(const t of work.tables){const full=work.step==='song';if(full&&keys&&!t.cells.some(c=>keys.has(`${t.idx}:${c.row}:${c.col}`)))continue;const cells=full?[...t.cells]:t.cells.filter(c=>c.lines.length&&(!keys||keys.has(`${t.idx}:${c.row}:${c.col}`)));if(!cells.length)continue;const box=el('div','bulletin-table');box.append(el('h4',null,role(t)));const layout=full?tableLayout(t,box):null;
+  for(const t of work.tables){const full=work.step==='song',compact=full&&!!keys;const cells=t.cells.filter(c=>(full||c.lines.length)&&(!keys||keys.has(`${t.idx}:${c.row}:${c.col}`)));if(!cells.length)continue;const box=el('div','bulletin-table');box.append(el('h4',null,compact?'찬양':role(t)));const layout=full?(compact?songLayout(t,cells,box):tableLayout(t,box)):null;
    for(const c of cells.sort((x,y)=>x.row-y.row||x.col-y.col)){const key=`${t.idx}:${c.row}:${c.col}`,cell=layout?.get(c)||el('div');cell.className='bulletin-cell'+(a?.zone===key?' zone':'');cell.dataset.sourceKey=key;
     const acts=tools(key);if(acts.length){const bar=el('div','bulletin-cell-tools');for(const [label,fn] of acts){const b=el('button',null,label);b.onclick=()=>{fn();if(small)closeSheet();};bar.append(b);}cell.append(bar);}
-    c.lines.forEach((line,li)=>{const mk=m.get(key+':'+li)||[],cls=wi=>{let r='';for(const x of mk)if(x.a===null||(wi>=x.a&&wi<=x.b))r=x.c==='act'?'act':(r||'sug');return r;};
+    c.lines.forEach((line,li)=>{if(compact&&!Object.values(work.slots).some(s=>s.step==='song'&&s.src.some(r=>r.key===key&&r.line===li)))return;const mk=m.get(key+':'+li)||[],cls=wi=>{let r='';for(const x of mk)if(x.a===null||(wi>=x.a&&wi<=x.b))r=x.c==='act'?'act':(r||'sug');return r;};
      if(small){const open=ui.openLine===key+':'+li,b=el('button','bulletin-mline'+(mk.length?' sug':'')+(mk.some(x=>x.c==='act')?' active':'')+(open?' open':''),line);b.onclick=()=>{ui.openLine=open?null:key+':'+li;sheet();};cell.append(b);
       if(open){const chips=el('div','bulletin-chips'),whole=el('button','whole','줄 전체 넣기');whole.onclick=()=>pickLine(key,li,line);chips.append(whole);BP.words(line).forEach((w,wi)=>{const x=el('button',cls(wi),w);x.onclick=()=>pickWord(key,li,wi,w);chips.append(x);});cell.append(chips);}}
      else{const row=el('div','bulletin-line'),pil=el('button','pil','¶');pil.title='줄 전체 넣기';pil.setAttribute('aria-label','줄 전체 넣기');pil.onclick=()=>pickLine(key,li,line);const txt=el('span');BP.words(line).forEach((w,wi)=>{if(wi)txt.append(' ');const x=el('span','w '+cls(wi),w);x.onclick=()=>pickWord(key,li,wi,w);txt.append(x);});row.append(pil,txt);cell.append(row);}});
-    if(!layout)box.append(cell);}root.append(box);}
+    if(!layout?.has(c))box.append(cell);}root.append(box);}
   if(!root.children.length)root.append(el('p','bulletin-note','이 단계와 연결된 주보 부분이 없습니다. ‘전체 주보’에서 찾으세요.'));}
+ // 찬양이 있는 행만 남기고 예배별 열을 3열로 압축한다. 출처 키는 원문 좌표를 쓴다.
+ function songLayout(t,cells,box){
+  const heads=[1,2,3].map(n=>t.cells.find(c=>c.lines.some(s=>s.replace(/\s/g,'').startsWith(n+'부예배'))));if(heads.some(h=>!h))return null;
+  const cols=heads.map(h=>h.col),rows=[...new Set(cells.map(c=>c.row))].sort((a,b)=>a-b),nodes=new Map(),occupied=new Set();
+  const wrap=el('div','bulletin-source-scroll'),table=el('table','bulletin-source-grid'),head=el('thead'),header=el('tr'),body=el('tbody');table.setAttribute('aria-label','찬양 원문 표');
+  ['1부예배','2부예배','3부예배'].forEach(name=>{const th=el('th',null,name);th.scope='col';header.append(th);});head.append(header);
+  for(const r of rows){const row=el('tr');for(let i=0;i<3;i++){if(occupied.has(r+':'+i))continue;const c=cells.find(c=>c.row===r&&c.col<=cols[i]&&c.col+c.cols>cols[i]),td=el('td');if(c){const covered=cols.map((k,j)=>k>=c.col&&k<c.col+c.cols?j:-1).filter(j=>j>=0),height=rows.filter(k=>k>=r&&k<r+c.rows);td.colSpan=covered.length;td.rowSpan=height.length;for(const k of height)for(const j of covered)occupied.add(k+':'+j);nodes.set(c,td);}row.append(td);}body.append(row);}
+  table.append(head,body);wrap.append(table);box.append(wrap);return nodes;
+ }
  // HWP의 행·열과 병합 범위를 유지한다. 빈 칸도 자리를 차지한다.
  function tableLayout(t,box){
   if(t.cells.some(c=>![c.row,c.col,c.rows,c.cols].every(Number.isInteger)||c.row<0||c.col<0||c.rows<1||c.cols<1||c.row+c.rows>512||c.col+c.cols>128))return null;
@@ -92,7 +102,7 @@
   const a=mark.getBoundingClientRect(),b=root.getBoundingClientRect();if(a.top<b.top+8||a.bottom>b.bottom-8)root.scrollTop+=a.top-b.top-root.clientHeight/3;
  }
  function stepKeys(){const keys=new Set();for(const s of Object.values(work.slots))if(work.step==='song'?s.step==='song':inStep(s)){for(const r of s.src)keys.add(r.key);if(s.zone&&ui.active===s.id)keys.add(s.zone);}return keys;}
- function source(){const box=$('bulletinSource');box.replaceChildren();if(!work||work.step==='review')return;const bar=el('div','bulletin-source-bar'),lab=el('label'),cb=el('input');cb.type='checkbox';cb.checked=ui.all;cb.onchange=()=>{ui.all=cb.checked;source();};lab.append(cb,'전체 주보');bar.append(el('span',null,ui.all?'주보 전체':work.step==='song'?'예배순서 표 · 선택한 원문은 주황색':'이 단계와 관련된 부분'),lab);box.append(bar);tree(box,ui.all||work.step==='song'&&!stepKeys().size?null:stepKeys());}
+ function source(){const box=$('bulletinSource');box.replaceChildren();if(!work||work.step==='review')return;const bar=el('div','bulletin-source-bar'),lab=el('label'),cb=el('input');cb.type='checkbox';cb.checked=ui.all;cb.onchange=()=>{ui.all=cb.checked;source();};lab.append(cb,'전체 주보');bar.append(el('span',null,ui.all?'주보 전체':work.step==='song'?'찬양 원문 · 선택한 부분은 주황색':'이 단계와 관련된 부분'),lab);box.append(bar);tree(box,ui.all||work.step==='song'&&!stepKeys().size?null:stepKeys());}
  function sheet(){const on=!!(work&&mobile()&&ui.sheet&&ui.active);$('bulletinSheet').hidden=$('bulletinScrim').hidden=!on;if(!on)return;const s=get(ui.active),head=$('bulletinSheet').querySelector('.bulletin-sheet-head'),body=$('bulletinSheet').querySelector('.bulletin-sheet-body');
   head.replaceChildren();const b=el('b',null,s.label);b.append(el('span',null,s.value||'줄을 눌러 낱말을 고르세요'));const all=el('button',null,ui.all?'관련 부분':'전체 주보');all.onclick=()=>{ui.all=!ui.all;sheet();};const done=el('button','primary','완료');done.onclick=closeSheet;head.append(b,all,done);
   body.replaceChildren();const keys=new Set(s.src.map(r=>r.key));if(s.zone)keys.add(s.zone);tree(body,work.step==='song'?(ui.all||!stepKeys().size?null:stepKeys()):(ui.all||!keys.size?null:keys));if(!ui.openLine)revealSource(body);}
@@ -249,7 +259,7 @@
  // 화면을 다시 그리는 동안 포커스된 입력칸이 빠지면 change가 다시 render를 부른다. 끝난 뒤 한 번 더 그린다.
  let rendering=false,again=false;
  function render(){if(rendering){again=true;return;}rendering=true;try{draw();}finally{rendering=false;}if(again){again=false;render();}}
- function draw(){start.setName(work?work.file:'');dateLabel.hidden=!work;dateInput.value=work?.date||'';dateInput.disabled=busy;steps();const root=$('bulletinWork');root.replaceChildren();
+ function draw(){start.setName(work?work.file:'');dateLabel.hidden=!work;dateInput.value=work?.date?work.date.replace(/-/g,'. ')+'.':'';dateInput.disabled=busy;steps();const root=$('bulletinWork');root.replaceChildren();
   $('bulletinMain').classList.toggle('single',!work||work.step==='review');
   if(!work){root.append(el('p','bulletin-empty','위의 ‘내 컴퓨터에서 불러오기’나 ‘드롭박스에서 가져오기’로 HWP 주보를 여세요. 찬양·기도·주일말씀·주중말씀을 미리 채워 두고, 마지막에 적용하면 Studio에 저장 필요 상태로 넘깁니다.'));}
   else ({song:stepSong,prayer:stepPrayer,sermon:stepSermon,weekday:stepWeekday,review:stepReview})[work.step](root);
