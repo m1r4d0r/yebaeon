@@ -181,3 +181,11 @@
 .bulletin-order-pane .added{background:#e8f6ee}.bulletin-order-pane .added .nm{font-weight:700;color:#1f7a4a}.bulletin-order-pane .added .dot{background:#1f7a4a}
 .bulletin-order-pane .removed{background:#fbecee}.bulletin-order-pane .removed .nm{text-decoration:line-through;color:#b4233c}.bulletin-order-pane .replaced{background:#fff6e0}.bulletin-order-pane .replaced .nm{color:#9a6400}
 @media(max-width:600px){.bulletin-compare{grid-template-columns:minmax(0,1fr)}.bulletin-thumbs canvas,.bulletin-compare.stack .bulletin-thumbs canvas{width:132px}}
+
+/* 찬양 원문은 예배별로 자르지 않고 HWP의 표·병합 셀을 유지한다. */
+.bulletin-source-scroll{overflow-x:auto;overscroll-behavior-x:contain}
+.bulletin-source-grid{width:100%;min-width:440px;table-layout:fixed;border-collapse:collapse;font-size:12px}
+.bulletin-source-grid td.bulletin-cell,.bulletin-source-grid td{vertical-align:top;padding:6px;border:1px solid #dce2ed}
+.bulletin-source-grid .bulletin-line{gap:2px}
+.bulletin-source-grid tr:first-child td{background:#f3f5f9;font-weight:600}
+.bulletin-mline.active{background:#ffe1cf;box-shadow:inset 0 0 0 1px var(--orange,#b64a17)}
