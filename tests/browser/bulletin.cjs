@@ -28,6 +28,26 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
     prayer:make([{boxes:[],label:'표지'},title('대표기도 임효일 집사'),title('대표기도\n홍길동 집사')]),prayer2:make([title('대표기도 남윤옥 권사'),{boxes:[],label:'표지'}]),prayer3:make([title('대표기도\n김철수형제')]),
     sermon:make([{boxes:[],label:'표지'},title('옛 시리즈\n옛 제목\n(창세기 2:1)'),verse('창세기 2:1'),{boxes:['What? 옛 질문\n옛 문장입니다.']},verse('요한복음 1:1'),{boxes:['예배 후 광고'],label:'광고'}]),
     simple:make([title('옛 제목\n(요한복음 1:1)'),verse('요한복음 1:1')]),separate:(()=>{const xml=make([{boxes:['옛 청년 제목','옛 시리즈','(요한복음 1:1)']},verse('요한복음 1:1')]),m=PP6.parse(xml,'s'),b=PP6.textElements(PP6.slides(m)[0]),r=PP6.rect(b[0]);PP6.setRect(b[0],{...r,y:r.y+300});PP6.setRect(b[2],{...r,y:r.y+600});return PP6.serialize(m);})(),split:make([{boxes:[],label:'금요기도회_PPT'},{boxes:[],label:'KakaoTalk_Image'},verse('누가복음 11:1'),verse('누가복음 11:2'),{boxes:['광고 끝장']}]),fridayText:make([{boxes:[],label:'표지'},{boxes:['옛 시리즈\n\n옛 금요 제목','(누가복음 1:1)'],small:4,label:'옛 제목 장'},verse('누가복음 1:1')]),plainTitle:make([{boxes:['보고 듣고 배우는\n복된 삶!','(마태복음 13:10-17)']},verse('마태복음 13:10')])};});
+  const balanced=await page.evaluate(async xml=>{
+   const m=PP6.parse(xml,'wrap'),text='가나다라마 바사아자차 카타파하가 나다라마바사',ctx=document.createElement('canvas').getContext('2d');
+   for(const slide of PP6.slides(m))for(const box of PP6.textElements(slide)){
+    const parsed=PP6.parseRTF(PP6.textNode(box).textContent),style=parsed.emptyStyle;
+    const width=PP6Render.layout(ctx,{runs:[{text,style}],emptyStyle:style},{w:1e9,h:1e9}).lines[0].width;
+    PP6.setRect(box,{...PP6.rect(box),w:width*.62,h:1000});
+   }
+   const input=PP6.serialize(m),data={series:'시리즈',title:text,ref:'창세기 1:1',passage:'',groups:[{question:'Who? 짧은 질문',points:[{template:'가나다라마 _______ 카타파하가 나다라마바사',fills:['바사아자차'],quotes:[]}]}]};
+   const result=await YebaeonBulletinDocuments.sermon(input,'wrap',data,{}),slides=PP6.slides(PP6.parse(result.xml,'out'));
+   const title=PP6.parseRTF(PP6.textNode(PP6.textElements(slides[1])[0]).textContent).text;
+   const point=slides.find(s=>PP6.textElements(s).some(b=>PP6.parseRTF(PP6.textNode(b).textContent).text.startsWith('Who?'))),parsed=PP6.parseRTF(PP6.textNode(PP6.textElements(point)[0]).textContent);
+   const short=await YebaeonBulletinDocuments.sermon(input,'short',{...data,title:'짧은 제목',groups:[]},{});
+   const manual=await YebaeonBulletinDocuments.sermon(input,'manual',{...data,title:'가나다라마\n바사아자차 카타파하가 나다라마바사',groups:[]},{});
+   const getTitle=x=>PP6.parseRTF(PP6.textNode(PP6.textElements(PP6.slides(PP6.parse(x.xml,'t'))[1])[0]).textContent).text;
+   return {title,short:getTitle(short),point:parsed.text,underlined:parsed.runs.filter(r=>r.style.underline).map(r=>r.text).join(''),manual:getTitle(manual)};
+  },made.sermon);
+  assert.equal(balanced.title,'시리즈\n가나다라마 바사아자차\n카타파하가 나다라마바사\n(창세기 1:1)','long titles split near the middle word boundary');
+  assert.equal(balanced.point,'Who? 짧은 질문\n가나다라마 바사아자차\n카타파하가 나다라마바사','long points use the same balanced split');assert.equal(balanced.underlined,'바사아자차','answer underline survives the inserted break');
+  assert.equal(balanced.short,'시리즈\n짧은 제목\n(창세기 1:1)','short title stays on one line');
+  assert.equal(balanced.manual,'시리즈\n가나다라마\n바사아자차 카타파하가 나다라마바사\n(창세기 1:1)','manual line breaks take priority');
   template=made.template;const add=(name,xml,category)=>{const id=randomUUID();docs.set(id,{path:name+'.pro6',xml,version:1,category});return id;};
   for(const n of ['첫화면','사도신경(구)','광고','2026엔딩','나의 모습 나의 소유','마무리','주일예배말씀 목사님 ppt','옛 곡 1','옛 곡 2','옛 설교후','옛 헌금','합성 찬양 A','합성 찬양 B','합성 찬양 C','합성 찬양 D','합성 찬양 E','합성 찬양 F'])add(n,made.plain,'가사찬양');
   add('100 주 이름 가사',made.plain,'가사찬양');add('100 주 이름 악보',made.plain,'악보찬양');add('1부기도',made.prayer);add('2부 기도',made.prayer2);add('3부 기도',made.prayer3);add('주일예배말씀',made.sermon);add('청년부 말씀',made.separate);add('수요예배',made.simple);add('금요예배말씀',made.split);add('청년부 말씀 서식',made.plainTitle);

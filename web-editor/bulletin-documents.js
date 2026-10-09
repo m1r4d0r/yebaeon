@@ -3,6 +3,30 @@
  const QUESTION=/^(What|How|Why|Who|When|Where)\?/i;
  const TITLES='(?:시무|안수|은퇴|협동|원로|명예)?(?:집사|권사|장로)|형제|자매|목사|강도사|전도사|선교사|권찰|성도|청년';
  const boxText=box=>P.parseRTF(P.textNode(box)?.textContent||'').text;
+ const balancedRanges=new WeakMap();
+ function balanceTitle(box,text){P.setText(box,text);balancedRanges.set(box,[{start:0,end:text.length}]);}
+ // 실제 글꼴·자간으로 한 줄을 넘는 제목/대지만 가운데 어절에서 나눈다.
+ // 직접 입력한 개행과 빈칸 답의 밑줄 등 기존 run 서식은 그대로 둔다.
+ async function balanceSlide(slide){
+  const boxes=P.textElements(slide).filter(b=>balancedRanges.has(b));if(!boxes.length)return;
+  await PP6Fonts.ensure(slide);const ctx=document.createElement('canvas').getContext('2d');
+  for(const box of boxes){const parsed=P.parseRTF(P.textNode(box).textContent),rect=P.rect(box),caps=P.attr(box,'useAllCaps')==='true';let runs=parsed.runs;
+   if(!(rect.w>0))continue;
+   for(const range of [...balancedRanges.get(box)].reverse()){
+    const text=parsed.text.slice(range.start,range.end);if(!text.trim()||/[\r\n]/.test(text))continue;
+    const measure=(a,b,w=rect.w)=>PP6Render.layout(ctx,{runs:P.sliceRuns(parsed.runs,range.start+a,range.start+b),emptyStyle:parsed.emptyStyle},{...rect,w},caps);
+    if(measure(0,text.length).lines.length<=1)continue;
+    let best=null;
+    for(const m of text.matchAll(/[ \t]+/g)){const a=m.index,b=a+m[0].length;if(!text.slice(0,a).trim()||!text.slice(b).trim())continue;
+     const left=measure(0,a,1e9).lines[0].width,right=measure(b,text.length,1e9).lines[0].width,overflow=Math.max(0,left-rect.w)+Math.max(0,right-rect.w),difference=Math.abs(left-right);
+     if(!best||overflow<best.overflow||overflow===best.overflow&&difference<best.difference)best={a,b,overflow,difference};
+    }
+    if(best){const start=range.start+best.a,end=range.start+best.b,style=P.sliceRuns(parsed.runs,start,start+1)[0]?.style||parsed.emptyStyle;
+     runs=[...P.sliceRuns(runs,0,start),{text:'\n',style},...P.sliceRuns(runs,end,Infinity)];}
+   }
+   P.setRuns(box,runs,parsed.emptyStyle);balancedRanges.delete(box);
+  }
+ }
  const isScripture=slide=>/\(NKRV\)\s*$/.test(slide.getAttribute('label')||'');
  const isPoint=slide=>P.textElements(slide).some(b=>QUESTION.test(boxText(b).trim()));
  const isRefLine=s=>/^\(.*\d+\s*:\s*\d.*\)$/.test(s.trim());
@@ -11,6 +35,7 @@
   return {styles,empty:parsed.emptyStyle};}
  // lines: [{text, style, marks:[{start,end}]}]; marked ranges are underlined.
  function setLines(box,lines){const {empty}=lineStyles(box),runs=[];
+  let offset=0;const ranges=[];for(const [i,line] of lines.entries()){if(i)offset++;if(line.balance)ranges.push({start:offset,end:offset+line.text.length});offset+=line.text.length;}if(ranges.length)balancedRanges.set(box,ranges);
   lines.forEach((line,i)=>{const style={...(line.style||empty),underline:false};if(i)runs.push({text:'\n',style});let pos=0;
    for(const m of line.marks||[]){if(m.start>pos)runs.push({text:line.text.slice(pos,m.start),style});runs.push({text:line.text.slice(m.start,m.end),style:{...style,underline:true}});pos=m.end;}
    runs.push({text:line.text.slice(pos),style});});
@@ -22,14 +47,14 @@
   if(boxes.length===1){const {styles}=lineStyles(boxes[0]),lines=boxText(boxes[0]).split('\n');
    const refAt=lines.findIndex(isRefLine),body=lines.map((_,i)=>i).filter(i=>i!==refAt);
    const seriesStyle=body.length>=2?styles[body[0]]:null,titleStyle=styles[body.length>=2?body[1]:body[0]??0],refStyle=refAt>=0?styles[refAt]:titleStyle;
-   setLines(boxes[0],[...(series?[{text:series,style:seriesStyle||titleStyle}]:[]),{text:title,style:titleStyle},...(refText?[{text:refText,style:refStyle}]:[])]);return;}
+   setLines(boxes[0],[...(series?[{text:series,style:seriesStyle||titleStyle}]:[]),{text:title,style:titleStyle,balance:true},...(refText?[{text:refText,style:refStyle}]:[])]);return;}
   const refBox=boxes.find(b=>isRefLine(boxText(b))),rest=boxes.filter(b=>b!==refBox).sort((a,b)=>P.rect(a).y-P.rect(b).y);
-  if(rest.length>=2){P.setText(rest[0],series||'');P.setText(rest[1],title);}else titleLines(rest[0],series,title);
+  if(rest.length>=2){P.setText(rest[0],series||'');balanceTitle(rest[1],title);}else titleLines(rest[0],series,title);
   if(refBox)P.setText(refBox,refText);}
  // A title box is either 'series, blank line, title' or the title alone (possibly broken over lines).
  function titleLines(box,series,title){const {styles,empty}=lineStyles(box),lines=boxText(box).split('\n'),gap=lines.findIndex((l,i)=>i>0&&!l.trim()&&lines.slice(i+1).some(x=>x.trim()));
   const last=lines.map((l,i)=>l.trim()?i:-1).filter(i=>i>=0).at(-1)??0,titleStyle=styles[last]||empty,seriesStyle=gap>0?styles[0]:{...titleStyle,size:Math.round((titleStyle.size||90)*0.6)};
-  setLines(box,series?[{text:series,style:seriesStyle},{text:'',style:seriesStyle},{text:title,style:titleStyle}]:[{text:title,style:titleStyle}]);}
+  setLines(box,series?[{text:series,style:seriesStyle},{text:'',style:seriesStyle},{text:title,style:titleStyle,balance:true}]:[{text:title,style:titleStyle,balance:true}]);}
  function sentence(template,fills){const marks=[];let text='';template.split(/_{2,}/).forEach((part,i,parts)=>{text+=part;if(i<parts.length-1){const v=fills[i]||'　　　';marks.push({start:text.length,end:text.length+v.length});text+=v;}});
   // 문장 끝(. ! ?)과 직접 넣은 줄바꿈에서 줄을 나눈다.
   const lines=[];let start=0;for(const m of text.matchAll(/[.!?]\s+|\n/g)){lines.push([start,m[0]==='\n'?m.index:m.index+1]);start=m.index+m[0].length;}lines.push([start,text.length]);
@@ -38,8 +63,8 @@
   const boxes=P.textElements(slide),qBox=boxes.find(b=>QUESTION.test(boxText(b).trim())),lines=sentence(template,fills);
   if(!qBox)throw Error('대지 서식 슬라이드를 찾지 못했습니다.');
   const others=boxes.filter(b=>b!==qBox);
-  if(!others.length){const {styles}=lineStyles(qBox);setLines(qBox,[...(question?[{text:question,style:styles[0]}]:[]),...lines.map(l=>({...l,style:styles[1]||styles[0]}))]);return;}
-  P.setText(qBox,question||'');const target=others.reduce((a,b)=>boxText(b).length>boxText(a).length?b:a),{styles}=lineStyles(target);setLines(target,lines.map(l=>({...l,style:styles[0]})));}
+  if(!others.length){const {styles}=lineStyles(qBox);setLines(qBox,[...(question?[{text:question,style:styles[0],balance:true}]:[]),...lines.map(l=>({...l,style:styles[1]||styles[0],balance:true}))]);return;}
+  balanceTitle(qBox,question||'');const target=others.reduce((a,b)=>boxText(b).length>boxText(a).length?b:a),{styles}=lineStyles(target);setLines(target,lines.map(l=>({...l,style:styles[0],balance:true})));}
  async function verseSlides(model,proto,value,materials,fromTemplate){
   const {bible}=materials,parsed=YebaeonBible.parse(value,bible);await PP6Fonts.ensure(proto);
   const box=P.textElements(proto)[0],rect=P.rect(box),parsedBox=P.parseRTF(P.textNode(box).textContent),style=parsedBox.runs.find(r=>r.text.trim())?.style||parsedBox.emptyStyle,ctx=document.createElement('canvas').getContext('2d');ctx.font=PP6Fonts.css(style);
@@ -68,11 +93,11 @@
   for(const g of data.groups)for(const [i,p] of g.points.entries()){if(!points.length)break;addTitle();const s=clone(model,points[Math.min(i,points.length-1)]);fillPoint(s,g.question,p.template,p.fills);list.push(s);for(const q of p.quotes)list.push(...await verseSlides(model,proto,q,materials,fromTemplate));}
   if(data.groups.some(g=>g.points.length)&&points.length)addTitle();
   if(front.length||back.length)notes.push(`형식 밖 장 ${front.length+back.length}개는 지우지 않고 ${[front.length?`앞에 ${front.length}개`:'',back.length?`뒤에 ${back.length}개`:''].filter(Boolean).join(', ')} 모아 두었습니다.`);
-  replaceSlides(model,[...front,...list,...back]);return {xml:P.serialize(model),count:list.length,notes};}
+  await Promise.all(list.map(balanceSlide));replaceSlides(model,[...front,...list,...back]);return {xml:P.serialize(model),count:list.length,notes};}
  // 우리가 만드는 제목 장: 말씀 서식 슬라이드를 그대로 빌려 본문 글상자에 ‘시리즈·빈 줄·제목’, 장절 글상자에 ‘(장절)’을 넣는다.
  function madeTitle(model,proto,fromTemplate,{series,title,ref}){const slide=clone(model,proto);if(fromTemplate){P.ivar(slide,'array','cues')?.replaceChildren();P.ivar(slide,'RVMediaCue','backgroundMediaCue')?.remove();for(const a of ['notes','chordChartPath'])slide.setAttribute(a,'');}
   const boxes=P.textElements(slide);if(boxes.length<2)throw Error('말씀 서식 슬라이드에 본문·장절 글상자가 필요합니다.');const {empty}=lineStyles(boxes[0]),big={...empty,size:Math.round((empty.size||60)*1.35),bold:true},small={...empty,size:Math.round((empty.size||60)*0.8)};
-  setLines(boxes[0],series?[{text:series,style:small},{text:'',style:small},{text:title,style:big}]:[{text:title,style:big}]);P.setText(boxes[1],ref?`(${ref})`:'');boxes.slice(2).forEach(b=>P.setText(b,''));slide.setAttribute('label',title.split('\n')[0]);return slide;}
+  setLines(boxes[0],series?[{text:series,style:small},{text:'',style:small},{text:title,style:big,balance:true}]:[{text:title,style:big,balance:true}]);P.setText(boxes[1],ref?`(${ref})`:'');boxes.slice(2).forEach(b=>P.setText(b,''));slide.setAttribute('label',title.split('\n')[0]);return slide;}
  // 문서 전체를 [제목 → 말씀]으로 다시 만든다. 주중 말씀 문서(made)는 [표지 → 제목 → 말씀 → 제목].
  // 주중 말씀 문서(made)는 첫 말씀(NKRV) 장 바로 앞 장을 지난 제목 장으로 보고, 그보다 앞의 장(표지)은 맨 앞에 그대로 둔다.
  // 그 밖에는 첫 장을 제목 서식으로 쓰고, 첫 장에 글상자가 없을 때만 말씀 서식으로 만든다.
@@ -80,7 +105,7 @@
    // 지난 제목 장에 글상자가 있으면 그 장의 디자인(배경·글상자·글꼴)을 그대로 두고 글자만 바꾼다. 그림뿐인 제목 장이면 말씀 서식으로 만든다.
    if(old&&P.textElements(old).length){s=clone(model,old);fillTitle(s,data);s.setAttribute('label',data.title.split('\n')[0]);}else s=madeTitle(model,proto,fromTemplate,data);}
   else if(!P.textElements(first).length)s=madeTitle(model,proto,fromTemplate,data);else{s=clone(model,first);fillTitle(s,data);}
-  const list=[...covers,s,...(data.passage?await verseSlides(model,proto,data.passage,materials,fromTemplate):[])];
+  await balanceSlide(s);const list=[...covers,s,...(data.passage?await verseSlides(model,proto,data.passage,materials,fromTemplate):[])];
   // 주중 말씀 문서는 말씀 뒤에 같은 제목 장을 한 번 더 둔다(새 ID, 큐·단축키·메모·코드 차트 없음).
   if(made){const end=clone(model,s);P.ivar(end,'array','cues')?.replaceChildren();for(const a of ['notes','chordChartPath'])end.setAttribute(a,'');list.push(end);}
   replaceSlides(model,list);return {xml:P.serialize(model),count:list.length,notes:covers.length?[`표지 ${covers.length}장은 맨 앞에 그대로 두었습니다.`]:[]};}
