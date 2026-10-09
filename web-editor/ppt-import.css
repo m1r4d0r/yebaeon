@@ -63,7 +63,7 @@
 .file-start-dropbox{background:var(--blue,#3e55cf);border-color:var(--blue,#3e55cf);color:#fff;font-weight:600}.file-start-dropbox:hover{background:#3a41a0;border-color:#3a41a0}.file-start-dropbox::before{content:'';width:16px;height:16px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 2 0 6l6 4 6-4zm12 0-6 4 6 4 6-4zM0 14l6 4 6-4-6-4zm18-4-6 4 6 4 6-4zM6 19.3l6 4 6-4-6-4z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 2 0 6l6 4 6-4zm12 0-6 4 6 4 6-4zM0 14l6 4 6-4-6-4zm18-4-6 4 6 4 6-4zM6 19.3l6 4 6-4-6-4z'/%3E%3C/svg%3E") center/contain no-repeat}
 .file-start-add input{display:none}
 .file-start-add.disabled{opacity:.5;pointer-events:none}
-.file-start-name{flex:1;min-width:0;font-size:12px;color:#5b677b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-start-name{flex:0 1 auto;min-width:0;font-size:12px;color:#5b677b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .studio-import-dialog .ppt-switch input[type=checkbox]{appearance:none;width:34px;height:20px;border-radius:10px;background:#c9d1dd;position:relative;margin:0;cursor:pointer;transition:background .15s}
 .studio-import-dialog .ppt-switch input[type=checkbox]::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px #0003}
 .studio-import-dialog .ppt-switch input[type=checkbox]:checked{background:var(--blue,#3e55cf)}
@@ -72,7 +72,7 @@
 .ppt-category{white-space:nowrap}.ppt-category select{padding:6px;min-width:120px;flex:1}
 #pptLargeImage img{display:block;width:100%;height:auto}
 .import-start{flex:none;padding:10px 16px;border-bottom:1px solid var(--line,#dce2ed);background:#f8fafc;max-height:55dvh;overflow:auto}.import-start .dropbox-picker{margin:10px 0 2px}
-@media(max-width:600px){.import-start{padding:8px 10px}.file-start-add,.file-start-dropbox{padding:6px 10px;font-size:12px}.file-start-name{flex-basis:100%}}
+@media(max-width:600px){.import-start{padding:8px 10px}.file-start-add,.file-start-dropbox{padding:6px 10px;font-size:12px}}
 .ppt-candidates{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.ppt-candidate{padding:7px 12px;border:1px solid var(--line,#dce2ed);border-radius:6px;background:#f6f8fb;font-weight:600}.ppt-candidate[aria-pressed=true]{background:#edf1ff;border-color:#8c9de6;color:var(--blue,#3e55cf)}.ppt-candidate-other{font-weight:400;color:#465269;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #pptSearch{margin:4px 0 8px}
 
@@ -105,3 +105,9 @@
 .ppt-radios{display:grid;gap:8px;min-width:0;padding-top:4px}
 .ppt-dialog .ppt-radios label{display:flex;align-items:flex-start;gap:7px;min-width:0;font-size:13px;line-height:1.5}
 .ppt-radios input[type=radio]{flex:none;width:15px;height:15px;margin:2px 0 0;accent-color:var(--blue,#3e55cf)}
+
+.file-start-info{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.file-start-actions{display:flex;align-items:center;gap:8px;flex:none;margin-left:auto;max-width:100%}
+.file-start-date{display:inline-flex;align-items:center;flex:none}
+.file-start-date input{font:inherit;font-size:12px;color:#465269;border:1px solid #dce2ed;background:#fff;border-radius:5px;padding:4px 6px;width:132px;min-width:0}
+@media(max-width:600px){.file-start-info{flex-basis:100%}.file-start-actions{flex-wrap:wrap;justify-content:flex-end}.file-start-add,.file-start-dropbox{white-space:nowrap}}
