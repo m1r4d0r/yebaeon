@@ -8,6 +8,18 @@ const image=url=>new Promise((resolve,reject)=>{const i=new Image();i.onload=()=
 const mime=bytes=>bytes[0]===137?'image/png':bytes[0]===255?'image/jpeg':bytes[0]===71?'image/gif':bytes[0]===82?'image/webp':null;
 function path(base,target){const parts=target.startsWith('/')?[]:base.split('/').slice(0,-1);for(const p of target.split('/')){if(p==='..')parts.pop();else if(p&&p!=='.')parts.push(p);}return parts.join('/');}
 function localRels(xml){const d=new DOMParser().parseFromString(xml,'application/xml');for(const e of d.querySelectorAll('Relationship'))if(e.getAttribute('TargetMode')?.toLowerCase()==='external'||/^(?:[a-z]+:|\/\/)/i.test(e.getAttribute('Target')||''))e.remove();return new XMLSerializer().serializeToString(d);}
+// 배경으로 지정된 그림도 악보 후보가 될 수 있다. 관계 경로는 해당 슬라이드/레이아웃/마스터를 기준으로 푼다.
+function backgroundPicture(pres,raw,warnings){
+ const layoutPath=raw.layoutIndex,layout=pres.layouts.get(layoutPath),masterPath=pres.layoutToMaster.get(layoutPath),master=pres.masters.get(masterPath);
+ const owner=raw.background?{data:raw,base:raw.slidePath}:layout?.background?{data:layout,base:layoutPath}:master?.background?{data:master,base:masterPath}:null;
+ const fill=owner?.data.background?.child('bgPr').child('blipFill');if(!fill?.exists())return null;
+ if(fill.child('tile').exists()){warnings.push('타일 배경은 악보 분리 대상에서 제외합니다.');return null;}
+ const blip=fill.child('blip'),id=blip.attr('embed')??blip.attr('r:embed'),rel=owner.data.rels.get(id),key=rel?path(owner.base,rel.target):'',bytes=pres.media.get(key),type=bytes&&mime(bytes);
+ if(!type){warnings.push('배경 그림을 읽지 못했습니다. 원본과 대조해 주세요.');return null;}
+ const rect=fill.child('stretch').child('fillRect'),src=fill.child('srcRect'),pct=(n,k)=>(n.numAttr(k)??0)/100000;
+ const l=pct(rect,'l'),t=pct(rect,'t'),r=pct(rect,'r'),b=pct(rect,'b');
+ return {name:'슬라이드 배경 그림',isBackground:true,bytes,type,x:l*pres.width,y:t*pres.height,w:(1-l-r)*pres.width,h:(1-t-b)*pres.height,crop:{left:pct(src,'l'),top:pct(src,'t'),right:pct(src,'r'),bottom:pct(src,'b')}};
+}
 export async function parse(buffer){
  if(buffer.byteLength>MAX)throw Error('파일은 40MB 이하로 선택해 주세요.');
  const bytes=new Uint8Array(buffer);let deck;
@@ -20,8 +32,9 @@ export async function parse(buffer){
   if(!pres.slides.length||pres.slides.length>120)throw Error('PPTX는 1~120장까지 가져올 수 있습니다.');
   deck={kind:'pptx',width:pres.width,height:pres.height,pres,warnings:['원본 폰트·애니메이션·동영상·일부 특수 효과는 PowerPoint와 다를 수 있습니다. 정지 화면 미리보기를 확인하세요.'],slides:pres.slides.map(raw=>{
    const images=[],warnings=[];
+   const picture=backgroundPicture(pres,raw,warnings);if(picture)images.push(picture);
    for(const n of raw.nodes){if(n.nodeType==='picture'&&!n.isVideo&&!n.isAudio){const rel=raw.rels.get(n.blipEmbed),key=rel?path(raw.slidePath,rel.target):'',bytes=pres.media.get(key),type=bytes&&mime(bytes);if(type)images.push({name:n.name||'이미지',bytes,type,x:n.position.x,y:n.position.y,w:n.size.w,h:n.size.h,rotation:n.rotation,flipH:n.flipH,flipV:n.flipV,crop:n.crop,node:n});else warnings.push('벡터/외부 이미지가 있어 원본과 대조가 필요합니다.');}else if(n.nodeType==='group')warnings.push('그룹 안의 악보는 그림 그룹을 해제한 뒤 가져와 주세요.');}
-   return {raw,images,warnings,hidden:raw.hidden};
+   return {raw,images,backgroundPicture:picture,warnings,hidden:raw.hidden};
   })};
  }else throw Error('올바른 PPT 또는 PPTX 파일을 선택해 주세요.');
  if(!(deck.width>0&&deck.height>0&&deck.width/deck.height<8&&deck.height/deck.width<8))throw Error('슬라이드 크기를 확인해 주세요.');
@@ -54,9 +67,16 @@ async function full(deck,i,backgroundOnly=false){
   if(backgroundOnly){const c=makeCanvas(1920,Math.round(1920*deck.height/deck.width)),ctx=c.getContext('2d');ctx.fillStyle=s.color;ctx.fillRect(0,0,c.width,c.height);if(s.background)ctx.drawImage(await image(s.background.url),0,0,c.width,c.height);return c;}
   return rasterDOM(legacyDOM(deck,s),deck.width,deck.height);
  }
- const raw=backgroundOnly?{...s.raw,nodes:s.images.filter((p,j)=>j!==s.scoreIndex&&!p.transparent&&p.w*p.h>=deck.width*deck.height*.75).map(p=>p.node),showMasterSp:false}:s.raw;
+ if(backgroundOnly&&s.images[s.scoreIndex]?.isBackground){const c=makeCanvas(1920,Math.round(1920*deck.height/deck.width));c.getContext('2d').fillStyle='#fff';c.getContext('2d').fillRect(0,0,c.width,c.height);return c;}
+ const raw=backgroundOnly?{...s.raw,nodes:s.images.filter((p,j)=>j!==s.scoreIndex&&p.node&&!p.transparent&&p.w*p.h>=deck.width*deck.height*.75).map(p=>p.node),showMasterSp:false}:s.raw;
  const errors=[],handle=renderSlide(deck.pres,raw,{pdfjs:false,onNavigate:()=>{},onNodeError:(id,e)=>errors.push(id)});
- try{await handle.ready;const c=await rasterDOM(handle.element,deck.width,deck.height);if(errors.length)throw Error('일부 개체를 변환하지 못했습니다. PowerPoint에서 이미지로 저장한 파일을 사용해 주세요.');return c;}finally{handle.dispose();}
+ try{await handle.ready;
+  // CSS 배경의 빈 srcRect/확장 fillRect도 캔버스로 직접 합성한다. DOM은 나머지 개체만 그린다.
+  if(s.backgroundPicture){handle.element.style.background='none';for(const el of handle.element.querySelectorAll('[data-pptx-background-image]'))el.remove();}
+  const overlay=await rasterDOM(handle.element,deck.width,deck.height);if(errors.length)throw Error('일부 개체를 변환하지 못했습니다. PowerPoint에서 이미지로 저장한 파일을 사용해 주세요.');
+  if(!s.backgroundPicture)return overlay;
+  const c=makeCanvas(overlay.width,overlay.height),ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);drawPicture(ctx,s.backgroundPicture,c.width/deck.width,0);ctx.drawImage(overlay,0,0);return c;
+ }finally{handle.dispose();}
 }
 function drawPicture(ctx,p,scale,top){
  const crop=p.crop||{},l=crop.left||0,r=crop.right||0,t=crop.top||0,b=crop.bottom||0;
@@ -65,11 +85,17 @@ function drawPicture(ctx,p,scale,top){
  ctx.save();ctx.translate((p.x+p.w/2)*scale,(p.y+p.h/2)*scale);ctx.rotate((p.rotation||0)*Math.PI/180);ctx.scale(p.flipH?-1:1,p.flipV?-1:1);
  ctx.beginPath();ctx.rect(-w/2,-h/2+h*top,w,h*(1-top));ctx.clip();ctx.drawImage(img,l*img.width,t*img.height,(1-l-r)*img.width,(1-t-b)*img.height,-w/2,-h/2,w,h);ctx.restore();
 }
-export async function render(deck,i,{mode='full',crop=0.167,keepTitle=false,background='original',backgroundColor='#ffffff',backgroundImage=null}={}){
+function removeWhiteMatte(canvas){
+ const ctx=canvas.getContext('2d'),pixels=ctx.getImageData(0,0,canvas.width,canvas.height),d=pixels.data;
+ for(let i=0;i<d.length;i+=4){if(!d[i+3])continue;const white=Math.min(d[i],d[i+1],d[i+2]),ink=255-white;if(ink<5){d[i+3]=0;continue;}for(let k=0;k<3;k++)d[i+k]=Math.round((d[i+k]-white)*255/ink);d[i+3]=Math.round(d[i+3]*ink/255);}
+ ctx.putImageData(pixels,0,0);
+}
+export async function render(deck,i,{mode='full',removeWhite=false,crop=0.167,keepTitle=false,background='original',backgroundColor='#ffffff',backgroundImage=null}={}){
  if(mode==='full')return {foreground:await blob(await full(deck,i)),background:null,warnings:deck.slides[i].warnings};
  const s=deck.slides[i],p=s.images[s.scoreIndex];if(!p)throw Error(`${i+1}장에 분리할 악보 이미지가 없습니다. 일반 슬라이드 방식으로 가져와 주세요.`);
  const w=1920,h=Math.round(w*deck.height/deck.width),fg=makeCanvas(w,h);drawPicture(fg.getContext('2d'),p,w/deck.width,keepTitle?0:crop);
+ if(removeWhite&&!p.transparent)removeWhiteMatte(fg);
  let bg;if(background==='original')bg=await full(deck,i,true);else if(background!=='none'){bg=makeCanvas(w,h);const ctx=bg.getContext('2d');ctx.fillStyle=backgroundColor;ctx.fillRect(0,0,w,h);if(background==='image'&&backgroundImage){const img=await image(backgroundImage),scale=Math.max(w/img.width,h/img.height);ctx.drawImage(img,(w-img.width*scale)/2,(h-img.height*scale)/2,img.width*scale,img.height*scale);}}
- return {foreground:await blob(fg),background:bg?await blob(bg):null,warnings:[...s.warnings,...(!p.transparent?['선택한 악보 그림은 불투명합니다. 합쳐진 배경은 분리되지 않습니다.']:[])]};
+ return {foreground:await blob(fg),background:bg?await blob(bg):null,warnings:[...s.warnings,...(!p.transparent?(removeWhite?['흰 바탕을 투명하게 처리했습니다. 흰 글자·테두리도 투명해지므로 배경을 넣어 확인하세요.']:['선택한 악보 그림은 불투명합니다. 합쳐진 배경은 분리되지 않습니다.']):[])]};
 }
 export {blob,makeCanvas};

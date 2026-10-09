@@ -45,6 +45,25 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
  assert.deepEqual(plain,[{separated:true,title:255,corner:0},{separated:false,title:255,corner:255}]);assert.match(await page.locator('#pptSlides [data-index="1"] .ppt-card-badge').textContent(),/통 이미지/);
  await page.locator('#pptAppend').uncheck();await page.locator('#pptReviewed').check();await page.locator('#pptSave').click();await page.waitForFunction(()=>!document.querySelector('#pptDialog').open);const plainXML=[...docs.values()].find(d=>d.path==='plain.pro6').xml;assert.equal((plainXML.match(/<RVDisplaySlide [^>]*drawingBackgroundColor="false"/g)||[]).length,1);assert.equal((plainXML.match(/<RVDisplaySlide [^>]*drawingBackgroundColor="true"/g)||[]).length,1);
  await page.locator('#pptOpen').click();
+ // Opaque score stored as slide background, with empty srcRect and expanded fillRect.
+ const whitePNG=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=960;c.height=540;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,960,540);x.fillStyle='#000';x.fillRect(100,30,300,30);x.fillRect(100,200,500,10);x.fillStyle='#00f';x.fillRect(30,30,40,40);return c.toDataURL().split(',')[1];});
+ const bgFiles={...zipped,'ppt/media/score.png':Buffer.from(whitePNG,'base64')};
+ for(let i=1;i<=2;i++)bgFiles[`ppt/slides/slide${i}.xml`]=strToU8(`<p:sld ${ns}><p:cSld><p:bg><p:bgPr><a:blipFill><a:blip r:embed="img"/><a:srcRect/><a:stretch><a:fillRect t="-1000" b="-1000"/></a:stretch></a:blipFill></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr/><p:grpSpPr/></p:spTree></p:cSld></p:sld>`);
+ await page.locator('#pptFile').setInputFiles({name:'background-score.pptx',mimeType:'application/octet-stream',buffer:Buffer.from(zipSync(bgFiles))});
+ await page.waitForFunction(()=>!YebaeonPPTImport.state().busy&&YebaeonPPTImport.state().deck?.slides.length===2);
+ await page.locator('#pptCategory').selectOption('악보찬양');await page.locator('#pptCropOn').check();
+ assert.deepEqual(await page.evaluate(()=>YebaeonPPTImport.state().deck.slides.map(s=>s.images[0].isBackground)),[true,true]);
+ const renderReady=async()=>{await page.locator('#pptPreview').click();await page.waitForFunction(()=>!YebaeonPPTImport.state().busy&&YebaeonPPTImport.state().outputs.length===2);};
+ const sample=()=>page.evaluate(async()=>Promise.all(YebaeonPPTImport.state().outputs.map(async o=>{const im=await createImageBitmap(o.image),c=document.createElement('canvas');c.width=im.width;c.height=im.height;const x=c.getContext('2d');x.drawImage(im,0,0);const pixel=(a,b)=>[...x.getImageData(a,b,1,1).data];const result={separated:o.separated,white:pixel(10,10),line:pixel(400,408),title:pixel(220,70),blue:pixel(80,80)};im.close();return result;})));
+ await renderReady();let bgPixels=await sample();
+ assert.ok(bgPixels.every(p=>!p.separated&&p.white[3]===255&&p.line[0]===0&&p.line[3]===255),'background-only slide must render, not blank');
+ await page.locator('#pptRemoveWhite').check();await renderReady();bgPixels=await sample();
+ assert.ok(bgPixels.every(p=>p.separated&&p.white[3]===0&&p.line[3]===255),'white removed, black score retained');
+ assert.equal(bgPixels[0].title[3],255);assert.equal(bgPixels[1].title[3],0);assert.deepEqual(bgPixels[0].blue,[0,0,255,255]);
+ await page.locator('#pptReviewed').check();await page.locator('#pptConversion').selectOption('full');
+ assert.equal(await page.locator('#pptReviewed').isChecked(),false);assert.equal(await page.locator('#pptScoreOptions').isVisible(),false);
+ await renderReady();bgPixels=await sample();assert.ok(bgPixels.every(p=>!p.separated&&p.white[3]===255&&p.title[3]===255),'whole image overrides crop and white removal');
+ await page.locator('#pptConversion').selectOption('auto');await renderReady();assert.ok((await sample()).every(p=>p.separated),'return to separation');
  // 드롭박스에서 PPT 고르기: PPT만 보이고, 큰 파일은 막히며, 고른 파일은 같은 흐름으로 읽힌다.
  const box='#pptStart .dropbox-picker';await page.locator('#pptStart .file-start-dropbox').click();await page.locator(box+' .dropbox-row').first().waitFor();
  assert.deepEqual(await page.locator(box+' .dropbox-row>span').allTextContents(),['주일','big.pptx','synthetic.pptx'],'folders first, then PPT and PDF files (newest first, name when undated)');assert.equal(await page.locator(box+' .dropbox-row .dropbox-icon').count(),3,'every row has a folder or file icon');
