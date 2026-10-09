@@ -59,7 +59,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   if(process.env.BULLETIN_FIXTURE_DIR){const fs=require('node:fs');for(const name of fs.readdirSync(process.env.BULLETIN_FIXTURE_DIR).filter(n=>n.endsWith('.hwp'))){const bytes=fs.readFileSync(require('node:path').join(process.env.BULLETIN_FIXTURE_DIR,name));const r=await page.evaluate(bytes=>{const p=YebaeonBulletinParser.parse(Uint8Array.from(bytes));return {date:p.date,songs:p.services.map(s=>s.songs.length),groups:p.sermonGroups.length};},[...bytes]);assert.equal(r.songs.length,3);console.log('Private HWP verified:',JSON.stringify(r));}}
   await page.locator('#bulletinOpen').click();assert.equal(await page.locator('.bulletin-empty').isVisible(),true);
   await page.locator('#bulletinFile').setInputFiles({name:'synthetic.hwp',mimeType:'application/octet-stream',buffer:syntheticHWP()});await page.waitForFunction(()=>YebaeonBulletin.state()?.date==='2026-10-04');
-  assert.equal(await page.locator('#bulletinStart .file-start-name').textContent(),'synthetic.hwp');assert.equal(await page.locator('#bulletinStart input[type=date]').inputValue(),'2026-10-04');assert.equal(await page.locator('#bulletinWork input[type=date]').count(),0);
+  assert.equal(await page.locator('#bulletinStart .file-start-name').textContent(),'synthetic.hwp');assert.equal(await page.locator('#bulletinDate').inputValue(),'2026. 10. 04.');assert.equal(await page.locator('#bulletinWork input[type=date]').count(),0);
   const slot=label=>page.locator('.bulletin-slot').filter({has:page.locator('label',{hasText:label})}).first();
   assert.equal(await page.locator('.bulletin-target select').evaluate(s=>s.selectedOptions[0].text),'1부 예배(품성)','first Sunday uses 품성');
   const sourceTable=page.locator('#bulletinSource .bulletin-source-grid');
@@ -67,7 +67,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   const tableText=await sourceTable.innerText();for(const word of ['1부예배','2부예배','3부예배','합성 찬양 A','합성 찬양 C'])assert.ok(tableText.includes(word),'all services retain their place in the source table');
   assert.equal(await page.getByRole('button',{name:/이 칸을 .* 찬양으로/}).count(),0);
   assert.equal(await sourceTable.locator('td',{hasText:'합성 찬양 A'}).getAttribute('rowspan'),'2');
-  assert.equal(await sourceTable.locator('td',{hasText:'합심기도 후 대표기도'}).getAttribute('colspan'),'3');
+  await page.screenshot({path:'artifacts/bulletin-songs-only.png'});assert.equal(await sourceTable.locator('th').count(),3);assert.doesNotMatch(tableText,/신앙고백|부름의 찬양|합심기도|대표기도|합성 설교|축복의 선포|드림의 찬양/);assert.equal(await sourceTable.locator('td',{hasText:'합성 찬양 D'}).getAttribute('colspan'),'2');
   // A previously unchanged (automatically unchecked) service becomes included after a song is selected.
   await page.getByRole('tab',{name:'검토·적용',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('#bulletinDialog').matches('[aria-busy=true]')&&document.querySelectorAll('.bulletin-compare').length>0);
   assert.equal(await page.locator('.bulletin-op>label',{hasText:'1부 예배(품성)'}).locator('input').isChecked(),false);
