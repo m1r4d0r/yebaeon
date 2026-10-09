@@ -19,6 +19,7 @@
 @property(nonatomic) NSSet *knownImagePaths;            // 마지막 비교의 예배 문서들이 가리키는 이미지 경로(변경 일지 거르기용)
 @end
 
+static NSString *MacTrashKey(NSString *path) { return [@"macTrash:" stringByAppendingString:path.precomposedStringWithCanonicalMapping]; }
 static NSArray *MediaPaths(NSData *document);
 static BOOL AllowedMedia(NSString *path);
 
@@ -367,11 +368,15 @@ static NSString *ImageDiskPath(NSString *path) {
 
             NSMutableArray *documents = [NSMutableArray array], *macChanged = [NSMutableArray array], *macOnly = [NSMutableArray array], *usageOnly = [NSMutableArray array], *reverted = [NSMutableArray array];
             NSMutableDictionary *reasons = [NSMutableDictionary dictionary];
+            NSMutableArray *explicitlyDeleted = [NSMutableArray array];
             NSMutableArray *macDeletedDocs = [NSMutableArray array], *keptDocs = [NSMutableArray array];
             for (NSDictionary *doc in plan[@"documents"]) {
+                if ([doc[@"state"] isEqual:@"trashed"]) continue;
                 [documentIDs addObject:doc[@"id"]];
                 NSString *path = doc[@"path"], *localHash = [self localHash:path];
                 NSDictionary *knownDoc = [self.receipt document:path];
+                if (!localHash && [[self.receipt value:MacTrashKey(path)] isEqual:@"1"]) { [explicitlyDeleted addObject:path]; continue; }
+                if (localHash && [[self.receipt value:MacTrashKey(path)] isEqual:@"1"]) [self.receipt setValue:@"" forKey:MacTrashKey(path)];
                 if (!localHash && knownDoc) [macDeletedDocs addObject:path];   // 받은 적 있는데 지금 없음: Mac에서 지움. 적용하면 다시 받는다
                 long long size = 0, mtime = 0; [self statPath:path size:&size mtime:&mtime];
                 if (localHash && [localHash isEqual:doc[@"sha256"]]) {
@@ -433,12 +438,14 @@ static NSString *ImageDiskPath(NSString *path) {
                 NSString *path = item[@"path"];
                 if ([path isKindOfClass:NSString.class] && ![self statPath:path size:NULL mtime:NULL]) [missingLocal addObject:path];
             }
+            row[@"explicitlyDeletedDocuments"] = explicitlyDeleted;
             row[@"documents"] = documents; row[@"macChangedDocuments"] = macChanged;
             row[@"serviceDocuments"] = [plan[@"documents"] valueForKey:@"path"] ?: @[];   // 이 예배의 모든 문서(오른쪽 클릭 강제 동작용)
             row[@"missingServer"] = @(missingServer); row[@"missingLocal"] = missingLocal;
             if (orderChanged || documents.count) row[@"status"] = @"receive";
             else if (images.count) { row[@"status"] = @"receive"; row[@"imagesOnly"] = @YES; }
             else if (macOnlyOrder || macOnly.count || usageOnly.count) row[@"status"] = @"mac";
+            else if (explicitlyDeleted.count) { row[@"status"] = @"hold"; row[@"reason"] = @"Mac에서 지운 문서 · 다시 받지 않음(정리 창에서 복구 가능)"; }
             else {
                 row[@"status"] = @"same";
                 [self.receipt rememberNode:key serverSha:plan[@"playlist"][@"sha256"] fingerprint:localFP name:name];
@@ -616,6 +623,8 @@ static NSString *ImageDiskPath(NSString *path) {
             }
             for (NSDictionary *doc in row[@"documents"]) {
                 NSString *path = doc[@"path"];
+                if ([doc[@"state"] isEqual:@"trashed"] || [[self.receipt ledger:path][@"state"] isEqual:@"trashed"]) continue;
+                if ([[self.receipt value:MacTrashKey(path)] isEqual:@"1"] && ![self diskPath:path]) { [held addObject:path]; continue; }
                 if (seenPaths[path] || rowSeen[path]) continue;   // 여러 예배가 같은 문서를 쓰면 한 번만 받는다.
                 if ([heldPaths containsObject:path]) continue;   // 이력 없는 다른 내용: Mac 파일을 그대로 둔다
                 [self report:[NSString stringWithFormat:@"%@ · 문서 받는 중 · %@", name, path]];
@@ -952,6 +961,7 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
 }
 // 서버 문서를 받아 그 경로에 쓴다. 덮이는 Mac 파일은 백업 폴더와 서버 보관본으로 남긴다.
 - (void)receiveServer:(NSDictionary *)doc into:(NSString *)path backup:(NSString *)folder {
+    YBRequire(![doc[@"state"] isEqual:@"trashed"], @"서버 휴지통에 있는 문서입니다. 먼저 서버 휴지통에서 꺼내 주세요.");
     NSData *data = [self.server download:doc];
     mode_t mode = 0644; NSData *current = YBReadSafeFile(self.root, path, &mode);
     if (current) {
@@ -970,6 +980,7 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     NSString *disk = [self diskPath:path]; YBRequire(disk != nil, @"Mac에 그 문서가 없습니다.");
     NSData *bytes = YBReadSafeFile(self.root, path, NULL);
     if (bytes) YBWriteSafeFile([self documentsBackup:@"mac-trash"], path, bytes, 0600, nil);
+    [self.receipt setValue:@"1" forKey:MacTrashKey(path)];
     YBRequire(self.trashItem(disk) != nil, @"Mac 파일을 휴지통으로 옮기지 못했습니다.");
 }
 // 같은 이름, 다른 내용: [서버 것으로]
@@ -977,6 +988,7 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     YBRequire(!self.presenterRunning(), @"ProPresenter를 종료한 뒤 해 주세요.");
     NSDictionary *entry = [self.receipt ledger:path]; YBRequire([entry[@"id"] length] > 0, @"서버 장부에 없는 문서입니다.");
     [self receiveServer:[self serverDocument:entry[@"id"]] into:path backup:[self backupFolder:@"server"]];
+    [self.receipt setValue:@"" forKey:MacTrashKey(path)];
     [self dropFromFullCheck:@"collisions" path:path]; [self dropFromFullCheck:@"macDeleted" path:path];
 }
 // 같은 이름, 다른 내용: [Mac 것 올리기]. 서버의 그전 내용은 이력에 남는다.
@@ -1347,6 +1359,7 @@ static NSArray *MediaPaths(NSData *document) {
     if (disk) {
         NSData *bytes = YBReadSafeFile(self.root, target, NULL);
         if (bytes) YBWriteSafeFile([self documentsBackup:@"numbered-remove"], target, bytes, 0600, nil);
+        [self.receipt setValue:@"1" forKey:MacTrashKey(target)];
         YBRequire(self.trashItem(disk) != nil, @"Mac 파일을 휴지통으로 옮기지 못했습니다.");
     }
     NSDictionary *entry = [self.receipt ledger:target];
@@ -1495,6 +1508,31 @@ static NSArray *MediaPaths(NSData *document) {
 }
 
 #pragma mark - 올리기 (2차)
+
+- (NSDictionary *)overwriteOrder:(NSDictionary *)row fromServer:(BOOL)fromServer {
+    YBRequire(self.library != nil && self.comparedPlaylistHash != nil, @"먼저 비교해 주세요.");
+    YBRequire([@[@"same", @"receive", @"mac"] containsObject:row[@"status"] ?: @""] && [row[@"plan"][@"applicable"] boolValue], @"이 재생목록은 순서를 덮어쓸 수 없습니다. 다시 비교해 주세요.");
+    YBRequire([row[@"key"] isEqual:[NSString stringWithFormat:@"%@/%@", self.library[@"id"], row[@"nodeID"]]], @"비교한 재생목록이 지금 연결과 다릅니다.");
+    if (fromServer) YBRequire(!self.presenterRunning(), @"ProPresenter를 종료한 뒤 적용해 주세요.");
+    YBRequire(![NSFileManager.defaultManager fileExistsAtPath:self.journalPath], @"중단된 적용을 마무리한 뒤 다시 비교해 주세요.");
+    NSDictionary *latest = [self plan:row[@"nodeID"]];
+    YBRequire([latest[@"playlist"][@"sha256"] isEqual:row[@"plan"][@"playlist"][@"sha256"]], @"비교한 뒤 서버 순서가 바뀌었습니다. 다시 비교한 뒤 선택해 주세요.");
+    NSData *local = YBReadPlaylist(self.playlistURL);
+    YBRequire([YBHash(local) isEqual:self.comparedPlaylistHash], @"비교한 뒤 Mac 재생목록이 바뀌었습니다. 다시 비교해 주세요.");
+    NSDictionary *node = YBPlaylistNode(local, row[@"nodeID"]);
+    if (!fromServer) YBRequire([node[@"raw"] length] > 0 && [node[@"raw"] isEqual:row[@"localXML"]], @"올릴 Mac 재생목록이 없거나 바뀌었습니다. 다시 비교해 주세요.");
+    NSMutableDictionary *order = [row mutableCopy];
+    for (NSString *key in @[@"documents", @"images", @"macChangedDocuments", @"macOnlyDocuments", @"usageOnly"]) order[key] = @[];
+    if (fromServer) {
+        order[@"status"] = @"receive"; order[@"orderChanged"] = @YES;
+        order[@"macOrderChanged"] = @([node[@"raw"] length] > 0);
+        order[@"revertedOrder"] = @NO;
+        return [self apply:@[order]];
+    }
+    order[@"macOnlyOrder"] = @YES;
+    order[@"localName"] = node[@"name"] ?: row[@"name"];
+    return [self upload:@[order]];
+}
 
 - (NSDictionary *)upload:(NSArray *)rows {
     YBRequire(self.library != nil, @"먼저 비교해 주세요.");

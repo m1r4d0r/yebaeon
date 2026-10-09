@@ -50,6 +50,8 @@
 // 3차: Mac에만 있는 새 예배(macNew)는 서버에 "없을 때만 추가"한다.
 // 반환: {uploaded:[name…], usage:보고한 문서 수, failed:{name:reason…}}. PP6가 켜져 있어도 된다(Mac 파일을 바꾸지 않는다).
 - (NSDictionary *)upload:(NSArray *)rows;
+// 선택한 예배의 구성·순서·이름만 명시적으로 덮어쓴다. 문서·이미지는 제외, 비교 이후 변경은 거절한다.
+- (NSDictionary *)overwriteOrder:(NSDictionary *)row fromServer:(BOOL)fromServer;
 // 변경 일지 확인(요청 1번). 반환: {relevant:BOOL, head:번호}. relevant면 compare를 돌린다.
 - (NSDictionary *)checkChanges;
 - (void)markSeen:(NSNumber *)head;

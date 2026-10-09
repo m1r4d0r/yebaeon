@@ -175,6 +175,44 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check([result[@"revisions"] integerValue] == 0 && Revisions(nodeEntity).count == 1, @"a revert is not uploaded");
         Check([RowNamed([engine compare], @"1부 예배")[@"status"] isEqual:@"same"], @"same after re-applying");
 
+        // 순서 강제 덮어쓰기: 권장 방향을 뒤집어도 문서·다른 예배는 그대로이며 되돌리기·변경 감지는 유지한다.
+        NSData *orderBefore = YBReadPlaylist(playlistURL), *prayerBefore = [NSData dataWithContentsOfFile:Local(@"1부기도")];
+        Check([YBPlaylistReplacing(orderBefore, @"N1", NodeXML(docs, macOrder)) writeToFile:playlistURL.path atomically:YES], @"force order local edit");
+        NSDictionary *forceRow = RowNamed([engine compare], @"1부 예배");
+        engine.presenterRunning = ^BOOL { return YES; };
+        BOOL forceBlocked = NO; @try { [engine overwriteOrder:forceRow fromServer:YES]; } @catch (NSException *e) { forceBlocked = [e.reason containsString:@"ProPresenter"]; }
+        Check(forceBlocked, @"force server order refuses running PP6");
+        engine.presenterRunning = ^BOOL { return NO; };
+        result = [engine overwriteOrder:forceRow fromServer:YES];
+        Check([result[@"failed"] count] == 0 && [YBPlaylistNode(YBReadPlaylist(playlistURL), @"N1")[@"raw"] isEqual:YBPlaylistNode(orderBefore, @"N1")[@"raw"]], @"force server order overrides Mac-only order");
+        Check([[NSData dataWithContentsOfFile:Local(@"1부기도")] isEqual:prayerBefore] && [YBPlaylistNode(YBReadPlaylist(playlistURL), @"N2")[@"raw"] isEqual:YBPlaylistNode(orderBefore, @"N2")[@"raw"]], @"force order preserves documents and other nodes");
+        [engine undoLastApply];
+        forceRow = RowNamed([engine compare], @"1부 예배");
+        result = [engine overwriteOrder:forceRow fromServer:NO];
+        Check([result[@"failed"] count] == 0 && [[Plan()[@"items"] valueForKey:@"id"] isEqual:@[@"C-2", @"C-1", @"C-3", @"C-4"]], @"force Mac order uploads restored order");
+        forceBlocked = NO; @try { [engine overwriteOrder:forceRow fromServer:NO]; } @catch (NSException *e) { forceBlocked = [e.reason containsString:@"서버 순서가 바뀌었습니다"]; }
+        Check(forceBlocked, @"force order rejects stale server choice");
+        forceRow = RowNamed([engine compare], @"1부 예배");
+        Check([orderBefore writeToFile:playlistURL.path atomically:YES], @"restore local test order");
+        forceBlocked = NO; @try { [engine overwriteOrder:forceRow fromServer:NO]; } @catch (NSException *e) { forceBlocked = [e.reason containsString:@"Mac 재생목록이 바뀌었습니다"]; }
+        Check(forceBlocked, @"force order rejects stale Mac choice");
+        [engine overwriteOrder:RowNamed([engine compare], @"1부 예배") fromServer:NO];
+
+        // 명시적으로 Mac에서 지운 문서는 재비교·적용 뒤에도 되살리지 않고, 명시적 받기로만 복구한다.
+        [engine compare];
+        engine.trashItem = ^NSString *(NSString *absolute) {
+            NSString *target = [area stringByAppendingPathComponent:@"deleted-prayer.pro6"];
+            return [NSFileManager.defaultManager moveItemAtPath:absolute toPath:target error:NULL] ? target : nil;
+        };
+        [engine trashOnMac:@"1부기도.pro6"];
+        NSDictionary *deletedRow = RowNamed([engine compare], @"1부 예배");
+        Check([deletedRow[@"explicitlyDeletedDocuments"] containsObject:@"1부기도.pro6"] && ![[deletedRow[@"documents"] valueForKey:@"path"] containsObject:@"1부기도.pro6"], @"explicit Mac deletion excluded from receiving");
+        [engine apply:@[deletedRow]];
+        Check(![NSFileManager.defaultManager fileExistsAtPath:Local(@"1부기도")], @"apply does not restore explicitly deleted document");
+        [engine.receipt setLedger:@"1부기도.pro6" id:server[@"1부기도"][@"id"] version:Meta(@"1부기도.pro6")[@"version"] sha:Meta(@"1부기도.pro6")[@"sha256"] state:@"active"];
+        [engine takeServer:@"1부기도.pro6"];
+        Check([NSFileManager.defaultManager fileExistsAtPath:Local(@"1부기도")] && [RowNamed([engine compare], @"1부 예배")[@"explicitlyDeletedDocuments"] count] == 0, @"explicit restore clears Mac deletion marker");
+
         // 12. 같은 문서를 웹과 Mac에서 고침: 서버 것을 적용하고 Mac 것은 서버 보관본(+ Mac 백업).
         NSDictionary *song = Meta(@"오 신실하신 주.pro6");
         Check([Doc(@"찬양 1 교회 수정") writeToFile:Local(@"오 신실하신 주") atomically:YES], @"mac edit song");
