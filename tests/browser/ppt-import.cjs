@@ -6,6 +6,14 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
  await page.route('**/resources/**',async route=>{const name=new URL(route.request().url()).pathname.split('/').pop();await route.fulfill({json:name==='catalog.json'?{fonts:[],media:[]}:name==='templates.json'?[{id:'104',name:'말씀',label:'본문',width:1920,height:1080,xml:template}]:{books:[{name:'창세기',chapters:[{number:1,verses:[{number:1,text:'첫째 절'},{number:2,text:'둘째 절'}]}]}]}});});
  try{
  await page.goto(`http://127.0.0.1:${server.address().port}`);await page.waitForFunction(()=>window.YebaeonPPTImport&&YebaeonCloud.authenticated());
+ assert.equal(await page.evaluate(()=>YebaeonEditor.ready()),false);
+ await page.locator('#mediaOpen').click();await page.locator('#mediaAdd').click();
+ await page.locator('#mediaAddDialog [data-color]').click();await page.locator('#mediaAddDialog .media-add-result .primary').waitFor();
+ assert.equal(media.size,1,'upload works without an open document');assert.equal(docs.size,0,'upload creates no document');
+ assert.equal(await page.locator('#mediaAddDialog .media-add-result .primary').isDisabled(),true);
+ assert.equal(await page.locator('#mediaAddDialog .media-pick').isDisabled(),true);
+ await page.locator('#mediaAddDialog [data-close]').click();await page.locator('#mediaClose').click();
+ await page.waitForFunction(()=>document.querySelector('#mediaGrid .media-more'));media.clear();macPaths.clear();thumbnailPuts=[];
  const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=800;c.height=450;const x=c.getContext('2d');x.fillStyle='orange';x.fillRect(15,5,250,60);x.fillStyle='black';for(let y=100;y<200;y+=12)x.fillRect(30,y,730,3);x.font='28px sans-serif';x.fillText('SYNTHETIC SCORE',50,260);return c.toDataURL().split(',')[1];});
  // 1장에만 장 전체를 덮는 불투명 사진 배경이 있다. 악보를 나누면 이 배경은 미디어로 따로 올라간다.
  const photo=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=800;c.height=450;const x=c.getContext('2d'),g=x.createLinearGradient(0,0,800,450);g.addColorStop(0,'#2a3f8f');g.addColorStop(1,'#c46a9a');x.fillStyle=g;x.fillRect(0,0,800,450);return c.toDataURL().split(',')[1];});
@@ -19,7 +27,8 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   pages.forEach((p,i)=>{const c=`${p.color} rg 0 0 ${p.w} ${p.h} re f`;objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${p.w} ${p.h}] /Contents ${4+i*2} 0 R /Resources << >> >>`,`<< /Length ${c.length} >>\nstream\n${c}\nendstream`);});
   let out='%PDF-1.4\n';const offsets=[];objs.forEach((o,i)=>{offsets.push(out.length);out+=`${i+1} 0 obj\n${o}\nendobj\n`;});const x=out.length;
   out+=`xref\n0 ${objs.length+1}\n0000000000 65535 f \n${offsets.map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')}trailer\n<< /Size ${objs.length+1} /Root 1 0 R >>\nstartxref\n${x}\n%%EOF\n`;return Buffer.from(out,'latin1');})();
- await page.locator('#pptOpen').click();assert.equal(await page.locator('#pptPreview').count(),0);await page.locator('#pptFile').setInputFiles({name:'synthetic.pptx',mimeType:'application/octet-stream',buffer:fixture});await page.waitForFunction(()=>!YebaeonPPTImport.state().busy);assert.equal(await page.evaluate(()=>YebaeonPPTImport.state().deck?.slides.length),2);
+ await page.locator('#pptOpen').click();assert.equal(await page.evaluate(()=>document.querySelector('#pptStart').compareDocumentPosition(document.querySelector('#pptPurpose'))&Node.DOCUMENT_POSITION_FOLLOWING),4);assert.equal(await page.locator('#pptPreview').count(),0);await page.locator('#pptFile').setInputFiles({name:'synthetic.pptx',mimeType:'application/octet-stream',buffer:fixture});await page.waitForFunction(()=>!YebaeonPPTImport.state().busy);assert.equal(await page.evaluate(()=>YebaeonPPTImport.state().deck?.slides.length),2);
+ assert.equal(await page.evaluate(()=>document.querySelector('#pptNewOptions').compareDocumentPosition(document.querySelector('.ppt-settings-grid'))&Node.DOCUMENT_POSITION_FOLLOWING),4);assert.equal(await page.locator('#pptTarget input[type=radio]').count(),2);assert.equal(await page.locator('#pptConversion input[type=radio]').count(),3);
  await page.waitForFunction(()=>!YebaeonPPTImport.state().busy&&YebaeonPPTImport.state().outputs.length>0);await page.waitForFunction(()=>!YebaeonPPTImport.state().busy);assert.equal(await page.evaluate(()=>YebaeonPPTImport.state().outputs.length),2,await page.locator('#pptMessage').textContent());
  assert.equal(await page.locator('#pptScoreOptions').isVisible(),false,'whole image hides score options');assert.equal(await page.locator('#pptSave').isDisabled(),true);
  await page.locator('[data-purpose=score]').click();assert.equal(await page.locator('#pptScoreOptions').isVisible(),true);assert.equal(await page.evaluate(()=>YebaeonPPTImport.state().outputs.length),0,'changing the category invalidates the preview');
@@ -59,18 +68,18 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
  const sample=()=>page.evaluate(async()=>Promise.all(YebaeonPPTImport.state().outputs.map(async o=>{const im=await createImageBitmap(o.image),c=document.createElement('canvas');c.width=im.width;c.height=im.height;const x=c.getContext('2d');x.drawImage(im,0,0);const pixel=(a,b)=>[...x.getImageData(a,b,1,1).data];const result={separated:o.separated,white:pixel(10,300),line:pixel(400,408),title:pixel(220,70),blue:pixel(80,80),number:pixel(80,1040),footer:pixel(1640,1040)};im.close();return result;})));
  await renderReady();let bgPixels=await sample();
  assert.deepEqual(await page.evaluate(()=>YebaeonPPTImport.state().deck.slides.map(s=>s.images[0].transparent)),[false,true],'partly transparent white image reproduces the original failure');assert.equal(bgPixels[0].separated,false);assert.equal(bgPixels[1].separated,true);assert.ok(bgPixels.every(p=>p.white[3]===255&&p.line[0]===0&&p.line[3]===255),'background-only slide must render, not blank');
- await page.locator('#pptConversion').selectOption('white');await renderReady();bgPixels=await sample();
+ await page.locator('#pptConversion input[value="white"]').check();await renderReady();bgPixels=await sample();
  assert.ok(bgPixels.every(p=>p.separated&&p.white[3]===0&&p.line[3]===255),'white removed, black score retained');
  assert.equal(bgPixels[0].title[3],255);assert.equal(bgPixels[1].title[3],0);assert.deepEqual(bgPixels[0].blue,[0,0,255,255]);
  assert.ok(bgPixels.every(p=>p.number[3]===255&&p.footer[3]===255),'footer retained by default');
  await page.locator('#pptBottomCropOn').check();await renderReady();bgPixels=await sample();assert.ok(bgPixels.every(p=>p.number[3]===0&&p.footer[3]===0&&p.line[3]===255),'bottom crop removes number and right text on every slide without moving score');
  await page.locator('#pptBottomCrop').fill('2');await renderReady();assert.ok((await sample()).every(p=>p.number[3]===255&&p.footer[3]===255),'crop amount changes the actual output');
  await page.locator('#pptBottomCrop').fill('8');await renderReady();
- await page.locator('#pptReviewed').check();await page.locator('#pptConversion').selectOption('full');
+ await page.locator('#pptReviewed').check();await page.locator('#pptConversion input[value="full"]').check();
  assert.equal(await page.locator('#pptReviewed').isChecked(),false);assert.equal(await page.locator('#pptScoreOptions').isVisible(),false);
  await renderReady();bgPixels=await sample();assert.ok(bgPixels.every(p=>!p.separated&&p.white[3]===255&&p.title[3]===255&&p.footer[3]===255),'whole image overrides crop and white removal');
- await page.locator('#pptConversion').selectOption('white');await renderReady();assert.ok((await sample()).every(p=>p.separated&&p.white[3]===0&&p.footer[3]===0),'return to white separation and footer crop');await page.locator('#pptBottomCropOn').uncheck();await renderReady();
- await page.locator('[data-purpose=other]').click();assert.equal(await page.locator('#pptCategory').inputValue(),'예배순서');assert.equal(await page.locator('#pptTarget').inputValue(),'new');await renderReady();
+ await page.locator('#pptConversion input[value="white"]').check();await renderReady();assert.ok((await sample()).every(p=>p.separated&&p.white[3]===0&&p.footer[3]===0),'return to white separation and footer crop');await page.locator('#pptBottomCropOn').uncheck();await renderReady();
+ await page.locator('[data-purpose=other]').click();assert.equal(await page.locator('#pptCategory').inputValue(),'예배순서');assert.equal(await page.locator('#pptTarget input:checked').inputValue(),'new');await renderReady();
  // 드롭박스에서 PPT 고르기: PPT만 보이고, 큰 파일은 막히며, 고른 파일은 같은 흐름으로 읽힌다.
  const box='#pptStart .dropbox-picker';await page.locator('#pptStart .file-start-dropbox').click();await page.locator(box+' .dropbox-row').first().waitFor();
  assert.deepEqual(await page.locator(box+' .dropbox-row>span').allTextContents(),['주일','big.pptx','synthetic.pptx'],'folders first, then PPT and PDF files (newest first, name when undated)');assert.equal(await page.locator(box+' .dropbox-row .dropbox-icon').count(),3,'every row has a folder or file icon');
@@ -83,11 +92,11 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
  await page.locator(box+' .dropbox-row',{hasText:'주일'}).locator('button').click();await page.locator(box+' .dropbox-row',{hasText:'sermon.pdf'}).waitFor();
  await mkdir('artifacts',{recursive:true});await page.setViewportSize({width:390,height:844});await page.screenshot({path:'artifacts/ppt-dropbox-390-844.png'});await page.setViewportSize({width:1440,height:960});
  await page.locator(box+' .dropbox-row',{hasText:'sermon.pdf'}).locator('button').click();await page.waitForFunction(()=>YebaeonPPTImport.state().source?.kind==='pdf'&&!YebaeonPPTImport.state().busy,null,{timeout:60000});
- assert.equal(await page.locator('#pptTarget').inputValue(),'new','file type does not change the chosen purpose');
+ assert.equal(await page.locator('#pptTarget input:checked').inputValue(),'new','file type does not change the chosen purpose');
  await page.locator('[data-purpose=sermon]').click();assert.deepEqual(await page.locator('#pptCandidates button').allTextContents(),['주일예배말씀 목사님 ppt','광고','다른 문서 고르기…']);
  await page.locator('#pptCandidates button',{hasText:'주일예배말씀 목사님 ppt'}).click();await page.waitForFunction(()=>YebaeonPPTImport.state().target&&!YebaeonPPTImport.state().busy);assert.equal(await page.locator('#pptCandidates button',{hasText:'주일예배말씀 목사님 ppt'}).getAttribute('aria-pressed'),'true','falls back to 주일예배말씀 ppt when the first name is missing');assert.match(await page.locator('#pptTargetInfo').textContent(),/주일예배말씀 ppt · 버전 4 · 1920×1080 · 지금 슬라이드 3장/);assert.equal(await page.locator('#pptCategory').isVisible(),false);
  await page.waitForFunction(()=>!YebaeonPPTImport.state().busy&&YebaeonPPTImport.state().outputs.length>0);await page.waitForFunction(()=>YebaeonPPTImport.state().outputs.length===2&&!YebaeonPPTImport.state().busy,null,{timeout:60000});
- assert.equal(await page.evaluate(()=>localStorage.getItem('yebaeon-dropbox-import-folder')),'주일','last folder remembered');
+ assert.equal(dropboxLists[0],'hanwoori/10예배온','PPT picker starts in the configured folder');assert.equal(dropboxLists[1],'hanwoori/10예배온','PPT picker resets to the configured folder each time');
  const pixels=await page.evaluate(async()=>{const out=[];for(const o of YebaeonPPTImport.state().outputs){const im=await createImageBitmap(o.image),c=document.createElement('canvas');c.width=im.width;c.height=im.height;const x=c.getContext('2d');x.drawImage(im,0,0);out.push({w:im.width,h:im.height,margin:o.margin,edge:[...x.getImageData(10,540,1,1).data.slice(0,3)],center:[...x.getImageData(960,540,1,1).data.slice(0,3)]});im.close();}return out;});
  assert.deepEqual(pixels.map(p=>[p.w,p.h,p.margin]),[[1920,1080,true],[1920,1080,false]]);
  assert.deepEqual(pixels[0].edge,[0,0,0],'4:3 page keeps black side margins, not stretched');assert.ok(pixels[0].center[0]>200&&pixels[0].center[2]<50,'page 1 is red');assert.ok(pixels[1].edge[2]>200&&pixels[1].edge[0]<50,'16:9 page fills the slide');

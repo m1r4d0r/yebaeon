@@ -35,9 +35,9 @@
   const sha=await resolve([...found.keys()]);return {playlist,items:[...found.values()].map(x=>({...x,sha:sha(x.path)}))};}
 
  /* ---------- 그림 칸 ---------- */
- function tile(item,{dialog=false}={}){const b=el('div','media-tile'),pick=el('button','media-pick');pick.type='button';pick.title=item.path+(item.documents?'\n사용: '+[...item.documents].join(', '):'');pick.draggable=!dialog;
+ function tile(item,{dialog=false}={}){const b=el('div','media-tile'),pick=el('button','media-pick');pick.type='button';pick.title=item.path+(item.documents?'\n사용: '+[...item.documents].join(', '):'');pick.draggable=!dialog&&E.ready();pick.disabled=!E.ready();if(!E.ready())pick.title+='\n문서를 열면 배경으로 적용할 수 있습니다.';
   if(item.sha){const img=el('img');YebaeonThumbnails.attach(img,item.sha);img.alt='';img.loading='lazy';img.decoding='async';pick.append(img);}else pick.append(el('span','media-missing','서버에 없음'));
-  pick.append(el('span','media-name',fileName(item.path)));pick.onclick=()=>{E.setBackground(item.source||item.path);if(dialog)E.status(`‘${fileName(item.path)}’을 배경으로 적용했습니다.`);};
+  pick.append(el('span','media-name',fileName(item.path)));pick.onclick=()=>{if(!E.ready())return;E.setBackground(item.source||item.path);if(dialog)E.status(`‘${fileName(item.path)}’을 배경으로 적용했습니다.`);};
   pick.ondragstart=e=>{drag={source:item.source||item.path,name:fileName(item.path)};e.dataTransfer.setData('text/plain',drag.source);e.dataTransfer.effectAllowed='copy';};pick.ondragend=()=>{drag=null;};b.append(pick);
   if(item.sha){const star=el('button','media-star'+(Favorites.has('media',item.sha)?' on':''),Favorites.has('media',item.sha)?'★':'☆');star.type='button';star.dataset.sha=item.sha;star.setAttribute('aria-label',(Favorites.has('media',item.sha)?'즐겨찾기에서 빼기':'즐겨찾기')+' · '+fileName(item.path));
    star.onclick=async e=>{e.stopPropagation();star.disabled=true;try{await Favorites.toggle('media',item.sha,item.path);}catch(error){E.status(error.message);}finally{star.disabled=false;}};b.append(star);}
@@ -46,7 +46,7 @@
  const section=(title,count,body)=>{const s=el('section','media-section'),h=el('h3',null,title);if(count!=null)h.append(el('small',null,` ${count}`));s.append(h,body);return s;};
  const matches=(query,path)=>!query||fileName(path).normalize('NFC').toLowerCase().includes(query);
 
- async function fill(){const token=++generation,root=$('mediaGrid'),query=$('mediaQuery').value.normalize('NFC').trim().toLowerCase();root.replaceChildren(el('p','help','불러오는 중…'));
+ async function fill(){const token=++generation,root=$('mediaGrid'),query=$('mediaQuery').value.normalize('NFC').trim().toLowerCase();root.replaceChildren(el('p','help','불러오는 중…'));$('mediaDrawer').querySelector(':scope > .help').textContent=E.ready()?'누르거나 슬라이드에 끌어 놓으면 배경이 됩니다. 여러 장을 고르면 함께 적용할 수 있습니다.':'문서를 열지 않아도 그림을 추가하고 즐겨찾기를 정리할 수 있습니다. 배경 적용은 문서를 연 뒤 가능합니다.';
   try{await Favorites.load();if(token!==generation)return;const parts=[];
    const favs=Favorites.list('media').filter(f=>matches(query,f.label)).map(f=>({sha:f.key,path:f.label,source:fileURL(f.label)}));
    parts.push(section('★ 즐겨찾기',favs.length,favs.length?grid(favs):el('p','help','그림의 ☆를 누르면 모두가 보는 즐겨찾기에 들어갑니다.')));
@@ -77,7 +77,7 @@
   const ext=EXT[file.type]||(/\.([a-z]+)$/i.exec(file.name)?.[1]||'png').toLowerCase().replace('jpeg','jpg');const bitmap=await createImageBitmap(file).catch(()=>null);if(!bitmap)throw new Error('브라우저가 이 그림을 열지 못했습니다. 다른 형식으로 저장해 올려 주세요.');bitmap.close();
   const item=await upload(file,file.name.replace(/\.[^.]+$/,''),ext);addResult(item);YebaeonThumbnails.make(item.sha,file).catch(()=>{});if(!$('mediaDrawer').hidden)fill();}
  async function addColor(color){const say=addDialog.querySelector('.media-add-result');say.replaceChildren(el('p','dialog-help','만드는 중…'));const blob=await backgroundPNG((ctx,w,h)=>{ctx.fillStyle=color;ctx.fillRect(0,0,w,h);});{const item=await upload(blob,'단색 '+color.replace('#',''));addResult(item);YebaeonThumbnails.make(item.sha,blob).catch(()=>{});}if(!$('mediaDrawer').hidden)fill();}
- function showAdd(){if(!C.needUser())return;if(!addDialog){addDialog=el('dialog','entry-dialog media-add-dialog');addDialog.id='mediaAddDialog';addDialog.innerHTML='<div class="dialog-heading"><h2>그림 추가</h2><button type="button" data-close>닫기</button></div><p class="dialog-help">배경으로 쓸 그림을 원본 그대로 서버에 올립니다. 교회 Mac에는 YebaeOn 폴더로 내려갑니다. 채우기·맞추기와 자르기는 슬라이드 오른쪽 클릭 › 배경에서 합니다.</p><div class="media-add-start"></div><div class="media-add-color"><label>단색 배경 <input type="color" value="#1b2a4a" aria-label="배경색"></label><button type="button" data-color>단색 그림 만들기</button></div><div class="media-add-result" role="status"></div>';document.body.append(addDialog);
+ function showAdd(){if(!C.needUser())return;if(!addDialog){addDialog=el('dialog','entry-dialog media-add-dialog');addDialog.id='mediaAddDialog';addDialog.innerHTML='<div class="dialog-heading"><h2>그림 추가</h2><button type="button" data-close>닫기</button></div><p class="dialog-help">배경으로 쓸 그림을 원본 그대로 서버에 올립니다. 문서를 열지 않아도 업로드할 수 있습니다. 교회 Mac에는 이 그림을 사용한 문서가 포함된 예배를 Sync에서 적용할 때 내려갑니다. 채우기·맞추기와 자르기는 슬라이드 오른쪽 클릭 › 배경에서 합니다.</p><div class="media-add-start"></div><div class="media-add-color"><label>단색 배경 <input type="color" value="#1b2a4a" aria-label="배경색"></label><button type="button" data-color>단색 그림 만들기</button></div><div class="media-add-result" role="status"></div>';document.body.append(addDialog);
    addDialog.querySelector('[data-close]').onclick=()=>addDialog.close();const fail=e=>addDialog.querySelector('.media-add-result').replaceChildren(el('p','dialog-message bad',e.message));
    YebaeonDropboxPicker.start(addDialog.querySelector('.media-add-start'),{accept:IMAGE,inputAccept:'image/png,image/jpeg,image/webp,image/gif,image/bmp',max:MAX,kind:'그림',onFile:file=>addFile(file).catch(fail)});
    addDialog.querySelector('[data-color]').onclick=()=>addColor(addDialog.querySelector('input[type=color]').value).catch(fail);}

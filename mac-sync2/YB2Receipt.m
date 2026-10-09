@@ -116,6 +116,11 @@ static NSString *Column(sqlite3_stmt *stmt, int index) {
     NSUInteger count = sqlite3_step(stmt) == SQLITE_ROW ? (NSUInteger)sqlite3_column_int64(stmt, 0) : 0;
     sqlite3_finalize(stmt); return count;
 }
+- (NSArray *)activeLedgerPaths {
+    sqlite3_stmt *stmt = Prepare(_db, "SELECT path FROM ledger WHERE state = 'active' ORDER BY path"); NSMutableArray *paths = [NSMutableArray array];
+    while (sqlite3_step(stmt) == SQLITE_ROW) if (Column(stmt, 0)) [paths addObject:Column(stmt, 0)];
+    sqlite3_finalize(stmt); return paths;
+}
 - (NSArray *)documentPaths {
     sqlite3_stmt *stmt = Prepare(_db, "SELECT path FROM docs ORDER BY path"); NSMutableArray *paths = [NSMutableArray array];
     while (sqlite3_step(stmt) == SQLITE_ROW) if (Column(stmt, 0)) [paths addObject:Column(stmt, 0)];

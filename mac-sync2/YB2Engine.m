@@ -743,6 +743,7 @@ static NSString *ImageDiskPath(NSString *path) {
         YBRequire(data && [YBHash(data) isEqual:record[@"sha"]], @"준비한 문서가 손상됐습니다. 다시 비교해 주세요.");
         mode_t mode = 0644;
         NSData *current = YBReadSafeFile(self.root, path, &mode);
+        if ([record[@"newOnly"] boolValue]) YBRequire(![self localNameExists:path] || [current isEqual:data], @"새 문서 자리에 다른 Mac 파일이 있습니다. 덮어쓰지 않았습니다.");
         // Mac 파일의 사용일·사용 횟수는 유지한다. 중단 뒤 다시 돌아도 같은 바이트가 나온다.
         NSData *output = current ? WithUsage(data, UsageOf(current)) : data;
         NSMutableDictionary *result = [@{@"sha": YBHash(output), @"neutral": NeutralHash(output)} mutableCopy];
@@ -750,7 +751,18 @@ static NSString *ImageDiskPath(NSString *path) {
         written[path] = result;
         if ([current isEqual:output]) continue;
         if (current && !YBReadSafeFile(docsBackup, path, NULL)) YBWriteSafeFile(docsBackup, path, current, 0600, nil);
-        YBWriteSafeFile(self.root, path, output, current ? mode : 0644, ^{ YBRequire(!self.presenterRunning(), @"ProPresenter가 실행됐습니다. 적용을 중단했습니다."); });
+        if ([record[@"newOnly"] boolValue]) {
+            [self placeImages:journal[@"images"] stageRoot:stageRoot];
+            for (NSDictionary *image in journal[@"images"]) YBRequire(ImageExists(image[@"path"]), @"연결 이미지를 설치하지 못했습니다. 다시 실행하면 이어서 받습니다.");
+            NSString *temporary = [NSString stringWithFormat:@".yebaeon-%@.tmp", NSUUID.UUID.UUIDString];
+            YBWriteSafeFile(self.root, temporary, output, 0644, nil);
+            @try {
+                YBRequire(!self.presenterRunning() && ![self localNameExists:path], @"PP6가 실행됐거나 같은 이름의 Mac 파일이 생겼습니다. 덮어쓰지 않았습니다.");
+                YBRequire(renamex_np([self.root stringByAppendingPathComponent:temporary].fileSystemRepresentation, [self.root stringByAppendingPathComponent:path].fileSystemRepresentation, RENAME_EXCL) == 0, @"새 문서를 설치하지 못했습니다. 기존 파일은 덮어쓰지 않았습니다.");
+            } @finally { [NSFileManager.defaultManager removeItemAtPath:[self.root stringByAppendingPathComponent:temporary] error:NULL]; }
+        } else {
+            YBWriteSafeFile(self.root, path, output, current ? mode : 0644, ^{ YBRequire(!self.presenterRunning(), @"ProPresenter가 실행됐습니다. 적용을 중단했습니다."); });
+        }
     }
     [self placeImages:journal[@"images"] stageRoot:stageRoot];
     NSString *playlistBackup = nil;
@@ -818,6 +830,8 @@ static NSString *ImageDiskPath(NSString *path) {
         [self.receipt setValue:[[NSISO8601DateFormatter new] stringFromDate:NSDate.date] forKey:@"lastApplied"];
         [self.receipt setValue:journal[@"id"] forKey:@"lastApplyID"];
     }];
+    for (NSDictionary *record in journal[@"documents"]) if ([record[@"newOnly"] boolValue]) [self dropFromFullCheck:@"serverOnly" path:record[@"path"]];
+    for (NSDictionary *image in journal[@"images"]) if (ImageExists(image[@"path"])) [self dropFromFullCheck:@"imageFill" path:image[@"path"]];
     [NSFileManager.defaultManager removeItemAtPath:self.journalPath error:NULL];
     [NSFileManager.defaultManager removeItemAtPath:stageRoot error:NULL];
 }
@@ -851,12 +865,12 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     NSDate *date = at.length ? [[NSISO8601DateFormatter new] dateFromString:at] : nil;
     return !date || -date.timeIntervalSinceNow > 7 * 24 * 3600;
 }
-// Mac 디스크와 장부 사본·영수증을 맞춰 본다. 서버 요청 없음(D1 0). Mac 파일을 바꾸지 않는다.
+// 갱신된 장부 사본과 Mac 디스크·영수증을 맞춰 본다. 처음 대조의 내용 비교 외에는 서버 요청이 없다. Mac 파일을 바꾸지 않는다.
 // 디스크·장부 사본·영수증을 읽기만 한다(영수증에 쓰지 않음). 데일리 창 작업과 함께 돌 수 있다. 저장은 saveFullCheck:로.
 - (NSDictionary *)scanFullCheck {
     YBRequire([self.receipt value:@"ledgerSeq"].length > 0, @"서버 장부 사본이 아직 없습니다. 서버 확인 뒤 다시 해 주세요.");
     [self report:@"전체 확인 · Mac 문서 폴더 읽는 중"];
-    NSMutableArray *macDeleted = [NSMutableArray array], *collisions = [NSMutableArray array], *external = [NSMutableArray array], *imageFill = [NSMutableArray array], *remember = [NSMutableArray array];
+    NSMutableArray *serverOnly = [NSMutableArray array], *macDeleted = [NSMutableArray array], *collisions = [NSMutableArray array], *external = [NSMutableArray array], *imageFill = [NSMutableArray array], *remember = [NSMutableArray array];
     NSMutableSet *disk = [NSMutableSet set];
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.root error:NULL])
         if (![name hasPrefix:@"."] && [name.pathExtension.lowercaseString isEqual:@"pro6"]) [disk addObject:name.precomposedStringWithCanonicalMapping];
@@ -867,6 +881,13 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
         if ([disk containsObject:path] || [waitingRename containsObject:path]) continue;
         NSDictionary *entry = [self.receipt ledger:path];
         if ([entry[@"state"] isEqual:@"active"]) [macDeleted addObject:@{@"path": path, @"id": entry[@"id"]}];
+    }
+    // 서버에서 만든 문서: 활성 장부에는 있고 Mac 파일·이전 수신 기록·삭제 의사가 없는 경로.
+    for (NSString *path in [self.receipt activeLedgerPaths]) {
+        if ([self localNameExists:path] || [self.receipt document:path] || [[self.receipt value:MacTrashKey(path)] boolValue]) continue;
+        BOOL renamed = NO;
+        for (NSDictionary *item in [self.receipt pending]) if ([item[@"action"] isEqual:@"renamed"] && [item[@"path"] isEqual:path]) { renamed = YES; break; }
+        if (!renamed) [serverOnly addObject:@{@"path": path, @"id": [self.receipt ledger:path][@"id"]}];
     }
     // 같은 이름: 장부에 있고 영수증은 본 적 없는 Mac 파일(처음 대조). 바이트가 같으면 영수증에 적고,
     // 다르면 서버 바이트를 받아 사용일을 뺀 내용을 비교한다. 같으면 적고, 다를 때만 목록에 올린다.
@@ -914,7 +935,7 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
         if (imageFill.count >= 1000) break;
     }
     NSString *at = [[NSISO8601DateFormatter new] stringFromDate:NSDate.date];
-    return @{@"result": @{@"at": at, @"remembered": @(remember.count), @"macDeleted": macDeleted, @"collisions": collisions, @"external": external, @"imageFill": imageFill}, @"remember": remember, @"newest": @(newest)};
+    return @{@"result": @{@"at": at, @"remembered": @(remember.count), @"serverOnly": serverOnly, @"macDeleted": macDeleted, @"collisions": collisions, @"external": external, @"imageFill": imageFill}, @"remember": remember, @"newest": @(newest)};
 }
 // 전체 확인 결과와 처음 대조로 같다고 본 문서의 영수증을 한 번에 적는다. 그 사이 영수증이 생긴 문서는 건드리지 않는다.
 - (NSDictionary *)saveFullCheck:(NSDictionary *)scan {
@@ -929,7 +950,7 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     [self report:[NSString stringWithFormat:@"전체 확인 완료 · 처음 대조로 같음 %lu · 확인 필요 %lu", (unsigned long)[scan[@"remember"] count], (unsigned long)[result[@"collisions"] count] + [result[@"macDeleted"] count]]];
     return result;
 }
-- (NSDictionary *)fullCheck { return [self saveFullCheck:[self scanFullCheck]]; }
+- (NSDictionary *)fullCheck { [self checkChanges]; return [self saveFullCheck:[self scanFullCheck]]; }
 - (void)dropFromFullCheck:(NSString *)list path:(NSString *)path {
     NSMutableDictionary *saved = [[self lastFullCheck] mutableCopy]; if (!saved) return;
     saved[list] = [saved[list] filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"path != %@", path]];
@@ -982,6 +1003,48 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     if (bytes) YBWriteSafeFile([self documentsBackup:@"mac-trash"], path, bytes, 0600, nil);
     [self.receipt setValue:@"1" forKey:MacTrashKey(path)];
     YBRequire(self.trashItem(disk) != nil, @"Mac 파일을 휴지통으로 옮기지 못했습니다.");
+}
+// 대소문자·한글 조합형 차이도 새 문서 이름 충돌로 취급한다.
+- (BOOL)localNameExists:(NSString *)path {
+    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.root error:NULL])
+        if ([name.precomposedStringWithCanonicalMapping caseInsensitiveCompare:path.precomposedStringWithCanonicalMapping] == NSOrderedSame) return YES;
+    return NO;
+}
+// 정리 창에서 새 문서와 연결 이미지를 명시적으로 받는다. 재생목록은 바꾸지 않는다.
+- (void)receiveNewServerDocument:(NSString *)path {
+    YBRequire(!self.presenterRunning(), @"ProPresenter를 종료한 뒤 해 주세요.");
+    if ([NSFileManager.defaultManager fileExistsAtPath:self.journalPath]) [self finishInterruptedApply];
+    YBRequire(![self localNameExists:path] && ![self.receipt document:path] && ![[self.receipt value:MacTrashKey(path)] boolValue], @"Mac 파일이나 이전 수신·삭제 기록이 생겼습니다. 전체 확인을 다시 해 주세요.");
+    NSDictionary *entry = [self.receipt ledger:path];
+    YBRequire([entry[@"state"] isEqual:@"active"] && [entry[@"id"] length], @"서버의 활성 문서가 아닙니다. 전체 확인을 다시 해 주세요.");
+    NSDictionary *doc = [self serverDocument:entry[@"id"]];
+    YBRequire([doc[@"state"] isEqual:@"active"] && [doc[@"path"] isEqual:path], @"서버 문서의 이름이나 상태가 바뀌었습니다. 전체 확인을 다시 해 주세요.");
+    NSData *data = [self.server download:doc];
+    NSString *applyID = NSUUID.UUID.UUIDString;
+    NSString *stageRoot = [self.profile stringByAppendingPathComponent:[@"stage/" stringByAppendingString:applyID]], *backupRoot = [self backupRoot:applyID];
+    YBRequire([NSFileManager.defaultManager createDirectoryAtPath:stageRoot withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:NULL], @"준비 폴더를 만들지 못했습니다.");
+    BOOL journaled = NO;
+    @try {
+        YBWriteSafeFile(stageRoot, @"document", data, 0600, nil);
+        NSMutableDictionary *wanted = [NSMutableDictionary dictionary];
+        for (NSString *image in MediaPaths(data)) wanted[image] = [self.receipt mediaSha:image] ?: (id)NSNull.null;
+        NSMutableArray *images = [NSMutableArray array], *failed = [NSMutableArray array];
+        [self stageImages:wanted into:stageRoot staged:images failed:failed];
+        NSSet *preparedPaths = [NSSet setWithArray:[images valueForKey:@"path"]];
+        for (NSString *image in wanted) if (!ImageExists(image) && ![preparedPaths containsObject:image]) [failed addObject:image.lastPathComponent];
+        NSDictionary *latest = [self serverDocument:entry[@"id"]];
+        YBRequire([latest[@"state"] isEqual:@"active"] && [latest[@"path"] isEqual:path] && [latest[@"sha256"] isEqual:doc[@"sha256"]], @"준비 중 서버 문서가 바뀌었습니다. 다시 받아 주세요.");
+        YBRequire(![self localNameExists:path], @"같은 이름의 Mac 파일이 생겼습니다. 덮어쓰지 않았습니다.");
+        NSDictionary *record = @{@"path": path, @"staged": @"document", @"sha": doc[@"sha256"], @"version": doc[@"version"], @"newOnly": @YES};
+        NSDictionary *journal = @{@"id": applyID, @"status": @"prepared", @"root": self.root, @"playlist": self.playlistURL.path,
+            @"receiptBefore": @{@"documents": @{path: NSNull.null}, @"nodes": @{}}, @"beforeSha": @"", @"afterSha": @"", @"afterStaged": @"",
+            @"documents": @[record], @"images": images, @"nodes": @[], @"applied": @[path], @"moves": @[], @"trash": @[], @"imageTrash": @[], @"pendingDone": @[]};
+        [self writeJournal:journal]; journaled = YES;
+        [self performJournal:journal stageRoot:stageRoot backupRoot:backupRoot];
+        [self dropFromFullCheck:@"serverOnly" path:path];
+        for (NSString *image in wanted) if (ImageExists(image)) [self dropFromFullCheck:@"imageFill" path:image];
+        YBRequire(!failed.count, [@"문서는 받았지만 일부 이미지는 받지 못했습니다. 이미지 보충에서 확인해 주세요: " stringByAppendingString:[failed componentsJoinedByString:@", "]]);
+    } @finally { if (!journaled) [NSFileManager.defaultManager removeItemAtPath:stageRoot error:NULL]; }
 }
 // 같은 이름, 다른 내용: [서버 것으로]
 - (void)takeServer:(NSString *)path {

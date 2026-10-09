@@ -477,6 +477,31 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
             [NSFileManager.defaultManager removeItemAtPath:imagePath error:NULL];
         }
 
+        // 23-1. 재생목록 밖의 새 서버 문서도 전체 확인에서 찾고 문서·이미지만 받는다.
+        NSString *standalone = @"웹 악보 단독.pro6";
+        NSData *standaloneBytes = Doc(imageXML), *orderBeforeReceive = YBReadPlaylist(playlistURL);
+        [web upload:standaloneBytes path:standalone previous:nil];
+        NSDictionary *archivedStandalone = [web upload:Doc(@"보관 문서") path:@"웹 보관 단독.pro6" previous:nil];
+        [web request:[NSString stringWithFormat:@"/api/documents/%@/state", archivedStandalone[@"id"]] method:@"POST" body:[NSJSONSerialization dataWithJSONObject:@{@"action": @"archive"} options:0 error:NULL] headers:@{@"Content-Type": @"application/json"}];
+        full = [engine fullCheck];
+        Check([[full[@"serverOnly"] valueForKey:@"path"] containsObject:standalone] && ![[full[@"serverOnly"] valueForKey:@"path"] containsObject:@"웹 보관 단독.pro6"] && ![[full[@"serverOnly"] valueForKey:@"path"] containsObject:@"새 찬양.pro6"], @"whole check finds new active server documents, excludes archived and trashed");
+        engine.presenterRunning = ^BOOL { return YES; }; BOOL receiveBlocked = NO;
+        @try { [engine receiveNewServerDocument:standalone]; } @catch (NSException *e) { receiveBlocked = YES; }
+        Check(receiveBlocked && ![engine hasLocalDocument:standalone], @"standalone receive blocks while PP6 runs"); engine.presenterRunning = ^BOOL { return NO; };
+        [Doc(@"검사 후 생긴 Mac 파일") writeToFile:Local(@"웹 악보 단독") atomically:YES]; receiveBlocked = NO;
+        @try { [engine receiveNewServerDocument:standalone]; } @catch (NSException *e) { receiveBlocked = YES; }
+        Check(receiveBlocked && [[NSData dataWithContentsOfFile:Local(@"웹 악보 단독")] isEqual:Doc(@"검사 후 생긴 Mac 파일")], @"standalone receive never overwrites a new local collision");
+        [NSFileManager.defaultManager removeItemAtPath:Local(@"웹 악보 단독") error:NULL];
+        [engine receiveNewServerDocument:standalone];
+        Check([[NSData dataWithContentsOfFile:Local(@"웹 악보 단독")] isEqual:standaloneBytes] && [YBReadPlaylist(playlistURL) isEqual:orderBeforeReceive], @"standalone document received without playlist edits");
+        if (withImage) Check([[NSData dataWithContentsOfFile:imagePath] isEqual:[NSData dataWithBytes:png length:sizeof png]], @"standalone receive includes referenced image");
+        Check(![[[engine lastFullCheck][@"serverOnly"] valueForKey:@"path"] containsObject:standalone], @"received standalone row disappears");
+        [NSFileManager.defaultManager removeItemAtPath:Local(@"웹 악보 단독") error:NULL];
+        full = [engine fullCheck];
+        Check(![[full[@"serverOnly"] valueForKey:@"path"] containsObject:standalone] && [[full[@"macDeleted"] valueForKey:@"path"] containsObject:standalone], @"previously received then deleted document is not classified as new");
+        [engine trashOnServer:standalone];
+        if (withImage) [NSFileManager.defaultManager removeItemAtPath:imagePath error:NULL];
+
         // 24. 받을 예배가 가리키는, 이력 없는 다른 내용: [적용]해도 Mac 파일을 그대로 두고 정리 창으로 보낸다(번호를 붙이거나 덮지 않는다).
         Check([Doc(@"Mac 봉헌") writeToFile:Local(@"봉헌") atomically:YES], @"mac-only offering");
         [web upload:Doc(@"웹 봉헌") path:@"봉헌.pro6" previous:nil];

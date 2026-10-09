@@ -64,6 +64,8 @@ PP6-Update/
 
 ## Studio 미디어 창
 
+- 문서를 열지 않아도 미디어 창 열기·그림 업로드·목록 탐색·즐겨찾기가 가능하다. 배경 적용·끌기는 문서를 연 뒤 가능하다. 단독 업로드는 서버 보관이며, Mac에는 그 그림을 참조하는 문서가 포함된 예배를 Sync에서 적용할 때 받는다.
+
 - 그림 바이트(`GET /api/media/<sha256>/content`)는 sha 주소라 내용이 바뀌지 않으므로 `private, max-age=31536000, immutable`로 보낸다. 공용 캐시(CDN)에는 남지 않고 입장한 브라우저에만 남는다.
 - 서랍은 ★ 공용 즐겨찾기(`/api/favorites`, sha 기준), 열린 재생목록 문서가 슬라이드 배경(`backgroundMediaCue`)으로 쓰는 그림, 나머지 서버 그림 순으로 보인다. 배경 칸은 ImportedImages를 빼고, 접힌 `사용된 전체 이미지 보기`는 얹은 그림·가져온 이미지까지 모두 보인다.
 - 나머지 그림은 `GET /api/media/paths?folder=Images|YebaeOn`으로 그 폴더의 경로 범위만 쪽 단위(60)로 읽는다. ImportedImages(PPT 슬라이드 그림)는 목록으로 내주지 않는다. 이름 검색은 `instr`로 한다(D1 LIKE 패턴 길이 한도 때문에 경로 앞부분에 LIKE를 쓰지 않는다).
