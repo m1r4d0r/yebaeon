@@ -59,7 +59,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   if(process.env.BULLETIN_FIXTURE_DIR){const fs=require('node:fs');for(const name of fs.readdirSync(process.env.BULLETIN_FIXTURE_DIR).filter(n=>n.endsWith('.hwp'))){const bytes=fs.readFileSync(require('node:path').join(process.env.BULLETIN_FIXTURE_DIR,name));const r=await page.evaluate(bytes=>{const p=YebaeonBulletinParser.parse(Uint8Array.from(bytes));return {date:p.date,songs:p.services.map(s=>s.songs.length),groups:p.sermonGroups.length};},[...bytes]);assert.equal(r.songs.length,3);console.log('Private HWP verified:',JSON.stringify(r));}}
   await page.locator('#bulletinOpen').click();assert.equal(await page.locator('.bulletin-empty').isVisible(),true);
   await page.locator('#bulletinFile').setInputFiles({name:'synthetic.hwp',mimeType:'application/octet-stream',buffer:syntheticHWP()});await page.waitForFunction(()=>YebaeonBulletin.state()?.date==='2026-10-04');
-  assert.match(await page.locator('#bulletinStart .file-start-name').textContent(),/synthetic\.hwp · 10\/04/);
+  assert.equal(await page.locator('#bulletinStart .file-start-name').textContent(),'synthetic.hwp');assert.equal(await page.locator('#bulletinStart input[type=date]').inputValue(),'2026-10-04');assert.equal(await page.locator('#bulletinWork input[type=date]').count(),0);
   const slot=label=>page.locator('.bulletin-slot').filter({has:page.locator('label',{hasText:label})}).first();
   assert.equal(await page.locator('.bulletin-target select').evaluate(s=>s.selectedOptions[0].text),'1부 예배(품성)','first Sunday uses 품성');
   const sourceTable=page.locator('#bulletinSource .bulletin-source-grid');
@@ -68,13 +68,17 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   assert.equal(await page.getByRole('button',{name:/이 칸을 .* 찬양으로/}).count(),0);
   assert.equal(await sourceTable.locator('td',{hasText:'합성 찬양 A'}).getAttribute('rowspan'),'2');
   assert.equal(await sourceTable.locator('td',{hasText:'합심기도 후 대표기도'}).getAttribute('colspan'),'3');
+  // A previously unchanged (automatically unchecked) service becomes included after a song is selected.
+  await page.getByRole('tab',{name:'검토·적용',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('#bulletinDialog').matches('[aria-busy=true]')&&document.querySelectorAll('.bulletin-compare').length>0);
+  assert.equal(await page.locator('.bulletin-op>label',{hasText:'1부 예배(품성)'}).locator('input').isChecked(),false);
+  await page.locator('#bulletinSteps button',{hasText:'찬양'}).click();
   // Songs: candidates only; nothing is replaced until the user picks a document.
   await slot('찬양 1').click();await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor();assert.match(await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 악보'}).textContent(),/악보찬양/);
   assert.equal(await page.locator('.bulletin-cands input').count(),0,'the slot box is the search box; candidates show results only');
   const songBox=slot('찬양 1').locator('[id^=bulletin-]');await songBox.fill('악보');await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor({state:'detached'});assert.equal(await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 악보'}).count(),1,'typing in the slot box searches again');
   await songBox.fill('100 주');await songBox.press('Enter');await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor();
   await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).click();
-  await slot('설교 후 찬양').click();await page.locator('.bulletin-cands .cand',{hasText:'지금 이 자리'}).waitFor();assert.match(await page.locator('.bulletin-cands .cand',{hasText:'지금 이 자리'}).textContent(),/옛 설교후/);
+  await slot('설교 후 찬양').click();await page.locator('.bulletin-cands .cand',{hasText:'합성 찬양 D'}).waitFor();assert.equal(await page.locator('.bulletin-cands .cand',{hasText:'지금 이 자리'}).count(),0);
   await page.locator('.bulletin-cands .cand',{hasText:'합성 찬양 D'}).click();
   await page.locator('.bulletin-svc button',{hasText:'2부'}).click();assert.equal(await sourceTable.innerText(),tableText,'switching service keeps the complete source table');await slot('찬양 1').click();assert.match(await sourceTable.locator('.w.act').allTextContents().then(a=>a.join(' ')),/합성 찬양 A/);
   await page.locator('#bulletinSource .w',{hasText:/^합성$/}).first().click();await page.locator('#bulletinSource .w',{hasText:/^B$/}).first().click();
@@ -96,6 +100,10 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   await page.waitForFunction(()=>document.querySelector('#bulletinNext').textContent==='적용');await page.locator('.bulletin-op.bulletin-staged .bulletin-compare').first().waitFor();
   assert.equal(await page.locator('.bulletin-op ul').count(),0,'review cards show the preview, not a change list');
   assert.match(await page.locator('.bulletin-op',{hasText:'2부 예배'}).locator('.bulletin-compare-side').nth(1).textContent(),/합성 찬양 D/,'the after-sermon song chosen for 1부 carries over to 2부');
+  assert.match(await page.locator('.bulletin-op',{hasText:'2부 예배'}).textContent(),/찬양 2곡은 고르지 않아/);
+  await page.locator('#bulletinSteps button',{hasText:'찬양'}).click();await page.locator('.bulletin-svc button',{hasText:'2부'}).click();await slot('찬양 1').click();await page.locator('.bulletin-cands .cand',{hasText:'합성 찬양 A'}).click();await slot('찬양 2').locator('.skip').click();
+  await page.getByRole('tab',{name:'검토·적용',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('#bulletinDialog').matches('[aria-busy=true]')&&[...document.querySelectorAll('.bulletin-op')].some(e=>e.textContent.includes('2부 예배')&&e.querySelector('.added')?.textContent.includes('합성 찬양 A')));
+  assert.doesNotMatch(await page.locator('.bulletin-op',{hasText:'2부 예배'}).textContent(),/고르지 않아/,'returning to review refreshes picks and skipped songs');
   const reads=()=>contentReads.length,readsBefore=reads(),toggle=page.locator('.bulletin-op>label',{hasText:'3부 기도'}).locator('input[type=checkbox]');
   await toggle.uncheck();await toggle.check();await page.waitForTimeout(300);assert.equal(reads(),readsBefore,'turning a check off and on again keeps the built preview');assert.equal(await page.locator('#bulletinNext').textContent(),'적용');
   assert.equal(puts.length+patches.length,0,'미리 보기 saves nothing');assert.equal(await page.locator('#bulletinNext').textContent(),'적용');assert.equal(await page.locator('.bulletin-compare .bulletin-thumbs').first().evaluate(e=>getComputedStyle(e).flexWrap),'nowrap','slides scroll sideways');assert.ok(await page.locator('.bulletin-compare .bulletin-compare-side').count()>=4,'before and after are compared');assert.ok(await page.locator('.bulletin-compare.stack .bulletin-thumbs canvas').count()>0,'the sermon is shown as two scrolling rows');assert.ok(await page.locator('.bulletin-order-pane .added').count()>0&&await page.locator('.bulletin-order-pane .removed, .bulletin-order-pane .replaced').count()>0,'order panes mark what changes');await mkdir('artifacts',{recursive:true});await page.locator('.bulletin-staged').first().scrollIntoViewIfNeeded();await page.screenshot({path:'artifacts/bulletin-compare-1440.png'});await page.locator('.bulletin-compare.stack').scrollIntoViewIfNeeded();await page.screenshot({path:'artifacts/bulletin-compare-sermon-1440.png'});assert.match(await page.locator('.bulletin-staged.bad').textContent(),/먼저 서버 저장/);
@@ -113,7 +121,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   assert.equal(await page.locator('.bulletin-results .bad').count(),0);
   assert.deepEqual(names('1부 예배(품성)'),['첫화면','사도신경(구)','100 주 이름 가사','1부기도','광고','주일예배말씀','주일예배말씀 목사님 ppt','합성 찬양 D','옛 헌금','2026엔딩','마무리']);
   assert.deepEqual(names('청년예배'),['첫화면','사도신경(구)','합성 찬양 C','3부 기도','청년부 말씀','주일예배말씀 목사님 ppt','옛 설교후','광고','나의 모습 나의 소유','2026엔딩']);
-  assert.deepEqual(names('2부 예배'),['첫화면','사도신경(구)','옛 곡 1','옛 곡 2','2부 기도','광고','주일예배말씀','합성 찬양 D','옛 헌금','2026엔딩']);assert.deepEqual(patches.sort(),['1부 예배(품성)','2부 예배','청년예배']);
+  assert.deepEqual(names('2부 예배'),['첫화면','사도신경(구)','합성 찬양 A','2부 기도','광고','주일예배말씀','합성 찬양 D','옛 헌금','2026엔딩']);assert.deepEqual(patches.sort(),['1부 예배(품성)','2부 예배','청년예배']);
   assert.ok(!puts.includes('수요예배.pro6'));
   const x_split=made.split;const check=await page.evaluate(x=>{const t=xml=>{const m=PP6.parse(xml,'c');return PP6.slides(m).map(s=>({label:s.getAttribute('label'),boxes:PP6.textElements(s).map(b=>PP6.parseRTF(PP6.textNode(b).textContent))}));};
    const sermon=t(x.sermon),point=sermon.find(s=>s.boxes[0]?.text.startsWith('What?'));

@@ -46,13 +46,13 @@
   up.onclick=()=>run(()=>list(path.split('/').slice(0,-1).join('/')));refresh.onclick=()=>run(()=>list(path));more.onclick=()=>run(()=>list(path,true));close.onclick=()=>{box.hidden=true;};
   return {show,hide:()=>{box.hidden=true;},toggle:()=>box.hidden?show():(box.hidden=true),busy:()=>busy};
  }
- // 가져오기 창 공통 시작 줄: [드롭박스에서 가져오기] [내 컴퓨터에서 추가]와 고른 파일 이름, 그 아래 드롭박스 목록.
+ // 가져오기 창 공통 시작 줄: 파일 정보는 왼쪽, 컴퓨터·드롭박스 버튼은 오른쪽.
  function start(box,{accept,inputAccept,max,kind,onFile,initial}){
-  box.classList.add('file-start');const row=el('div','file-start-row'),add=el('label','file-start-add'),input=document.createElement('input'),drop=el('button','file-start-dropbox','드롭박스에서 가져오기'),name=el('span','file-start-name'),panel=el('div');
-  add.append(document.createTextNode('내 컴퓨터에서 추가'),input);input.type='file';input.accept=inputAccept;drop.type='button';row.append(drop,add,name);box.append(row,panel);
+  box.classList.add('file-start');const row=el('div','file-start-row'),add=el('label','file-start-add'),input=document.createElement('input'),drop=el('button','file-start-dropbox','드롭박스에서 가져오기'),name=el('span','file-start-name'),info=el('div','file-start-info'),actions=el('div','file-start-actions'),panel=el('div');
+  add.append(document.createTextNode('내 컴퓨터에서 불러오기'),input);input.type='file';input.accept=inputAccept;drop.type='button';info.append(name);actions.append(add,drop);row.append(info,actions);box.append(row,panel);
   const picker=attach(panel,{accept,max,kind,initial,onFile:file=>{name.textContent=file.name;return onFile(file);}});
   input.onchange=()=>{const file=input.files[0];input.value='';if(!file)return;picker.hide();name.textContent=file.name;onFile(file);};drop.onclick=()=>picker.toggle();
-  return {input,picker,setName:text=>{name.textContent=text||'';},setDisabled(value){input.disabled=drop.disabled=value;add.classList.toggle('disabled',value);}};
+  return {input,picker,info,setName:text=>{name.textContent=text||'';},setDisabled(value){input.disabled=drop.disabled=value;add.classList.toggle('disabled',value);}};
  }
  window.YebaeonDropboxPicker={attach,icon,start};
 })();
