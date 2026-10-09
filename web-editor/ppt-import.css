@@ -78,3 +78,10 @@
 
 #pptConversionOptions label{flex:1 1 100%;flex-wrap:wrap}
 #pptConversion{min-width:0;max-width:100%;width:100%;padding:7px}
+
+.ppt-field{display:grid;grid-template-columns:110px minmax(0,1fr);align-items:start;gap:8px 12px}
+.ppt-field>label{padding-top:8px}.ppt-field>select{width:100%;min-width:0;padding:8px;border:1px solid var(--line,#dce2ed);border-radius:6px;background:#fff}.ppt-field>.ppt-help{grid-column:2;margin:0}
+.ppt-name-controls label{display:flex;flex-direction:column;align-items:stretch;gap:6px}.ppt-name-controls select{width:100%;min-width:0;padding:8px}
+@media(max-width:540px){.ppt-field{grid-template-columns:minmax(0,1fr)}.ppt-field>label{padding-top:0}.ppt-field>.ppt-help{grid-column:1}}
+
+.ppt-purpose{display:flex;flex:none;gap:3px;margin:10px 16px 0;padding:3px;background:#eef1f5;border-radius:8px}.ppt-purpose button{flex:1;min-width:0;border:0;background:transparent;padding:9px 6px;border-radius:6px;color:#536078}.ppt-purpose button[aria-pressed=true]{background:#fff;color:#243d83;box-shadow:0 1px 4px #22335520;font-weight:600}

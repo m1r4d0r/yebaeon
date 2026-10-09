@@ -76,19 +76,19 @@
  }
 
  // ── 보관함·휴지통 창 ──
- let bin='trashed-playlists';
+ let bin='trashed-playlists',binRequest=0;
  const BINS={
   'trashed-docs':{label:'문서 휴지통',empty:'휴지통이 비어 있습니다.',purge:'documents'},
   'trashed-playlists':{label:'재생목록 휴지통',empty:'휴지통이 비어 있습니다.',purge:'playlists'}
  };
  async function openBins(which){
-  if(!C.needUser())return;if(which)bin=which;$('binsDialog').open||$('binsDialog').showModal();
+  if(!C.needUser())return;const request=++binRequest;if(which)bin=which;$('binsDialog').open||$('binsDialog').showModal();
   for(const button of $('binsTabs').children)button.classList.toggle('active',button.dataset.bin===bin);
   $('binsPurge').hidden=!BINS[bin].purge;const list=$('binsList');list.replaceChildren();$('binsMessage').textContent='불러오고 있습니다…';
   try{
    if(bin.endsWith('docs')){
     const state=bin==='archived-docs'?'archived':'trashed';let after='';
-    do{const data=await(await C.api('/documents?'+new URLSearchParams({state,after}))).json();
+    do{const data=await(await C.api('/documents?'+new URLSearchParams({state,after}))).json();if(request!==binRequest)return;
      for(const doc of data.documents){const row=document.createElement('div');row.className='archive-row';const label=document.createElement('strong');label.textContent=stem(doc.path);const when=document.createElement('small');when.textContent=(doc.stateBy?doc.stateBy+' · ':'')+(doc.stateAt?new Date(doc.stateAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'');
       const back=document.createElement('button');back.textContent='꺼내기';back.onclick=async()=>{back.disabled=true;try{await C.api(`/documents/${doc.id}/state`,json('POST',{action:state==='archived'?'unarchive':'untrash'}));row.remove();$('binsMessage').textContent=`‘${stem(doc.path)}’을(를) 사용 중으로 꺼냈습니다.`;C.refresh();}catch(error){$('binsMessage').textContent=error.message;back.disabled=false;}};
       row.append(label,when,back);
@@ -97,7 +97,7 @@
      after=data.next||'';}while(after);
    }else{
     let after='';
-    do{const data=await(await C.api('/playlists?'+new URLSearchParams({scope:'trashed',after}))).json();
+    do{const data=await(await C.api('/playlists?'+new URLSearchParams({scope:'trashed',after}))).json();if(request!==binRequest)return;
      for(const item of data.archives){const row=document.createElement('div');row.className='archive-row';const label=document.createElement('strong');label.textContent=item.name;const when=document.createElement('small');when.textContent=(item.archivedBy||'')+' · '+new Date(item.archivedAt).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'});
       const back=document.createElement('button');back.textContent='꺼내기';back.onclick=async()=>{if(busy()){$('binsMessage').textContent='현재 변경사항을 먼저 저장해 주세요.';return;}back.disabled=true;try{const latest=(await(await C.api('/playlists/'+item.libraryId)).json()).library;const result=await(await C.api(`/playlists/${item.libraryId}/untrash?`+new URLSearchParams({node:item.id}),json('POST',{},{'If-Match':`"${latest.version}"`}))).json();await YebaeonPlaylists.acceptLibrary(result.library,item.id);row.remove();$('binsMessage').textContent='꺼냈습니다. 현재 문서에 연결됩니다.';}catch(error){$('binsMessage').textContent=error.message;back.disabled=false;}};
       row.append(label,when,back);list.append(row);}
