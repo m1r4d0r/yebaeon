@@ -62,6 +62,12 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   assert.match(await page.locator('#bulletinStart .file-start-name').textContent(),/synthetic\.hwp · 10\/04/);
   const slot=label=>page.locator('.bulletin-slot').filter({has:page.locator('label',{hasText:label})}).first();
   assert.equal(await page.locator('.bulletin-target select').evaluate(s=>s.selectedOptions[0].text),'1부 예배(품성)','first Sunday uses 품성');
+  const sourceTable=page.locator('#bulletinSource .bulletin-source-grid');
+  assert.equal(await sourceTable.count(),1);
+  const tableText=await sourceTable.innerText();for(const word of ['1부예배','2부예배','3부예배','합성 찬양 A','합성 찬양 C'])assert.ok(tableText.includes(word),'all services retain their place in the source table');
+  assert.equal(await page.getByRole('button',{name:/이 칸을 .* 찬양으로/}).count(),0);
+  assert.equal(await sourceTable.locator('td',{hasText:'합성 찬양 A'}).getAttribute('rowspan'),'2');
+  assert.equal(await sourceTable.locator('td',{hasText:'합심기도 후 대표기도'}).getAttribute('colspan'),'3');
   // Songs: candidates only; nothing is replaced until the user picks a document.
   await slot('찬양 1').click();await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor();assert.match(await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 악보'}).textContent(),/악보찬양/);
   assert.equal(await page.locator('.bulletin-cands input').count(),0,'the slot box is the search box; candidates show results only');
@@ -70,7 +76,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).click();
   await slot('설교 후 찬양').click();await page.locator('.bulletin-cands .cand',{hasText:'지금 이 자리'}).waitFor();assert.match(await page.locator('.bulletin-cands .cand',{hasText:'지금 이 자리'}).textContent(),/옛 설교후/);
   await page.locator('.bulletin-cands .cand',{hasText:'합성 찬양 D'}).click();
-  await page.locator('.bulletin-svc button',{hasText:'2부'}).click();await slot('찬양 1').click();
+  await page.locator('.bulletin-svc button',{hasText:'2부'}).click();assert.equal(await sourceTable.innerText(),tableText,'switching service keeps the complete source table');await slot('찬양 1').click();assert.match(await sourceTable.locator('.w.act').allTextContents().then(a=>a.join(' ')),/합성 찬양 A/);
   await page.locator('#bulletinSource .w',{hasText:/^합성$/}).first().click();await page.locator('#bulletinSource .w',{hasText:/^B$/}).first().click();
   assert.equal(await slot('찬양 1').locator('[id^=bulletin-]').inputValue(),'합성 B','first word replaces, next word appends');
   await page.locator('#bulletinSource .bulletin-line',{hasText:'합성 찬양 A'}).locator('.pil').click();assert.equal(await slot('찬양 1').locator('[id^=bulletin-]').inputValue(),'합성 찬양 A');
@@ -131,7 +137,8 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   await page.locator('#bulletinFile').setInputFiles({name:'changed.hwp',mimeType:'application/octet-stream',buffer:syntheticHWP({changed:true})});await page.waitForFunction(()=>YebaeonBulletin.state()?.file==='changed.hwp');
   await page.locator('.bulletin-svc button',{hasText:'2부'}).click();assert.equal(await slot('찬양 1').locator('[id^=bulletin-]').inputValue(),'');
   await page.locator('#bulletinSource .bulletin-source-bar input').check();const cell=text=>page.locator('#bulletinSource .bulletin-cell',{hasText:text});
-  await cell('합성 찬양 A').locator('.bulletin-cell-tools button',{hasText:'2부 찬양으로'}).click();
+  await slot('찬양 1').click();await cell('합성 찬양 A').locator('.bulletin-line',{hasText:'합성 찬양 A'}).locator('.pil').click();
+  await page.getByRole('button',{name:'+ 찬양 추가',exact:true}).click();await cell('합성 찬양 B').locator('.bulletin-line',{hasText:'합성 찬양 B'}).locator('.pil').click();
   assert.deepEqual(await page.locator('.bulletin-slot input[id^=bulletin-]').evaluateAll(xs=>xs.slice(0,2).map(x=>x.value)),['합성 찬양 A','합성 찬양 B']);
   await page.locator('#bulletinSteps button',{hasText:'기도'}).click();await slot('1부 기도').click();await page.locator('#bulletinSource .bulletin-line',{hasText:'가나다집사 /'}).locator('.pil').click();
   assert.deepEqual(await page.locator('.bulletin-slot input[id^=bulletin-]').evaluateAll(xs=>xs.map(x=>x.value)),['가나다집사','라마바시무집사','사아자형제'],'one prayer line fills all services');
