@@ -680,14 +680,19 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
                 *const kListCollision = @"같은 이름, 다른 내용", *const kListExternal = @"외부 참조", *const kListImage = @"이미지 보충", *const kListNumbered = @"번호 붙임";
 - (NSArray *)reviewItems {
     NSMutableArray *items = [NSMutableArray array];
+    NSMutableSet *deletedPaths = [NSMutableSet set];
     for (NSDictionary *row in self.rows) {
+        for (NSString *path in row[@"explicitlyDeletedDocuments"]) if (![deletedPaths containsObject:path]) {
+            [deletedPaths addObject:path];
+            [items addObject:@{@"list": kListMacDeleted, @"title": path, @"path": path, @"detail": @"Mac에서 지움 · 다시 받지 않음", @"item": @{@"path": path}}];
+        }
         NSString *status = row[@"status"];
         if ([status isEqual:@"hold"] && [row[@"nodeID"] length]) [items addObject:@{@"list": kListHold, @"title": row[@"name"] ?: @"", @"detail": row[@"reason"] ?: @""}];
         for (NSDictionary *hold in row[@"actionHolds"]) [items addObject:@{@"list": kListHold, @"title": hold[@"path"], @"path": hold[@"path"], @"detail": hold[@"reason"] ?: @""}];
         if ([row[@"macDeleted"] boolValue]) [items addObject:@{@"list": kListMacDeleted, @"title": row[@"name"] ?: @"", @"detail": @"예배 · 데일리 창에서 체크하면 다시 받습니다"}];
     }
     NSDictionary *check = [self.engine lastFullCheck];
-    for (NSDictionary *item in check[@"macDeleted"]) [items addObject:@{@"list": kListMacDeleted, @"title": item[@"path"], @"path": item[@"path"], @"detail": @"문서 · 서버에는 사용 중", @"item": item}];
+    for (NSDictionary *item in check[@"macDeleted"]) if (![deletedPaths containsObject:item[@"path"]]) [items addObject:@{@"list": kListMacDeleted, @"title": item[@"path"], @"path": item[@"path"], @"detail": @"문서 · 서버에는 사용 중", @"item": item}];
     for (NSDictionary *item in check[@"collisions"]) [items addObject:@{@"list": kListCollision, @"title": item[@"path"], @"path": item[@"path"], @"detail": @"Mac과 서버의 내용이 다르고 같은 이력이 없음", @"item": item}];
     // 외부 참조: 동영상은 아직 정리하지 않으므로 이미지 등만 보여 준다.
     NSSet *videos = [NSSet setWithArray:@[@"mov", @"mp4", @"m4v", @"avi", @"wmv", @"mpg", @"mpeg", @"mkv", @"flv", @"webm", @"3gp", @"mts", @"m2ts"]];
@@ -775,7 +780,7 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
 // 데일리 창 한 줄이 가리키는 문서 경로. 오른쪽 클릭 강제 동작과 원격 강제 동작이 같이 쓴다.
 static NSArray *RowDocumentPaths(NSDictionary *row) {
     NSMutableOrderedSet *paths = [NSMutableOrderedSet orderedSet];
-    for (NSString *key in @[@"serviceDocuments", @"macDeletedDocuments", @"missingLocal", @"macOnlyDocuments", @"macChangedDocuments"]) for (id path in row[key]) if ([path isKindOfClass:NSString.class]) [paths addObject:path];
+    for (NSString *key in @[@"serviceDocuments", @"explicitlyDeletedDocuments", @"macDeletedDocuments", @"missingLocal", @"macOnlyDocuments", @"macChangedDocuments"]) for (id path in row[key]) if ([path isKindOfClass:NSString.class]) [paths addObject:path];
     for (NSDictionary *doc in row[@"documents"]) if ([doc[@"path"] isKindOfClass:NSString.class]) [paths addObject:doc[@"path"]];
     return [paths.array sortedArrayUsingSelector:@selector(localizedStandardCompare:)];
 }
@@ -796,6 +801,12 @@ static NSArray *RowDocumentPaths(NSDictionary *row) {
     NSDictionary *row = self.rows[index];
     NSArray *paths = RowDocumentPaths(row);
     NSMenuItem *head = [menu addItemWithTitle:[NSString stringWithFormat:@"강제 동작 · %@ (권장과 상관없이 실행)", row[@"name"] ?: @""] action:nil keyEquivalent:@""]; head.enabled = NO;
+    BOOL orderAvailable = [@[@"same", @"receive", @"mac"] containsObject:row[@"status"] ?: @""] && [row[@"plan"][@"applicable"] boolValue];
+    for (NSArray *spec in @[@[@"server", @"재생목록을 서버 순서로 덮어쓰기…"], @[@"mac", @"재생목록을 Mac 순서로 덮어쓰기…"]]) {
+        NSMenuItem *item = [menu addItemWithTitle:spec[1] action:@selector(forceOrder:) keyEquivalent:@""];
+        item.target = self; item.representedObject = @{@"direction": spec[0], @"row": row};
+        item.enabled = !self.busy && orderAvailable && ([spec[0] isEqual:@"server"] || [row[@"localXML"] length] > 0);
+    }
     if (!paths.count) { NSMenuItem *none = [menu addItemWithTitle:@"이 예배에 문서가 없습니다" action:nil keyEquivalent:@""]; none.enabled = NO; return; }
     [menu addItem:NSMenuItem.separatorItem];
     for (NSString *path in paths) {
@@ -810,6 +821,27 @@ static NSArray *RowDocumentPaths(NSDictionary *row) {
         docItem.submenu = actions;
     }
 }
+- (void)forceOrder:(NSMenuItem *)sender {
+    if (self.busy) return;
+    NSDictionary *row = sender.representedObject[@"row"];
+    BOOL fromServer = [sender.representedObject[@"direction"] isEqual:@"server"];
+    NSAlert *confirm = [NSAlert new];
+    confirm.messageText = [NSString stringWithFormat:@"%@ · %@ 순서로 덮어쓸까요?", row[@"name"], fromServer ? @"서버" : @"Mac"];
+    confirm.informativeText = [NSString stringWithFormat:@"선택한 재생목록의 구성·순서·이름을 바꿉니다. 다른 재생목록과 문서 본문·이미지는 바꾸지 않습니다.\n\n%@", fromServer ? @"ProPresenter를 종료해 주세요. 지금 Mac 순서는 백업하며, 마지막 적용 되돌리기로 복구할 수 있습니다." : @"지금 서버 순서를 Mac 순서로 교체합니다. 이전 서버 순서는 저장 이력에 남습니다."];
+    [confirm addButtonWithTitle:@"덮어쓰기"]; [confirm addButtonWithTitle:@"취소"];
+    if ([confirm runModal] != NSAlertFirstButtonReturn) return;
+    [self runOrganizer:@"재생목록 순서 덮어쓰는 중" task:^id{
+        return [self.engine overwriteOrder:row fromServer:fromServer];
+    } done:^(NSDictionary *result) {
+        NSMutableArray *messages = [NSMutableArray array];
+        for (NSString *name in result[@"failed"]) [messages addObject:[NSString stringWithFormat:@"%@: %@", name, result[@"failed"][name]]];
+        [messages addObjectsFromArray:result[@"revisionFailed"] ?: @[]];
+        [self note:messages.count ? [messages componentsJoinedByString:@"\n"] : [NSString stringWithFormat:@"%@ · %@ 순서로 덮어쓰기 완료", row[@"name"], fromServer ? @"서버" : @"Mac"]];
+        if (messages.count) [self alert:@"순서 덮어쓰기 결과 확인" text:[messages componentsJoinedByString:@"\n"]];
+        [self compareNow:nil];
+    }];
+}
+
 - (void)forceDocument:(NSMenuItem *)sender {
     NSString *action = sender.representedObject[@"action"], *path = sender.representedObject[@"path"], *name = path.stringByDeletingPathExtension;
     if ([action isEqual:@"diff"]) { [self showDiffForPath:path]; return; }
@@ -1169,6 +1201,7 @@ static NSString *DetailText(NSDictionary *row) {
     if (both.count) [lines addObject:[@"양쪽 수정(서버 것 받기, Mac 것은 서버 보관본·백업에): " stringByAppendingString:Names(both)]];
     if (unknown.count) [lines addObject:[@"이력 없음(Mac 파일 그대로, 정리 창에서 정하기): " stringByAppendingString:Names(unknown)]];
     if ([row[@"macOnlyDocuments"] count]) [lines addObject:[@"올리기(Mac에서만 고침): " stringByAppendingString:Names(row[@"macOnlyDocuments"])]];
+    if ([row[@"explicitlyDeletedDocuments"] count]) [lines addObject:[@"Mac에서 지워 다시 받지 않는 문서: " stringByAppendingString:Names(row[@"explicitlyDeletedDocuments"])]];
     if ([row[@"macDeletedDocuments"] count]) [lines addObject:[@"Mac에서 지운 문서(적용하면 다시 받음): " stringByAppendingString:Names(row[@"macDeletedDocuments"])]];
     if ([row[@"images"] count]) [lines addObject:[@"이미지 받기: " stringByAppendingString:ImageNames(row[@"images"])]];
     if ([row[@"missingServer"] unsignedIntegerValue]) [lines addObject:[NSString stringWithFormat:@"서버에 원본 없는 문서 %@개는 Mac 파일 그대로", row[@"missingServer"]]];

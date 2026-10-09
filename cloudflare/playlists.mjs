@@ -6,7 +6,7 @@ import {archiveList,protectManagedPlaylists,managePlaylist} from './playlist-man
 const MAX = 5 * 1024 * 1024;
 const conflict = () => new HttpError(409, 'playlist_conflict', '재생목록이 먼저 변경됐습니다. 새로고침 후 다시 확인해 주세요.');
 function metadata(r) { return { id: r.id, path: r.path, version: r.current_version, sha256: r.sha256, size: r.size, updatedAt: r.updated_at, updatedBy: r.updated_by, sourceRoot: r.source_root, playlists: JSON.parse(r.catalog) }; }
-function doc(r) { return { id: r.id, path: r.path, name: r.path.split('/').pop(), version: r.current_version, sha256: r.sha256, size: r.size, updatedAt: r.updated_at, updatedBy: r.updated_by }; }
+function doc(r) { return { state: r.state || 'active', id: r.id, path: r.path, name: r.path.split('/').pop(), version: r.current_version, sha256: r.sha256, size: r.size, updatedAt: r.updated_at, updatedBy: r.updated_by }; }
 async function row(db, id) { const r = await db.prepare('SELECT * FROM yebaeon_playlists WHERE id = ?').bind(id).first(); if (!r) throw new HttpError(404, 'not_found', '재생목록을 찾지 못했습니다.'); return r; }
 async function read(request) {
   const data = await bytes(request, MAX); let xml;
@@ -134,9 +134,9 @@ export async function playlistsRoute(request, env, user, id, action) {
       const path = item.kind === 'document' ? referencePath(item.sourcePath,r.source_root) : null;
       const document = path ? map.get(path) || null : null;
       const sharedWith = path ? parsed.playlists.filter(p=>p.id!==playlist.id && p.items.some(x=>x.kind==='document' && referencePath(x.sourcePath,r.source_root)===path)).map(p=>p.name) : [];
-      return {id:item.id,raw:parsed.xml.slice(item.node.start,item.node.end),kind:item.kind,name:item.name,sourcePath:item.sourcePath,path,document,...(indexed.has(path)&&!document?{indexedDocument:indexed.get(path)}:{}),sharedWith,issue:item.kind==='unsupported' ? 'unsupported' : item.kind==='document' && !document ? (path ? 'missing' : 'unmapped') : null};
+      return {id:item.id,raw:parsed.xml.slice(item.node.start,item.node.end),kind:item.kind,name:item.name,sourcePath:item.sourcePath,path,document,...(indexed.has(path)&&!document?{indexedDocument:indexed.get(path)}:{}),sharedWith,issue:document?.state==='trashed' ? 'trashed' : item.kind==='unsupported' ? 'unsupported' : item.kind==='document' && !document ? (path ? 'missing' : 'unmapped') : null};
     });
-    const documents = [...new Map(items.filter(x=>x.document).map(x=>[x.document.id,x.document])).values()];
+    const documents = [...new Map(items.filter(x=>x.document&&x.document.state!=='trashed').map(x=>[x.document.id,x.document])).values()];
     const nodeVersion=await db.prepare('SELECT version,author,created_at FROM yebaeon_playlist_node_versions WHERE library_id=? AND node_id=? ORDER BY version DESC LIMIT 1').bind(id,playlist.id).first();
     const nodeXml = parsed.xml.slice(playlist.node.start,playlist.node.end), nodeHash = await sha256(new TextEncoder().encode(nodeXml));
     const fingerprint = await sha256(new TextEncoder().encode(JSON.stringify([r.id,playlist.id,nodeHash,items.map(x=>[x.id,x.path,x.issue,x.document?.version,x.document?.sha256])])));

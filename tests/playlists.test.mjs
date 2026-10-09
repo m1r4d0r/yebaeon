@@ -56,6 +56,20 @@ test('playlist server, linked edits, structural edits, history and conflicts', {
     song=(await ok(await call('/documents/'+song.id,'PUT','<RVPresentationDocument><text>edited lyrics</text></RVPresentationDocument>',{'If-Match':'"1"'}))).document;
     plan=await ok(await call(`/playlists/${library.id}/plan?node=A`));assert.notEqual(plan.fingerprint,previous);assert.equal(plan.library.version,1);assert.equal(plan.items[0].document.version,2);assert.equal(plan.playlist.xml,parsePlaylist(xml).xml.slice(parsePlaylist(xml).playlists[0].node.start,parsePlaylist(xml).playlists[0].node.end));
   });
+  await t.test('trashed referenced documents are never download targets; restore opts back in',async()=>{
+    const before=await ok(await call(`/playlists/${library.id}/plan?node=A`));
+    await ok(await call(`/documents/${song.id}/state`,'POST',JSON.stringify({action:'trash'}),{'Content-Type':'application/json'}));
+    const trashed=await ok(await call(`/playlists/${library.id}/plan?node=A`));
+    assert.equal(trashed.documents.some(d=>d.id===song.id),false);
+    assert.equal(trashed.items.find(i=>i.document?.id===song.id).issue,'trashed');
+    assert.equal(trashed.applicable,true);
+    assert.equal(trashed.playlist.xml,before.playlist.xml);
+    assert.notEqual(trashed.fingerprint,before.fingerprint);
+    await ok(await call(`/documents/${song.id}/state`,'POST',JSON.stringify({action:'untrash'}),{'Content-Type':'application/json'}));
+    const restored=await ok(await call(`/playlists/${library.id}/plan?node=A`));
+    assert.equal(restored.documents.some(d=>d.id===song.id),true);
+    assert.equal(restored.items.find(i=>i.document?.id===song.id).issue,null);
+  });
   await t.test('reorder, add, remove preserve unrelated nodes and documents; CAS/history',async()=>{
     const endpoint=`/playlists/${library.id}?node=A`, body=JSON.stringify({items:[{id:'header'},{id:'b'},{id:'a'},{documentId:other.id}]});
     assert.equal((await call(endpoint,'PATCH',body)).status,428);

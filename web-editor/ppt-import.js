@@ -1,5 +1,5 @@
 (function(){'use strict';
- // PPT·PDF 가져오기. 파일을 고른 뒤 넣을 곳(새 문서·기존 문서 교체)만 정한다.
+ // PPT·PDF 가져오기. 넣을 곳과 변환 방식을 고르고 결과를 검수한다.
  // 새 문서의 카테고리가 악보찬양이면 PPT에서 악보 그림을 배경과 나눠 투명하게 가져오고, 나눌 수 없는 장은 장 전체를 그림 한 장으로 가져온다.
  // 나눈 배경 그림(단색이 아닌 것)은 문서에 넣지 않고 미디어 `YebaeOn/<문서이름> 배경-<n>.png`로 따로 올린다.
  // 선택한 재생목록에 넣으면 그 순서도 바로 서버에 저장한다.
@@ -17,7 +17,8 @@
   <div class="ppt-controls ppt-mode-options"><label><input type="radio" name="pptTarget" value="new" checked> 새 문서로 추가</label><label><input type="radio" name="pptTarget" value="replace"> 기존 문서의 슬라이드 교체</label></div>
   <div id="pptNewOptions" class="ppt-controls ppt-name-controls"><label>문서 이름 <input id="pptName" maxlength="145"></label><label class="ppt-category">카테고리 <select id="pptCategory"><option value="">고르세요</option></select></label></div>
   <div id="pptReplaceOptions" hidden><div id="pptCandidates" class="ppt-candidates" role="group" aria-label="교체할 문서"></div><div id="pptSearch" hidden></div></div><p id="pptTargetInfo" class="ppt-help"></p>
-  <div id="pptScoreOptions" class="ppt-controls" hidden><label class="ppt-switch"><input id="pptCropOn" type="checkbox" role="switch" checked> 2장부터 제목 자르기</label><label id="pptCropAmount">위에서 <input id="pptCrop" type="number" min="0" max="40" step="0.1" value="16.7"> %</label><span>배경을 나눌 수 있는 장은 악보만 투명하게, 나눌 수 없는 장은 장 전체를 그대로 가져옵니다.</span></div>
+  <div id="pptConversionOptions" class="ppt-controls" hidden><label>가져오기 방식 <select id="pptConversion"><option value="auto">악보 규칙으로 분리 · 안 맞는 장은 전체 이미지</option><option value="full">슬라이드 전체를 이미지로 · 분리 안 함</option></select></label><span>전체 이미지는 배경·악보·글자를 한 장으로 합치며 제목을 자르지 않습니다.</span></div>
+  <div id="pptScoreOptions" class="ppt-controls" hidden><label class="ppt-switch"><input id="pptCropOn" type="checkbox" role="switch" checked> 2장부터 제목 자르기</label><label id="pptCropAmount">위에서 <input id="pptCrop" type="number" min="0" max="40" step="0.1" value="16.7"> %</label><label class="ppt-switch"><input id="pptRemoveWhite" type="checkbox" role="switch"> 흰 바탕 투명하게</label><span>흰 바탕 옵션은 흰 글자·테두리에도 적용됩니다. 배경을 나눌 수 있는 장은 악보만 투명하게, 나눌 수 없는 장은 장 전체를 그대로 가져옵니다.</span></div>
   <div class="ppt-controls"><button id="pptPreview" disabled>변환 미리보기</button></div></fieldset>
  <p id="pptMessage" class="ppt-message" role="status"></p><div id="pptSlides" class="ppt-slides"></div><div id="pptLarge" class="ppt-large" hidden><button id="pptLargeClose">확대 닫기</button><div id="pptLargeImage"></div></div></div>
  <footer id="pptFooter" class="import-actions"><div class="ppt-checks"><label id="pptAppendLabel"><input id="pptAppend" type="checkbox"> 선택한 재생목록 맨 아래에도 추가</label><label><input id="pptReviewed" type="checkbox" disabled> 모든 장의 변환 결과를 확인했어요</label></div><button id="pptSave" class="primary" disabled>검수 완료 · 문서 추가</button></footer>`;
@@ -27,7 +28,8 @@
  const message=t=>$('pptMessage').textContent=t,mode=()=>dialog.querySelector('input[name=pptTarget]:checked').value;
  // 한 가지 색으로만 칠한 배경은 미디어에 올리지 않는다(단색은 미디어 › 그림 추가에서 바로 만든다).
  async function plain(blob){const bitmap=await createImageBitmap(blob);try{const c=document.createElement('canvas');c.width=48;c.height=27;const x=c.getContext('2d');x.drawImage(bitmap,0,0,48,27);const d=x.getImageData(0,0,48,27).data;for(let i=4;i<d.length;i+=4)if(Math.abs(d[i]-d[0])>6||Math.abs(d[i+1]-d[1])>6||Math.abs(d[i+2]-d[2])>6||Math.abs(d[i+3]-d[3])>6)return false;return true;}finally{bitmap.close();}}
- const scoreMode=()=>source?.kind==='ppt'&&mode()==='new'&&$('pptCategory').value===SCORE;
+ const scoreEligible=()=>source?.kind==='ppt'&&mode()==='new'&&$('pptCategory').value===SCORE;
+ const scoreMode=()=>scoreEligible()&&$('pptConversion').value==='auto';
  const escape=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
  const hash=async b=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',await b.arrayBuffer()))].map(x=>x.toString(16).padStart(2,'0')).join('');
  function script(src,name,get,set){if(window[name])return Promise.resolve(window[name]);return get()??set(new Promise((resolve,reject)=>{const s=document.createElement('script');s.src=src;s.onload=()=>resolve(window[name]);s.onerror=()=>{s.remove();set(null);reject(Error('변환기를 불러오지 못했습니다. 다시 시도해 주세요.'));};document.head.append(s);}));}
@@ -46,7 +48,7 @@
  async function openDialog(){if(!C.needUser()||busy)return;dialog.showModal();const selected=L.selectedPlaylist();$('pptAppend').disabled=!selected?.editable;$('pptAppend').checked=!!selected?.editable;categories().then(()=>lock(busy));try{prepared=await recovery('get')||prepared;showRecovery();lock(false);}catch(e){message('중단 복구 저장소를 열지 못했습니다: '+e.message);}}
  open.onclick=openDialog;$('pptClose').onclick=()=>{if(!uploading&&!busy){renderEpoch++;dialog.close();}};dialog.addEventListener('cancel',e=>{if(uploading||busy)e.preventDefault();else renderEpoch++;});
  function options(){const replace=mode()==='replace';$('pptOptions').hidden=!source;$('pptNewOptions').hidden=replace;$('pptReplaceOptions').hidden=!replace;$('pptTargetInfo').hidden=!replace;$('pptAppendLabel').hidden=replace;
-  $('pptScoreOptions').hidden=!scoreMode();$('pptCropAmount').hidden=!$('pptCropOn').checked;$('pptSave').textContent=replace?'검수 완료 · 슬라이드 교체':'검수 완료 · 문서 추가';$('pptStartHelp').hidden=!!source;$('pptFooter').hidden=!source;
+  $('pptConversionOptions').hidden=source?.kind!=='ppt';$('pptConversion').querySelector('[value=auto]').disabled=!scoreEligible();if(!scoreEligible())$('pptConversion').value='full';$('pptScoreOptions').hidden=!scoreMode();$('pptCropAmount').hidden=!$('pptCropOn').checked;$('pptSave').textContent=replace?'검수 완료 · 슬라이드 교체':'검수 완료 · 문서 추가';$('pptStartHelp').hidden=!!source;$('pptFooter').hidden=!source;
   for(const card of $('pptSlides').querySelectorAll('.ppt-card'))card.querySelector('select')?.toggleAttribute('hidden',!scoreMode());lock(busy);}
  function setMode(value){const radio=dialog.querySelector(`input[name=pptTarget][value=${value}]`);if(radio)radio.checked=true;target=null;$('pptTargetInfo').textContent='';candidates();options();}
  function candidates(){const root=$('pptCandidates');root.replaceChildren();for(const c of CANDIDATES){const b=document.createElement('button');b.type='button';b.className='ppt-candidate';b.textContent=c.label;b.setAttribute('aria-pressed',String(c.names.includes(target?.name)));b.onclick=()=>choose(c.names);root.append(b);}
@@ -60,14 +62,14 @@
   try{message(kind==='pdf'?'PDF를 읽고 있습니다…':'파일 구조와 이미지를 읽고 있습니다…');const lib=kind==='pdf'?await pdf():await engine(),data=kind==='pdf'?await lib.open(await file.arrayBuffer()):await lib.parse(await file.arrayBuffer());if(epoch!==renderEpoch){data.dispose?.();return;}
    const pages=kind==='pdf'?data.pages.map((_,i)=>({selected:true,index:i})):data.slides.map((s,i)=>{s.selected=!s.hidden;s.index=i;return s;});
    source={kind,name:file.name.normalize('NFC'),data,pages};start.setName(source.name);$('pptName').value=source.name.replace(/\.(pptx?|pdf)$/i,'').slice(0,145);
-   setMode('new');cards();
+   $('pptRemoveWhite').checked=false;$('pptConversion').value='full';setMode('new');cards();
    message(`${pages.length}${kind==='pdf'?'쪽':'장'} 읽음. 넣을 곳을 정하고 ‘변환 미리보기’를 누르세요.${kind==='ppt'&&data.warnings.length?'\n'+data.warnings.join('\n'):''}`);
   }catch(e){source=null;start.setName('');message('파일 읽기 실패: '+e.message);}finally{options();lock(false);}}
  function cards(){const root=$('pptSlides');root.replaceChildren();if(!source)return;const unit=source.kind==='pdf'?'쪽':'장';source.pages.forEach((s,i)=>{const card=document.createElement('article');card.className='ppt-card';card.dataset.index=i;const label=document.createElement('label'),check=document.createElement('input');check.type='checkbox';check.checked=s.selected;check.setAttribute('aria-label',`${i+1}${unit} 포함`);check.onchange=()=>{s.selected=check.checked;invalidate();};label.append(check,document.createTextNode(`${i+1}${unit}${s.hidden?' · 숨김':''}`));const badge=document.createElement('span');badge.className='ppt-card-badge';label.append(badge);card.append(label);
   if(source.kind==='ppt'){const select=document.createElement('select');select.setAttribute('aria-label',`${i+1}장 악보 그림`);select.add(new Option('통 이미지(나누지 않음)','-1'));s.images.forEach((p,j)=>select.add(new Option(`${p.name}${p.transparent?' · 투명':' · 불투명'}`,String(j))));select.value=String(separable(s)?s.scoreIndex:-1);select.onchange=()=>{s.scoreIndex=Number(select.value);s.forced=true;invalidate();};select.hidden=!scoreMode();card.append(select);}
   const preview=document.createElement('button');preview.className='ppt-thumb';preview.type='button';preview.setAttribute('aria-label',`${i+1}${unit} 확대`);preview.textContent='미리보기 전';preview.onclick=()=>{const o=outputs.find(x=>x.index===i);if(!o)return;$('pptLargeImage').replaceChildren(composite(o));$('pptLarge').hidden=false;$('pptLarge').scrollIntoView({block:'nearest'});};card.append(preview);root.append(card);});}
  // 악보 그림이 투명하면 배경과 나눌 수 있다. 사용자가 그림을 직접 고르면 그 선택을 따른다.
- const separable=s=>s.scoreIndex>=0&&!!s.images[s.scoreIndex]&&(s.forced||s.images[s.scoreIndex].transparent);
+ const separable=s=>s.scoreIndex>=0&&!!s.images[s.scoreIndex]&&(s.forced||s.images[s.scoreIndex].transparent||$('pptRemoveWhite').checked);
  function composite(o){const box=document.createElement('div');box.className='ppt-composite';box.style.aspectRatio=`${size.width}/${size.height}`;const img=document.createElement('img');img.src=o.url;img.alt='변환 슬라이드';box.append(img);return box;}
  $('pptLargeClose').onclick=()=>$('pptLarge').hidden=true;
  // 대상 문서: 이름이 정확히 같은 서버 문서. 지금 버전의 크기·슬라이드 수를 보여 준다.
@@ -81,7 +83,7 @@
   target={id:doc.id,path:doc.path,name,version:doc.version,xml,width,height,slides:parsed.getElementsByTagName('RVDisplaySlide').length};
   $('pptTargetInfo').textContent=`${name} · 버전 ${doc.version} · ${width}×${height} · 지금 슬라이드 ${target.slides}장 → 전체 교체`;lock(busy);return target;}
  for(const r of dialog.querySelectorAll('[name=pptTarget]'))r.onchange=()=>{if(!source)return;setMode(mode());invalidate();if(mode()==='replace')$('pptTargetInfo').textContent='교체할 문서를 고르세요.';};
- $('pptCategory').onchange=()=>{invalidate();cards();options();};$('pptCropOn').onchange=()=>{invalidate();options();};$('pptCrop').oninput=invalidate;$('pptName').oninput=()=>lock(busy);
+ $('pptCategory').onchange=()=>{$('pptConversion').value=scoreEligible()?'auto':'full';invalidate();cards();options();};$('pptConversion').onchange=()=>{invalidate();cards();options();};$('pptCropOn').onchange=()=>{invalidate();options();};$('pptCrop').oninput=invalidate;$('pptRemoveWhite').onchange=()=>{invalidate();cards();};$('pptName').oninput=()=>lock(busy);
 
  // 슬라이드 크기가 다르면 늘이지 않고 가운데 두며 남는 곳은 검은색이다.
  async function fit(blob,w,h,lib){const bitmap=await createImageBitmap(blob);try{if(Math.abs(bitmap.width/bitmap.height-w/h)<.005&&bitmap.width===w)return {image:blob,margin:false};const c=lib.makeCanvas(w,h),x=c.getContext('2d');x.fillStyle='#000';x.fillRect(0,0,w,h);const scale=Math.min(w/bitmap.width,h/bitmap.height),dw=bitmap.width*scale,dh=bitmap.height*scale;x.drawImage(bitmap,(w-dw)/2,(h-dh)/2,dw,dh);return {image:await lib.blob(c),margin:Math.abs(dw-w)>1||Math.abs(dh-h)>1};}finally{bitmap.close();}}
@@ -91,7 +93,7 @@
    const lib=source.kind==='pdf'?await pdf():await engine(),ppt=source.kind==='ppt'?await engine():null;let total=0,separated=0,margins=0;
    for(const [n,s] of selected.entries()){message(`${n+1}/${selected.length}${unit} 변환 중…`);let o;
     if(source.kind==='pdf'){const r=await lib.render(source.data,s.index,size);o={image:r.image,margin:r.margin,separated:false};}
-    else if(score&&separable(s)){const r=await lib.render(source.data,s.index,{mode:'score',crop,keepTitle:n===0||crop===0,background:'original'});o={image:r.foreground,margin:false,separated:true,warnings:r.warnings};
+    else if(score&&separable(s)){const r=await lib.render(source.data,s.index,{mode:'score',removeWhite:$('pptRemoveWhite').checked,crop,keepTitle:n===0||crop===0,background:'original'});o={image:r.foreground,margin:false,separated:true,warnings:r.warnings};
      if(r.background&&!await plain(r.background)){const sha256=await hash(r.background);if(!found.has(sha256)){found.set(sha256,{sha256,blob:r.background});total+=r.background.size;}}}
     else{const r=await lib.render(source.data,s.index,{mode:'full'});o={...await fit(r.foreground,size.width,size.height,ppt),separated:false,warnings:r.warnings};}
     if(epoch!==renderEpoch)return;total+=o.image.size;if(total>IMAGE_MAX)throw Error('변환 이미지가 180MB를 넘습니다. 장을 나누어 가져와 주세요.');
