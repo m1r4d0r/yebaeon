@@ -2,7 +2,7 @@
  const $=id=>document.getElementById(id),C=YebaeonCloud,L=YebaeonPlaylists,P=PP6,BP=YebaeonBulletinParser,PL=YebaeonBulletinPlan,D=YebaeonBulletinDocuments;
  const STEPS=[['song','찬양'],['prayer','기도'],['sermon','주일말씀'],['weekday','주중말씀'],['review','검토·적용']],SVC=['1부','2부','청년예배'];
  const dialog=document.createElement('dialog');dialog.id='bulletinDialog';dialog.className='bulletin-dialog studio-import-dialog';dialog.setAttribute('aria-labelledby','bulletinHeading');
- dialog.innerHTML=`<header><strong id="bulletinHeading">주보로 준비</strong><button id="bulletinClose" class="import-close" aria-label="주보로 준비 닫기" title="닫기">×</button></header>
+ dialog.innerHTML=`<header><strong id="bulletinHeading">주보로 준비</strong><div class="bulletin-history"><button id="bulletinUndo" aria-label="주보 실행취소" title="실행취소 · Ctrl+Z / ⌘Z">↶</button><button id="bulletinRedo" aria-label="주보 다시 실행" title="다시 실행 · Ctrl+Shift+Z / ⌘⇧Z">↷</button></div><button id="bulletinClose" class="import-close" aria-label="주보로 준비 닫기" title="닫기">×</button></header>
  <div id="bulletinStart" class="import-start"></div>
  <section id="bulletinSection" aria-labelledby="bulletinHeading"><nav id="bulletinSteps" class="bulletin-steps" role="tablist" aria-label="준비 단계"></nav>
  <div id="bulletinMain" class="bulletin-main"><div id="bulletinSource" class="bulletin-source"></div><div id="bulletinWork" class="bulletin-body bulletin-work"></div></div>
@@ -13,6 +13,24 @@
  let work=null,busy=false,seq=0;
  const ui={active:null,fresh:false,sheet:false,all:false,openLine:null};
  const recoveryKey='yebaeon.bulletin.work',plans=new Map();
+ const historyFields=['date','summary','slots','songs','after','offer','prayer','main','extra','weekday','targets'];
+ let editHistory={past:[],future:[],current:null,group:null},restoring=false;
+ const editSnapshot=()=>JSON.stringify(Object.fromEntries(historyFields.map(k=>[k,work[k]])));
+ function resetHistory(){editHistory={past:[],future:[],current:work?editSnapshot():null,group:null};}
+ function historyControls(){$('bulletinUndo').disabled=busy||!editHistory.past.length;$('bulletinRedo').disabled=busy||!editHistory.future.length;}
+ function remember(group=null){if(!work||restoring)return;const current=editSnapshot();
+  if(editHistory.current!==null&&current!==editHistory.current){if(!group||editHistory.group!==group){editHistory.past.push({data:editHistory.current,step:work.step,svc:work.svc,active:ui.active});if(editHistory.past.length>50)editHistory.past.shift();}editHistory.future=[];}
+  editHistory.current=current;editHistory.group=group;historyControls();
+ }
+ function undoEdit(redo=false){if(!work||busy)return;const focused=document.activeElement,id=focused?.id,caret=focused?.selectionStart;focused?.blur();remember();
+  const from=redo?editHistory.future:editHistory.past,to=redo?editHistory.past:editHistory.future,entry=from.pop();if(!entry){historyControls();return;}
+  to.push({data:editHistory.current,step:entry.step,svc:entry.svc,active:entry.active});restoring=true;
+  try{Object.assign(work,JSON.parse(entry.data),{step:entry.step,svc:entry.svc,results:null,reviewInput:null});ui.active=entry.active&&work.slots[entry.active]?entry.active:null;ui.fresh=false;ui.openLine=null;
+   reviewOps=null;staged=null;previewKey=null;editHistory.current=entry.data;editHistory.group=null;render();
+  }finally{restoring=false;}save();historyControls();
+  const input=$('bulletin-'+ui.active)||$(id);if(input?.matches('input,textarea')&&!input.disabled){input.focus();if(typeof caret==='number')input.setSelectionRange(Math.min(caret,input.value.length),Math.min(caret,input.value.length));}revealSource();
+  message(redo?'주보 편집을 다시 실행했습니다.':'주보 편집을 실행취소했습니다.');
+ }
  let aliases={};try{aliases=JSON.parse(localStorage.getItem('yebaeon.bulletin.songs')||'{}');}catch{}
  const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e;};
  const dateLabel=el('label','file-start-date'),dateInput=el('input');dateInput.type='text';dateInput.placeholder='YYYY. MM. DD.';dateInput.id='bulletinDate';dateInput.setAttribute('aria-label','주보 날짜');dateLabel.append(dateInput);start.info.append(dateLabel);dateLabel.hidden=true;
@@ -117,7 +135,7 @@
  function activate(id){if(ui.active===id)return;const typing=document.activeElement?.id==='bulletin-'+id;ui.active=id;ui.fresh=true;ui.openLine=null;render();revealSource();if(typing){const box=document.getElementById('bulletin-'+id);box?.focus();box?.setSelectionRange?.(box.value.length,box.value.length);}}
  function slotRow(id,extra){const s=get(id),row=el('div','bulletin-slot'+(ui.active===id?' active':'')+(s.skip?' skipped':'')+(s.locked?' locked':''));
   const multi=['제목','대지 질문','대지 문장'].includes(s.label),lab=el('label',null,s.label),inp=el(multi?'textarea':'input',s.sug?'sug':'');if(multi){inp.rows=Math.min(4,Math.max(2,s.value.split('\n').length));inp.title='Enter로 줄을 바꿀 수 있습니다';}inp.id='bulletin-'+id;lab.htmlFor=inp.id;const song=s.kind==='song'&&!s.locked;inp.value=song?(s.query??BP.songQuery(s.value)):s.value;inp.disabled=s.locked;inp.placeholder=s.locked?'':song?'찬양 이름·가사로 찾기':'주보에서 골라 채우기';if(song)inp.setAttribute('aria-label',s.label+' 찬양 검색어');
-  inp.oninput=()=>{s.sug=false;inp.className='';if(song){s.query=inp.value;if(!s.src.length)s.value=inp.value;return;}s.value=inp.value;};inp.onchange=()=>{save();if(!song)render();};
+  inp.oninput=()=>{s.sug=false;inp.className='';if(song){s.query=inp.value;if(!s.src.length)s.value=inp.value;}else s.value=inp.value;save('input:'+id);};inp.onchange=()=>{save();if(!song)render();};
   const acts=el('div','acts'),src=el('button','src','주보');src.onclick=e=>{e.stopPropagation();activate(id);ui.sheet=true;sheet();};const skip=el('button','skip',s.skip?'넘김':'넘어가기');skip.disabled=s.locked;skip.onclick=e=>{e.stopPropagation();s.skip=!s.skip;save();render();};acts.append(src,skip);
   const meta=el('div','meta');if(!s.locked)meta.append(el('span',null,s.src.length?'주보에서 가져옴':'주보 힌트 없음'));if(s.note)meta.append(el('span',null,s.note));
   if(s.kind==='prayer'&&s.value){const n=BP.splitName(s.value);meta.append(n?el('span','ok',`이름 ${n.name} · 직함 ${n.title}`):el('span','bad','이름과 직함을 나누지 못했습니다'));}
@@ -141,7 +159,7 @@
   const i=work.svc,sel=el('select');sel.setAttribute('aria-label',SVC[i]+' 재생목록');sel.add(new Option('재생목록을 고르세요',''));for(const p of playlists())sel.add(new Option(p.name,p.key));sel.value=work.targets[i];sel.onchange=()=>{work.targets[i]=sel.value;save();render();};
   const tl=el('label','bulletin-target');tl.append('적용할 재생목록',sel);root.append(tl);
   const g1=group('예배 전 찬양','사도신경 다음 ~ 기도 앞');work.songs[i].forEach((id,k)=>g1.append(slotRow(id,row=>{if(work.songs[i].length>1){const x=el('button','x','삭제');x.onclick=e=>{e.stopPropagation();delete work.slots[id];work.songs[i].splice(k,1);work.songs[i].forEach((sid,j)=>get(sid).label='찬양 '+(j+1));ui.active=null;save();render();};row.querySelector('.acts').append(x);}})));
-  const add=el('button','bulletin-add','+ 찬양 추가');add.onclick=()=>{const id=slot({step:'song',svc:i,kind:'song',label:'찬양 '+(work.songs[i].length+1)});work.songs[i].push(id);activate(id);};g1.append(add);
+  const add=el('button','bulletin-add','+ 찬양 추가');add.onclick=()=>{const id=slot({step:'song',svc:i,kind:'song',label:'찬양 '+(work.songs[i].length+1)});work.songs[i].push(id);save();activate(id);};g1.append(add);
   const g2=group('설교 후 · 헌금 찬양','말씀(목사님 ppt가 있으면 그 다음) 바로 뒤');g2.append(slotRow(work.after[i]),slotRow(work.offer[i]));root.append(g1,g2);
  }
  function stepPrayer(root){const g=group('대표기도','기도 문서를 직접 고침 · 이름과 직함만');work.prayer.forEach(id=>g.append(slotRow(id)));root.append(g);}
@@ -150,7 +168,7 @@
   M.groups.forEach((G,gi)=>{const g=group(M.groups.length>1?`대지 묶음 ${gi+1}`:'대지',G.points.length+'개');g.append(slotRow(G.what));
    G.points.forEach((p,pi)=>{const h=el('div','gh');h.append(el('h4',null,'대지 '+(pi+1)));g.append(h,slotRow(p.tpl));syncBlanks(p);p.blanks.forEach(id=>g.append(slotRow(id)));
     p.quotes.forEach((id,qi)=>g.append(slotRow(id,row=>{const x=el('button','x','삭제');x.onclick=e=>{e.stopPropagation();delete work.slots[id];p.quotes.splice(qi,1);ui.active=null;save();render();};row.querySelector('.acts').append(x);})));
-    const add=el('button','bulletin-add','+ 인용구');add.onclick=()=>{const id=slot({step:'sermon',kind:'ref',label:'인용구'});p.quotes.push(id);activate(id);};g.append(add);});
+    const add=el('button','bulletin-add','+ 인용구');add.onclick=()=>{const id=slot({step:'sermon',kind:'ref',label:'인용구'});p.quotes.push(id);save();activate(id);};g.append(add);});
    const addP=el('button','bulletin-add','+ 대지');addP.onclick=()=>{G.points.push({tpl:slot({step:'sermon',kind:'template',label:'대지 문장'}),blanks:[],quotes:[]});save();render();};g.append(addP);root.append(g);});
   const gp=group('만들어질 슬라이드','제목·대지 자동 줄바꿈과 빈칸 답이 반영된 미리보기');gp.append(slides(sermonData(M)));root.append(gp);
   for(const E of work.extra){const g=group(E.doc,E.services.map(i=>SVC[i]).join('·')+(E.preacher?' · '+E.preacher:''));g.append(el('p','bulletin-note warn',`주보 표에서 설교 칸이 나뉘었습니다. ${E.doc} 문서를 고치고 ${E.services.map(i=>SVC[i]).join('·')} 순서의 말씀 자리에 넣습니다.`));g.append(slotRow(E.series),slotRow(E.title),slotRow(E.ref),slides(simpleData(E)));root.append(g);}}
@@ -241,7 +259,7 @@
   for(const [id,c] of chain){try{await C.stageDocument(c.doc,c.original,c.xml,[...(marks.get(id)||[])]);}catch(e){failed.set(id,e.message);}}
   for(const {r,fresh} of docs)results.push(failed.has(r.op.doc)?{key:r.key,label:r.label,ok:false,text:failed.get(r.op.doc)}:{key:r.key,label:r.label,ok:true,text:fresh.text+' · 저장 필요'});
   for(const {r,fresh} of lists){try{results.push({key:r.key,label:r.label,ok:true,text:await fresh.stage()});}catch(e){results.push({key:r.key,label:r.label,ok:false,text:e.message});}}
-  staged=null;work.results=results;save();await L.refreshPending();
+  staged=null;work.results=results;resetHistory();save();await L.refreshPending();
   if(results.every(r=>r.ok)){dialog.close();YebaeonEditor.status('주보 내용을 Studio에 적용했습니다. 서버에는 아직 저장하지 않았습니다. ‘저장 필요’가 붙은 재생목록을 열어 ‘서버 저장’을 누르세요.');render();return;}message('일부 항목을 적용하지 못했습니다. 결과를 확인하세요.');render();}
  // 바뀌기 전과 뒤를 실제 모양으로 보여 준다. 설교처럼 긴 문서는 위(전)·아래(후) 두 줄을 가로로 넘기고, 나머지는 나란히 둔다.
  function thumbs(xml,name){const model=PP6.parse(xml,name),strip=el('div','bulletin-thumbs');for(const slide of PP6.slides(model)){const c=document.createElement('canvas');c.width=192;c.height=Math.round(192*model.height/model.width);strip.append(c);PP6Render.draw(c,model,slide,new Map()).catch(()=>{});}if(!strip.children.length)strip.append(el('small',null,'슬라이드 없음'));return strip;}
@@ -255,7 +273,7 @@
  function steps(){const nav=$('bulletinSteps');nav.replaceChildren();if(!work)return;for(const [id,name] of STEPS){const b=el('button');b.setAttribute('role','tab');b.setAttribute('aria-selected',String(work.step===id));b.append(name);
   if(id!=='review'){const left=Object.values(work.slots).filter(s=>s.step===id&&!s.locked&&!s.skip&&(s.kind==='song'?s.value&&!s.choice:!s.value.trim())).length;b.append(el('span','n'+(left?' left':''),left?String(left):'✓'));}
   b.onclick=()=>{work.step=id;ui.active=null;save();render();};nav.append(b);}}
- function foot(){const prev=$('bulletinPrev'),next=$('bulletinNext');if(!work){prev.hidden=next.hidden=true;return;}prev.hidden=next.hidden=false;const i=STEPS.findIndex(s=>s[0]===work.step);prev.disabled=busy||i===0;
+ function foot(){historyControls();const prev=$('bulletinPrev'),next=$('bulletinNext');if(!work){prev.hidden=next.hidden=true;return;}prev.hidden=next.hidden=false;const i=STEPS.findIndex(s=>s[0]===work.step);prev.disabled=busy||i===0&&work.svc===0;
   next.disabled=busy;if(work.step==='review'){const done=work.results&&work.results.every(r=>r.ok);const usable=chosen().some(r=>r.ok);next.textContent=done?'닫기':usable?'적용':busy?'미리 보기 만드는 중…':'미리 보기 다시 만들기';}else next.textContent=i===3?'검토하기':'다음';}
  // 화면을 다시 그리는 동안 포커스된 입력칸이 빠지면 change가 다시 render를 부른다. 끝난 뒤 한 번 더 그린다.
  let rendering=false,again=false;
@@ -265,14 +283,17 @@
   if(!work){root.append(el('p','bulletin-empty','위의 ‘내 컴퓨터에서 불러오기’나 ‘드롭박스에서 가져오기’로 HWP 주보를 여세요. 찬양·기도·주일말씀·주중말씀을 미리 채워 두고, 마지막에 적용하면 Studio에 저장 필요 상태로 넘깁니다.'));}
   else ({song:stepSong,prayer:stepPrayer,sermon:stepSermon,weekday:stepWeekday,review:stepReview})[work.step](root);
   source();sheet();foot();if(work&&work.step!=='review')message(mobile()?'':'칸을 고르고 왼쪽 주보에서 낱말이나 ¶(줄 전체)를 누르세요.');}
- function save(){if(!work)return;try{sessionStorage.setItem(recoveryKey,JSON.stringify({author:C.worker(),work,seq}));}catch{message('브라우저에 작업을 보존하지 못했습니다. 이 창을 닫으면 다시 채워야 합니다.');}}
+ function save(group=null){if(!work||restoring)return;for(const g of work.main.groups)for(const p of g.points)syncBlanks(p);remember(group);try{sessionStorage.setItem(recoveryKey,JSON.stringify({author:C.worker(),work,seq}));}catch{message('브라우저에 작업을 보존하지 못했습니다. 이 창을 닫으면 다시 채워야 합니다.');}}
  function lock(value){busy=value;dialog.setAttribute('aria-busy',String(value));for(const e of dialog.querySelectorAll('button,input,select'))e.disabled=value;if(!value)render();}
  async function run(fn){if(busy)return;lock(true);try{await fn();}catch(e){message(e.message);}finally{lock(false);}}
- async function loadFile(file){if(!/\.hwp$/i.test(file.name))throw Error('HWP 5 파일을 선택하세요.');if(file.size>16*1024*1024)throw Error('16MB 이내 주보를 선택하세요.');const parsed=BP.parse(await file.arrayBuffer());plans.clear();YebaeonSearch.clear();reviewOps=null;staged=null;previewKey=null;ui.active=null;build(parsed,file.name);save();render();message(file.name+(parsed.date?'':' · 주보 날짜를 찾지 못했습니다. 파일 이름 옆에 날짜를 입력하세요.'));}
- button.onclick=()=>{if(!C.needUser())return;if(!work){try{const saved=JSON.parse(sessionStorage.getItem(recoveryKey)||'null');if(saved?.author===C.worker()&&saved.work&&confirm('이 탭의 주보 준비 작업을 이어서 할까요?')){work=saved.work;seq=saved.seq||0;}}catch{message('보존한 주보 작업을 읽지 못했습니다. 주보를 다시 여세요.');}}render();dialog.showModal();};
+ async function loadFile(file){if(!/\.hwp$/i.test(file.name))throw Error('HWP 5 파일을 선택하세요.');if(file.size>16*1024*1024)throw Error('16MB 이내 주보를 선택하세요.');const parsed=BP.parse(await file.arrayBuffer());plans.clear();YebaeonSearch.clear();reviewOps=null;staged=null;previewKey=null;ui.active=null;build(parsed,file.name);resetHistory();save();render();message(file.name+(parsed.date?'':' · 주보 날짜를 찾지 못했습니다. 파일 이름 옆에 날짜를 입력하세요.'));}
+ button.onclick=()=>{if(!C.needUser())return;if(!work){try{const saved=JSON.parse(sessionStorage.getItem(recoveryKey)||'null');if(saved?.author===C.worker()&&saved.work&&confirm('이 탭의 주보 준비 작업을 이어서 할까요?')){work=saved.work;seq=saved.seq||0;resetHistory();}}catch{message('보존한 주보 작업을 읽지 못했습니다. 주보를 다시 여세요.');}}render();dialog.showModal();};
  $('bulletinClose').onclick=()=>{if(!busy)dialog.close();};dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});$('bulletinScrim').onclick=closeSheet;
- $('bulletinPrev').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(i>0){work.step=STEPS[i-1][0];ui.active=null;save();render();}};
- $('bulletinNext').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(work.step!=='review'){work.step=STEPS[i+1][0];ui.active=null;save();render();return;}if(work.results&&work.results.every(r=>r.ok)){dialog.close();return;}if(chosen().some(r=>r.ok)){run(commit);return;}staged=null;run(apply);};
- window.addEventListener('yebaeonsession',e=>{if(!e.detail.authenticated){work=null;staged=null;plans.clear();YebaeonSearch.clear();reviewOps=null;dialog.close();}});
+ $('bulletinPrev').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(work.step==='song'&&work.svc>0)work.svc--;else if(i>0){work.step=STEPS[i-1][0];if(work.step==='song')work.svc=2;}else return;ui.active=null;save();render();};
+ $('bulletinNext').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(work.step!=='review'){if(work.step==='song'&&work.svc<2)work.svc++;else work.step=STEPS[i+1][0];ui.active=null;save();render();return;}if(work.results&&work.results.every(r=>r.ok)){dialog.close();return;}if(chosen().some(r=>r.ok)){run(commit);return;}staged=null;run(apply);};
+ $('bulletinUndo').onclick=()=>undoEdit();$('bulletinRedo').onclick=()=>undoEdit(true);
+ dialog.addEventListener('keydown',e=>{if(e.isComposing||e.keyCode===229||e.altKey||!(e.ctrlKey||e.metaKey)||!['KeyZ','KeyY'].includes(e.code))return;e.preventDefault();e.stopPropagation();undoEdit(e.code==='KeyY'||e.shiftKey);});
+ dialog.addEventListener('beforeinput',e=>{if(!['historyUndo','historyRedo'].includes(e.inputType))return;e.preventDefault();undoEdit(e.inputType==='historyRedo');});
+ window.addEventListener('yebaeonsession',e=>{if(!e.detail.authenticated){work=null;resetHistory();staged=null;plans.clear();YebaeonSearch.clear();reviewOps=null;dialog.close();}});
  window.YebaeonBulletin={loadFile,state:()=>work,go(step){work.step=step;ui.active=null;render();}};render();
 })();
