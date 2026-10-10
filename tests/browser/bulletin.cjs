@@ -90,7 +90,19 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   await page.locator('#bulletinSteps button',{hasText:'주일말씀'}).click();assert.equal(await slot('빈칸 1').locator('[id^=bulletin-]').inputValue(),'의심');
   const titleBox=()=>slot('제목').locator('textarea');assert.equal(await titleBox().inputValue(),'합성 설교 제목!');await titleBox().click();await titleBox().fill('합성 설교\n제목!');await titleBox().dispatchEvent('change');assert.equal(await page.evaluate(()=>Object.values(YebaeonBulletin.state().slots).find(s=>s.label==='제목').value),'합성 설교\n제목!');const pointBox=()=>slot('대지 문장').locator('textarea');const pointText=await pointBox().inputValue();assert.match(pointText,/^믿음은 /);await pointBox().click();await pointBox().fill(pointText.replace('믿음은 ','믿음은\n'));await pointBox().dispatchEvent('change');
   await slot('빈칸 1').click();assert.equal(await page.locator('#bulletinSource .bulletin-cell.zone').count(),1,'blank shows the summary box');
-  assert.equal(await page.locator('.bulletin-slides').first().locator('.sl').count(),12);assert.match(await page.locator('.bulletin-group',{hasText:'청년부 말씀'}).textContent(),/청년 합성 설교/);
+  const sermonPreview=page.locator('.bulletin-sermon-preview');await sermonPreview.scrollIntoViewIfNeeded();await sermonPreview.locator('canvas').first().waitFor();
+  assert.equal(await sermonPreview.locator('canvas').count(),14,'the lower preview includes the actual generated slides, including preserved cover and ending');
+  assert.match(await sermonPreview.locator('canvas').nth(1).getAttribute('aria-label'),/합성 설교\n제목!/,'manual title breaks appear before review');
+  const previewReads=contentReads.length,longTitle='가나다라마 바사아자차 카타파하가 나다라마바사 가나다라마 바사아자차 카타파하가 나다라마바사';
+  await titleBox().click();await titleBox().fill(longTitle);await titleBox().dispatchEvent('change');await sermonPreview.scrollIntoViewIfNeeded();await sermonPreview.locator('canvas').first().waitFor();
+  const lowerTitle=(await sermonPreview.locator('canvas').nth(1).getAttribute('aria-label')).split('합성 시리즈3\n')[1].split('\n(창세기')[0];
+  assert.ok(lowerTitle.includes('\n'),'automatic balanced title break is already present in the lower preview');assert.equal(lowerTitle.replace(/\n/g,' '),longTitle);
+  assert.equal(contentReads.length,previewReads,'editing the title reuses the source document');
+  await sermonPreview.locator('canvas').nth(1).scrollIntoViewIfNeeded();await page.waitForFunction(()=>document.querySelectorAll('.bulletin-sermon-preview canvas[data-ready=true]').length>0);await page.screenshot({path:'artifacts/bulletin-live-preview.png'});
+  await titleBox().click();await titleBox().fill('합성 설교\n제목!');await titleBox().dispatchEvent('change');await sermonPreview.scrollIntoViewIfNeeded();await sermonPreview.locator('canvas').first().waitFor();
+  assert.match(await sermonPreview.locator('canvas').nth(1).getAttribute('aria-label'),/합성 설교\n제목!/,'editing refreshes the lower preview');
+  assert.match((await sermonPreview.locator('canvas').evaluateAll(cs=>cs.map(c=>c.getAttribute('aria-label')))).find(t=>t.includes('What?')),/믿음은\n의심이 아닙니다\./,'filled answers and point breaks appear in the lower preview');
+  assert.match(await page.locator('.bulletin-group',{hasText:'청년부 말씀'}).textContent(),/청년 합성 설교/);
   await page.locator('#bulletinSteps button',{hasText:'주중말씀'}).click();assert.match(await page.locator('.bulletin-group',{hasText:'수요예배'}).textContent(),/파하가전도사 준비/);
   // 서버 plan처럼 연결 문서는 document.id로만, 이름은 Mac이 올린 꼴(NFD)로 준다.
   const prayerID=byName('1부기도');await page.evaluate(id=>{window.__pending=YebaeonCloud.pendingDocuments;YebaeonCloud.pendingDocuments=ids=>ids.includes(id)?[{id}]:[];},prayerID);
