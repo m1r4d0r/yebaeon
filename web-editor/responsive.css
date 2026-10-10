@@ -35,3 +35,13 @@ body{overflow:hidden}button{touch-action:manipulation}button:focus-visible,selec
  #responsiveMultiple .multiple-label{display:inline}
  .responsive-editor-tools{flex-basis:100%;justify-content:space-between;border-top:1px solid var(--line)}
 }
+
+#libraryRefresh{display:inline-flex;align-items:center;justify-content:center}
+.responsive-refresh{position:fixed;top:var(--responsive-top-height);left:50%;transform:translate(-50%,0);z-index:125;pointer-events:none;background:white;color:var(--blue);border:1px solid var(--line);border-radius:20px;box-shadow:0 3px 12px #24324925;padding:10px 16px;font-size:13px;white-space:nowrap}
+@media(max-width:700px){
+ html{overscroll-behavior-y:none}
+ #documentsPane .pane-heading{gap:8px}
+ #documentsPane .pane-heading #libraryQuery{flex:1 1 0;width:0;min-width:0}
+ #documentsPane .pane-heading #libraryRefresh{flex:0 0 48px;width:48px;min-width:48px;height:44px;min-height:44px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--studio-selected);color:var(--blue)}
+ #libraryRefresh svg{width:26px;height:26px}
+}

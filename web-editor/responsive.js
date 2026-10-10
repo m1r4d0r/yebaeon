@@ -4,7 +4,7 @@
  const $=id=>document.getElementById(id),E=YebaeonEditor,C=YebaeonCloud,L=YebaeonPlaylists,S=YebaeonSelection;
  const compact=()=>matchMedia('(max-width:1100px)').matches,phone=()=>matchMedia('(max-width:700px)').matches;
  const studio=document.querySelector('.studio'),top=document.querySelector('.topbar'),tabs=document.querySelector('.view-tabs'),browser=document.querySelector('.playlist-browser');
- let page='playlists',searchOpen=false,multiple=false,composing=false,pendingPage=null,noticeTimer;
+ let page='playlists',searchOpen=false,multiple=false,composing=null,pendingPage=null,noticeTimer;
  const make=(tag,cls,html='')=>{const el=document.createElement(tag);el.className=cls;el.innerHTML=html;return el;};
  const button=(id,label,title=label)=>{const b=document.createElement('button');b.id=id;b.type='button';b.textContent=label;b.title=title;b.setAttribute('aria-label',title);return b;};
  function dialog(id,title){const el=make('dialog','studio-dialog');el.id=id;el.setAttribute('aria-labelledby',id+'Title');el.innerHTML=`<div class="dialog-heading"><h2 id="${id}Title">${title}</h2></div>`;const close=button(id+'Close','×','닫기');close.onclick=()=>el.close();el.firstChild.append(close);document.body.append(el);return el;}
@@ -42,7 +42,7 @@
  document.querySelector('.playlist-footer').hidden=true;document.querySelector('.editor-footer').hidden=true;$('libraryDivider').hidden=true;
  const documents=$('documentsPane'),searchHeading=documents.querySelector('.pane-heading');searchHeading.querySelector('strong').hidden=true;
  historyInfo.append($('librarySort'));
- $('libraryRefresh').textContent='⌕';$('libraryRefresh').setAttribute('aria-label','이름·본문 검색');
+ $('libraryRefresh').innerHTML=svg('<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>');$('libraryRefresh').setAttribute('aria-label','이름·본문 검색');
  const fold=button('studioSearchFold','×','검색 결과 접기');searchHeading.append(fold);fold.onclick=()=>{documents.classList.toggle('search-folded');fold.textContent=documents.classList.contains('search-folded')?'⌄':'×';fold.setAttribute('aria-label',documents.classList.contains('search-folded')?'검색 결과 펼치기':'검색 결과 접기');};
  const expandSearch=()=>{documents.classList.remove('search-folded');fold.textContent='×';fold.setAttribute('aria-label','검색 결과 접기');};
  $('libraryRefresh').addEventListener('click',expandSearch);$('libraryQuery').addEventListener('keydown',e=>{if(e.key==='Enter')expandSearch();});documents.append(documents.querySelector('.library-archive-filter'));
@@ -51,7 +51,7 @@
  const notice=make('p','responsive-notice');notice.id='responsiveNotice';notice.setAttribute('role','status');notice.hidden=true;document.body.append(notice);
  function tell(text){if(!text)return;notice.textContent=text;notice.hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>notice.hidden=true,4200);}
  function properties(open){document.body.classList.toggle('responsive-properties',open&&compact());propertiesButton.setAttribute('aria-expanded',String(open&&compact()));}
- function closeSearch(focus=true){window.YebaeonStudioDrag?.cancel();searchOpen=false;drawer.hidden=true;fab.setAttribute('aria-expanded','false');if(focus&&phone())fab.focus();}
+ function closeSearch(focus=true){if(drawer.contains(document.activeElement))document.activeElement.blur();window.YebaeonStudioDrag?.cancel();searchOpen=false;drawer.hidden=true;fab.setAttribute('aria-expanded','false');if(focus&&phone())fab.focus();}
  function closeOverlays(){closeSearch(false);properties(false);if($('quickDialog').open)$('quickDialog').close();window.YebaeonResources?.closeBible();$('mediaDrawer').hidden=true;$('contextMenu').hidden=true;}
  function navigate(value){if(window.YebaeonSave?.busy())return;if(composing){pendingPage=value;return;}closeOverlays();page=value;update();if(value==='edit')E.selection.activate();else if(value==='order')L.selection.activate();}
  function search(){if(window.YebaeonSave?.busy())return;expandSearch();if(phone()){if(!L.selectedPlaylist()){tell('문서를 추가할 재생목록을 먼저 선택하세요.');navigate('playlists');return;}properties(false);page='order';searchOpen=true;update();drawer.hidden=false;fab.setAttribute('aria-expanded','true');}$('libraryQuery').focus();}
@@ -85,7 +85,10 @@
   (compact()?$('responsiveSave'):topSave).append($('saveScope'),$('cloudSave'));viewport();update();decorate();
  }
  $('responsiveBack').onclick=()=>navigate(page==='edit'?'order':'playlists');fab.onclick=search;$('responsiveSearchClose').onclick=()=>closeSearch();
- document.addEventListener('compositionstart',()=>composing=true);document.addEventListener('compositionend',()=>{composing=false;if(pendingPage){const next=pendingPage;pendingPage=null;setTimeout(()=>navigate(next),0);}});
+ function finishComposition(){composing=null;const next=pendingPage;pendingPage=null;if(next)queueMicrotask(()=>navigate(next));}
+ document.addEventListener('compositionstart',event=>{if(event.target!==$('libraryQuery'))composing=event.target;});
+ document.addEventListener('compositionend',event=>{if(event.target===composing)finishComposition();});
+ document.addEventListener('focusout',event=>{if(event.target===composing)finishComposition();});
  // Multiple selection uses repeated taps only to select/deselect, never to open the editor.
  document.addEventListener('dblclick',event=>{if(multiple&&event.target.closest('.slide-card')){event.preventDefault();event.stopImmediatePropagation();}},true);
  document.addEventListener('click',event=>{const add=event.target.closest('#libraryList .document-item .responsive-add');if(add){event.preventDefault();event.stopImmediatePropagation();if(L.selectedPlaylist())append(add.closest('.document-item').dataset.key);else tell('문서를 추가할 재생목록을 먼저 선택하세요.');return;}const menu=event.target.closest('.responsive-order-menu');if(menu){event.preventDefault();event.stopImmediatePropagation();L.selection.select(menu.parentElement.dataset.key);const r=menu.getBoundingClientRect();L.selection.options.menu({preventDefault(){},clientX:r.left,clientY:r.bottom});return;}const card=event.target.closest('.slide-card');if(multiple&&card){event.preventDefault();event.stopImmediatePropagation();E.selection.select(card.dataset.key,{ctrlKey:true});}},true);
@@ -98,5 +101,35 @@
  window.addEventListener('yebaeonplaylistopen',()=>{playlistDialog.close();navigate('order');});window.addEventListener('yebaeonclouddocument',()=>{if(phone())navigate('edit');});
  matchMedia('(max-width:1100px)').addEventListener('change',layout);matchMedia('(max-width:700px)').addEventListener('change',layout);
  window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);window.addEventListener('resize',viewport);
+ // The fixed mobile shell scrolls inside panes, so the page owns the pull gesture.
+ const refreshHint=make('div','responsive-refresh');refreshHint.id='responsiveRefresh';refreshHint.hidden=true;refreshHint.setAttribute('role','status');document.body.append(refreshHint);
+ let pull=null,refreshing=false;
+ function cancelPull(){pull=null;refreshHint.hidden=true;}
+ function refreshBlocked(){return !phone()||refreshing||composing||searchOpen||window.YebaeonSave?.busy()||window.YebaeonStudioDrag?.active()||document.body.classList.contains('slide-touch-dragging')||document.body.classList.contains('responsive-properties')||!!document.querySelector('dialog[open]')||!$('mediaDrawer').hidden||!$('contextMenu').hidden;}
+ function atTop(target){for(let el=target;el;el=el.parentElement)if(el.scrollTop>0)return false;return true;}
+ async function refreshPage(){
+  refreshing=true;refreshHint.hidden=false;refreshHint.textContent='새로고침 중…';
+  try{await C.checkpointDraft();await L.checkpoint();location.reload();}
+  catch(error){tell('작업을 보존하지 못해 새로고침하지 않았습니다. '+error.message);}
+  finally{refreshing=false;cancelPull();}
+ }
+ document.addEventListener('touchstart',event=>{
+  cancelPull();const target=event.target;
+  if(refreshBlocked()||event.touches.length!==1||!target.closest('.topbar,.responsive-heading,.playlist-browser,#playlistItems,#slidePane')||target.closest('button,a,input,textarea,select,[contenteditable],.studio-drag-handle')||!atTop(target)||E.view()==='editor'&&target.closest('#slidePane'))return;
+  const t=event.touches[0];pull={target,id:t.identifier,x:t.clientX,y:t.clientY,ready:false};
+ },{passive:true});
+ document.addEventListener('touchmove',event=>{
+  if(!pull)return;
+  if(refreshBlocked()||event.touches.length!==1||!atTop(pull.target)){cancelPull();return;}
+  const t=event.touches[0];if(t.identifier!==pull.id){cancelPull();return;}
+  const dx=t.clientX-pull.x,dy=t.clientY-pull.y;
+  if(dy<0||Math.abs(dx)>Math.max(12,dy*.65)){cancelPull();return;}
+  if(dy<12)return;
+  if(!event.cancelable){cancelPull();return;}
+  event.preventDefault();pull.ready=dy>=90;refreshHint.hidden=false;refreshHint.textContent=pull.ready?'놓으면 새로고침':'아래로 당겨 새로고침';
+  refreshHint.style.transform=`translate(-50%,${Math.min(dy*.35,38)}px)`;
+ },{passive:false});
+ document.addEventListener('touchend',event=>{const ready=pull?.ready&&!refreshBlocked();cancelPull();if(ready&&!event.touches.length)void refreshPage();},{passive:true});
+ document.addEventListener('touchcancel',cancelPull,{passive:true});
  window.YebaeonResponsive={compact,phone,search,navigate,page:()=>page,closeSearch,tell};layout();
 })();
