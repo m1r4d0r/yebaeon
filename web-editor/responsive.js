@@ -103,7 +103,7 @@
  window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);window.addEventListener('resize',viewport);
  // The fixed mobile shell scrolls inside panes, so the page owns the pull gesture.
  const refreshHint=make('div','responsive-refresh');refreshHint.id='responsiveRefresh';refreshHint.hidden=true;refreshHint.setAttribute('role','status');document.body.append(refreshHint);
- let pull=null,refreshing=false;
+ let pull=null,refreshing=false,suppressPullClickUntil=0;
  function cancelPull(){pull=null;refreshHint.hidden=true;}
  function refreshBlocked(){return !phone()||refreshing||composing||searchOpen||window.YebaeonSave?.busy()||window.YebaeonStudioDrag?.active()||document.body.classList.contains('slide-touch-dragging')||document.body.classList.contains('responsive-properties')||!!document.querySelector('dialog[open]')||!$('mediaDrawer').hidden||!$('contextMenu').hidden;}
  function atTop(target){for(let el=target;el;el=el.parentElement)if(el.scrollTop>0)return false;return true;}
@@ -114,22 +114,24 @@
   finally{refreshing=false;cancelPull();}
  }
  document.addEventListener('touchstart',event=>{
-  cancelPull();const target=event.target;
-  if(refreshBlocked()||event.touches.length!==1||!target.closest('.topbar,.responsive-heading,.playlist-browser,#playlistItems,#slidePane')||target.closest('button,a,input,textarea,select,[contenteditable],.studio-drag-handle')||!atTop(target)||E.view()==='editor'&&target.closest('#slidePane'))return;
-  const t=event.touches[0];pull={target,id:t.identifier,x:t.clientX,y:t.clientY,ready:false};
+  cancelPull();const target=event.target,control=target.closest('button'),playlistButton=target.closest('#playlistsList button:not(#playlistBootstrap)');
+  if(refreshBlocked()||event.touches.length!==1||!target.closest('.topbar,.studio')||target.closest('a,input,textarea,select,[contenteditable],.studio-drag-handle,#layoutStage,#reflowPane,.responsive-nav')||(control&&!playlistButton)||!atTop(target)||E.view()==='editor'&&target.closest('#slidePane'))return;
+  const t=event.touches[0];pull={target,id:t.identifier,x:t.clientX,y:t.clientY,ready:false,claimed:false};
  },{passive:true});
  document.addEventListener('touchmove',event=>{
   if(!pull)return;
   if(refreshBlocked()||event.touches.length!==1||!atTop(pull.target)){cancelPull();return;}
   const t=event.touches[0];if(t.identifier!==pull.id){cancelPull();return;}
   const dx=t.clientX-pull.x,dy=t.clientY-pull.y;
-  if(dy<0||Math.abs(dx)>Math.max(12,dy*.65)){cancelPull();return;}
-  if(dy<12)return;
+  if(dy< -6||Math.abs(dx)>Math.max(12,dy*.8)){cancelPull();return;}
+  // 첫 아래 방향 움직임부터 잡아 브라우저 스크롤로 넘어가지 않게 한다.
+  if(dy<=0)return;
   if(!event.cancelable){cancelPull();return;}
-  event.preventDefault();pull.ready=dy>=90;refreshHint.hidden=false;refreshHint.textContent=pull.ready?'놓으면 새로고침':'아래로 당겨 새로고침';
+  event.preventDefault();pull.claimed=true;pull.ready=dy>=80;if(dy<8)return;refreshHint.hidden=false;refreshHint.textContent=pull.ready?'놓으면 새로고침':'아래로 당겨 새로고침';
   refreshHint.style.transform=`translate(-50%,${Math.min(dy*.35,38)}px)`;
- },{passive:false});
- document.addEventListener('touchend',event=>{const ready=pull?.ready&&!refreshBlocked();cancelPull();if(ready&&!event.touches.length)void refreshPage();},{passive:true});
+ },{passive:false,capture:true});
+ document.addEventListener('touchend',event=>{const ready=pull?.ready&&!refreshBlocked();if(pull?.claimed)suppressPullClickUntil=Date.now()+500;cancelPull();if(ready&&!event.touches.length)void refreshPage();},{passive:true,capture:true});
+ window.addEventListener('click',event=>{if(Date.now()<suppressPullClickUntil){event.preventDefault();event.stopImmediatePropagation();}},{capture:true});
  document.addEventListener('touchcancel',cancelPull,{passive:true});
  window.YebaeonResponsive={compact,phone,search,navigate,page:()=>page,closeSearch,tell};layout();
 })();
