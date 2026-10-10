@@ -44,7 +44,7 @@ export function splitTemplates(bytes) {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const publicFiles = Object.freeze([
-  'lyrics-import.js', 'lyrics-import.css', 'ppt-import.js', 'dropbox-picker.js', 'document-search.js', 'media-library.js', 'media-thumbnail.js', 'ppt-import.css', 'hwp-binary.js', 'bulletin-parser.js', 'bulletin-plan.js', 'bulletin-documents.js', 'bulletin.js', 'bulletin.css', 'responsive.js', 'studio-drag.js', 'manual.js', 'manual.css', 'responsive.css', 'index.html', 'favicon.svg', 'favicon.ico', 'style.css', 'fonts.css', 'pp6.js',
+  'import-background.js', 'lyrics-import.js', 'lyrics-import.css', 'ppt-import.js', 'dropbox-picker.js', 'document-search.js', 'media-library.js', 'media-thumbnail.js', 'ppt-import.css', 'hwp-binary.js', 'bulletin-parser.js', 'bulletin-plan.js', 'bulletin-documents.js', 'bulletin.js', 'bulletin.css', 'responsive.js', 'studio-drag.js', 'manual.js', 'manual.css', 'responsive.css', 'index.html', 'favicon.svg', 'favicon.ico', 'style.css', 'fonts.css', 'pp6.js',
   'fonts.js', 'studio-workflow.js', 'layout-editor.js', 'render.js', 'selection.js', 'editor-history.js', 'bible-format.js', 'shortcuts.js', 'app.js', 'drafts.js', 'cloud.js', 'usage.js', 'playlists.js', 'resources.js', 'library-actions.js', 'library-manage.js', 'mac-remote.js', 'panels.js', 'panels.css', 'version-diff.js', 'admin-panel.js', 'status.html', 'status.js', 'status.css', '_headers'
 ]);
 
