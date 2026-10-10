@@ -68,13 +68,15 @@ export async function mediaPathsRoute(request, env, user) {
     // ?folder=Images|YebaeOn: Studio 미디어 창의 서버 그림 목록. 그 폴더의 경로 범위만 읽는다(ImportedImages는 읽지 않음). 쪽마다 최대 60행.
     const params = new URL(request.url).searchParams, folder = params.get('folder');
     if (folder !== null) {
-      if (!['Images', 'YebaeOn'].includes(folder)) throw new HttpError(400, 'invalid_media_folder', '이미지 폴더를 확인해 주세요.');
+      if (!['Images', 'YebaeOn', 'All'].includes(folder) || (folder === 'All' && params.get('sort') !== 'updated')) throw new HttpError(400, 'invalid_media_folder', '이미지 폴더를 확인해 주세요.');
       if (params.get('sort') === 'updated') {
         const base = MEDIA_ROOT + folder + '/', q = (params.get('q') || '').normalize('NFC').trim(), after = params.get('after');
         let cursor = null;
         if (after) { try { cursor = JSON.parse(after); } catch { throw new HttpError(400, 'invalid_cursor', '목록 위치를 확인해 주세요.'); } }
-        if (q.length > 80 || (after && (!cursor || typeof cursor.path !== 'string' || cursor.path.length > 1024 || !cursor.path.startsWith(base) || typeof cursor.updatedAt !== 'string' || cursor.updatedAt.length > 40 || !Number.isFinite(Date.parse(cursor.updatedAt))))) throw new HttpError(400, 'invalid_cursor', '목록 위치를 확인해 주세요.');
-        const rows = (await db.prepare("SELECT path,sha256,size,updated_at AS updatedAt FROM yebaeon_media_paths WHERE path>? AND path<? AND state='active' AND (?='' OR instr(lower(substr(path,?)),lower(?))>0)" + (cursor ? " AND (updated_at<? OR (updated_at=? AND path>?))" : '') + " ORDER BY updated_at DESC,path ASC LIMIT 61").bind(base, MEDIA_ROOT + folder + '0', q, base.length + 1, q, ...(cursor ? [cursor.updatedAt, cursor.updatedAt, cursor.path] : [])).all()).results;
+        if (q.length > 80 || (after && (!cursor || typeof cursor.path !== 'string' || cursor.path.length > 1024 || !(folder === 'All' ? ['Images/','YebaeOn/'].some(f=>cursor.path.startsWith(MEDIA_ROOT+f)) : cursor.path.startsWith(base)) || typeof cursor.updatedAt !== 'string' || cursor.updatedAt.length > 40 || !Number.isFinite(Date.parse(cursor.updatedAt))))) throw new HttpError(400, 'invalid_cursor', '목록 위치를 확인해 주세요.');
+        const ranges = folder === 'All' ? [MEDIA_ROOT+'Images/', MEDIA_ROOT+'Images0', MEDIA_ROOT+'YebaeOn/', MEDIA_ROOT+'YebaeOn0'] : [base, MEDIA_ROOT+folder+'0'];
+        const scope = folder === 'All' ? '((path>? AND path<?) OR (path>? AND path<?))' : '(path>? AND path<?)';
+        const rows = (await db.prepare("SELECT path,sha256,size,updated_at AS updatedAt FROM yebaeon_media_paths WHERE " + scope + " AND state='active' AND (?='' OR instr(lower(substr(path,?)),lower(?))>0)" + (cursor ? " AND (updated_at<? OR (updated_at=? AND path>?))" : '') + " ORDER BY updated_at DESC,path ASC LIMIT 61").bind(...ranges, q, folder === 'All' ? MEDIA_ROOT.length + 1 : base.length + 1, q, ...(cursor ? [cursor.updatedAt, cursor.updatedAt, cursor.path] : [])).all()).results;
         return json({ paths: rows.slice(0, 60), next: rows.length > 60 ? JSON.stringify({updatedAt: rows[59].updatedAt, path: rows[59].path}) : null });
       }
       const base = MEDIA_ROOT + folder + '/', after = params.get('after') || base, q = (params.get('q') || '').normalize('NFC').trim();

@@ -46,4 +46,4 @@ body{overflow:hidden}button{touch-action:manipulation}button:focus-visible,selec
  #libraryRefresh svg{width:26px;height:26px}
 }
 
-@media(pointer:coarse),(max-width:700px){.media-star{width:44px;min-width:44px;height:44px;min-height:44px;max-height:44px;display:grid;place-items:center;padding:0;font-size:20px;line-height:1}}
+@media(pointer:coarse),(max-width:700px){.media-star{width:30px;min-width:30px;height:30px;min-height:30px;max-height:30px;display:grid;place-items:center;padding:0;font-size:17px;line-height:1}}

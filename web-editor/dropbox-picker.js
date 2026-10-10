@@ -15,19 +15,21 @@
   box.innerHTML=`<svg viewBox="0 0 32 32" width="28" height="28"><path d="M7 3h13l7 7v17.5A1.5 1.5 0 0 1 25.5 29h-18A1.5 1.5 0 0 1 6 27.5v-23A1.5 1.5 0 0 1 7.5 3z" fill="#fff" stroke="#c9d1dd"/><path d="M20 3v5.5A1.5 1.5 0 0 0 21.5 10H27" fill="#eef1f6" stroke="#c9d1dd"/><rect x="3" y="16" width="20" height="9" rx="2" fill="${color}"/><text x="13" y="22.6" text-anchor="middle" font-size="6.6" font-weight="700" font-family="system-ui,sans-serif" fill="#fff">${label}</text></svg>`;return box;}
  const size=n=>n>=1048576?(n/1048576).toFixed(1)+'MB':Math.max(1,Math.round(n/1024))+'KB';
  // box: 비어 있는 요소. accept: 고를 수 있는 파일 이름. max: 바이트, 또는 파일 이름을 받아 바이트를 돌려주는 함수. onFile(File)이 끝날 때까지 다른 행동을 막는다.
- function attach(box,{accept,max,kind,onFile,initial=null}){
+ function attach(box,{accept,max,kind,onFile,onFiles,initial=null}){
   box.classList.add('dropbox-picker');box.hidden=true;
   const bar=el('div','bulletin-toolbar dropbox-toolbar'),up=el('button','','↑ 상위'),where=el('strong','dropbox-picker-path','교회 자료'),refresh=el('button','','새로고침'),close=el('button','','닫기');
   up.type=refresh.type=close.type='button';up.setAttribute('aria-label','상위 폴더');bar.append(up,where,refresh,close);
   const note=el('p','bulletin-message'),rows=el('div','bulletin-list'),more=el('button','dropbox-picker-more','더 보기');note.setAttribute('role','status');more.type='button';more.hidden=true;
-  box.append(bar,note,rows,more);
+  const selected=new Map(),batch=el('button','primary','선택한 파일 가져오기');batch.type='button';batch.hidden=true;box.append(bar,note,rows,more,batch);
+  const selection=()=>{batch.hidden=!selected.size;batch.textContent=`선택한 ${selected.size}개 가져오기`;};
+  batch.onclick=()=>run(async()=>{const files=[...selected.values()].map(item=>({name:item.name,load:async()=>{const limit=typeof max==='function'?max(item.name):max;const r=await C.api('/dropbox/file?'+new URLSearchParams({path:item.path,...limit?{max:String(limit)}:{}}));return new File([await r.blob()],item.name.normalize('NFC'));}}));box.hidden=true;await onFiles(files);selected.clear();selection();});
   let path='',next=null,generation=0,busy=false;
-  const lock=value=>{busy=value;box.setAttribute('aria-busy',String(value));for(const b of box.querySelectorAll('button'))b.disabled=value||b.dataset.tooBig==='1';if(!value)up.disabled=!path;};
+  const lock=value=>{busy=value;box.setAttribute('aria-busy',String(value));for(const b of box.querySelectorAll('button,input'))b.disabled=value||b.dataset.tooBig==='1';if(!value)up.disabled=!path;};
   async function run(task){if(busy)return;lock(true);try{await task();}catch(e){note.textContent=e.message;}finally{lock(false);}}
   async function list(folder,append=false){const g=++generation;note.textContent='불러오는 중…';
    // 정렬하려면 폴더 전체가 필요하다. 한 번에 100개씩 최대 1,000개까지 이어 받는다.
    const entries=[];let cursor=append?next:null,pages=0;do{const data=await(await C.api('/dropbox/list?'+new URLSearchParams({path:folder,...cursor?{cursor}:{}}))).json();if(g!==generation)return;entries.push(...data.entries);cursor=data.next;pages++;}while(cursor&&pages<PAGES);
-   path=folder;next=cursor;if(initial===null)remember(path);where.textContent=path||'교회 자료';where.title=path||'교회 자료';if(!append)rows.replaceChildren();
+   path=folder;next=cursor;if(initial===null)remember(path);where.textContent=path||'교회 자료';where.title=path||'교회 자료';if(!append){rows.replaceChildren();selected.clear();selection();}
    let shown=0;
    for(const item of entries.sort(order)){
     const folderItem=item.kind==='folder';if(!folderItem&&!accept.test(item.name))continue;shown++;
@@ -35,6 +37,7 @@
     if(folderItem){const b=el('button','','열기');b.type='button';const open=()=>run(()=>list(item.path));b.onclick=e=>{e.stopPropagation();open();};row.onclick=()=>{if(!busy)open();};row.append(b);}
     else{const info=el('small','dropbox-picker-size',[day(item.modified),size(item.size||0)].filter(Boolean).join(' · '));row.append(info);const b=el('button','primary','가져오기');b.type='button';
      const limit=typeof max==='function'?max(item.name):max;if(limit&&item.size>limit){b.dataset.tooBig='1';b.disabled=true;b.title=`${Math.floor(limit/1048576)}MB 이하만 가져올 수 있습니다.`;}
+     if(onFiles){const check=document.createElement('input');check.type='checkbox';check.setAttribute('aria-label',item.name+' 선택');if(b.dataset.tooBig){check.disabled=true;check.dataset.tooBig='1';}check.onchange=()=>{if(check.checked)selected.set(item.path,item);else selected.delete(item.path);selection();};row.prepend(check);}
      b.onclick=()=>run(async()=>{note.textContent=item.name+' 받는 중…';const r=await C.api('/dropbox/file?'+new URLSearchParams({path:item.path,...limit?{max:String(limit)}:{}}));const file=new File([await r.blob()],item.name.normalize('NFC'));note.textContent='';box.hidden=true;await onFile(file);});row.append(b);}
     rows.append(row);
    }
@@ -47,11 +50,11 @@
   return {show,hide:()=>{box.hidden=true;},toggle:()=>box.hidden?show():(box.hidden=true),busy:()=>busy};
  }
  // 가져오기 창 공통 시작 줄: 파일 정보는 왼쪽, 컴퓨터·드롭박스 버튼은 오른쪽.
- function start(box,{accept,inputAccept,max,kind,onFile,initial}){
+ function start(box,{accept,inputAccept,max,kind,onFile,onFiles,initial}){
   box.classList.add('file-start');const row=el('div','file-start-row'),add=el('label','file-start-add'),input=document.createElement('input'),drop=el('button','file-start-dropbox','드롭박스에서 가져오기'),name=el('span','file-start-name'),info=el('div','file-start-info'),actions=el('div','file-start-actions'),panel=el('div');
-  add.append(document.createTextNode('내 컴퓨터에서 불러오기'),input);input.type='file';input.accept=inputAccept;drop.type='button';info.append(name);actions.append(add,drop);row.append(info,actions);box.append(row,panel);
-  const picker=attach(panel,{accept,max,kind,initial,onFile:file=>{name.textContent=file.name;return onFile(file);}});
-  input.onchange=()=>{const file=input.files[0];input.value='';if(!file)return;picker.hide();name.textContent=file.name;onFile(file);};drop.onclick=()=>picker.toggle();
+  add.append(document.createTextNode('내 컴퓨터에서 불러오기'),input);input.type='file';input.accept=inputAccept;input.multiple=!!onFiles;drop.type='button';info.append(name);actions.append(add,drop);row.append(info,actions);box.append(row,panel);
+  const picker=attach(panel,{accept,max,kind,initial,onFiles:onFiles?files=>{name.textContent=`${files.length}개 파일`;return onFiles(files);}:undefined,onFile:file=>{name.textContent=file.name;return onFile(file);}});
+  input.onchange=()=>{const files=[...input.files];input.value='';if(!files.length)return;picker.hide();name.textContent=files.length>1?`${files.length}개 파일`:files[0].name;if(onFiles)onFiles(files);else onFile(files[0]);};drop.onclick=()=>picker.toggle();
   return {input,picker,info,setName:text=>{name.textContent=text||'';},setDisabled(value){input.disabled=drop.disabled=value;add.classList.toggle('disabled',value);}};
  }
  window.YebaeonDropboxPicker={attach,icon,start};

@@ -29,6 +29,7 @@ jobs:
       - run: node tests/browser/library-bins.cjs
       - run: node tests/browser/responsive.cjs
       - run: node tests/browser/bulletin.cjs
+      - run: node tests/browser/media-lyrics.cjs
       - run: node tests/browser/ppt-import.cjs
         if: ${{ !cancelled() && steps.browser-setup.outcome == 'success' }}
       - uses: actions/upload-artifact@v4

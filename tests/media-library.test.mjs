@@ -64,5 +64,9 @@ test('media library: folder listing without ImportedImages, cacheable bytes, sha
   assert.deepEqual((await ok(await call('/media/paths?folder=Images&sort=updated&q=recent-64'))).paths.map(x=>x.path),[recent[64].path]);
   assert.equal((await call('/media/paths?folder=YebaeOn&sort=updated&after='+encodeURIComponent(first.next))).status,400);
   assert.equal((await call('/media/paths?folder=Images&sort=updated&after=invalid')).status,400);
+  const all=await ok(await call('/media/paths?folder=All&sort=updated'));
+  const tail=await ok(await call('/media/paths?folder=All&sort=updated&after='+encodeURIComponent(all.next)));
+  const allPaths=[...all.paths,...tail.paths].map(x=>x.path);assert.equal(allPaths.length,69);assert.ok(allPaths.includes(allocated.paths[0].path));assert.ok(allPaths.every(p=>!p.includes('/ImportedImages/')));assert.equal(new Set(allPaths).size,69);
+
 
 });
