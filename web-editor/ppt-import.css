@@ -83,7 +83,7 @@
 .ppt-name-controls label{display:flex;flex-direction:column;align-items:stretch;gap:6px}.ppt-name-controls select{width:100%;min-width:0;padding:8px}
 @media(max-width:540px){.ppt-field{grid-template-columns:minmax(0,1fr)}.ppt-field>label{padding-top:0}.ppt-field>.ppt-help{grid-column:1}}
 
-.ppt-purpose{display:flex;flex:none;gap:3px;margin:10px 16px 0;padding:3px;background:#eef1f5;border-radius:8px}.ppt-purpose button{flex:1;min-width:0;border:0;background:transparent;padding:9px 6px;border-radius:6px;color:#536078}.ppt-purpose button[aria-pressed=true]{background:#fff;color:#243d83;box-shadow:0 1px 4px #22335520;font-weight:600}
+.ppt-purpose{display:flex;flex:none;gap:3px;margin:0 0 12px;padding:3px;background:#eef1f5;border-radius:8px}.ppt-purpose button{flex:1;min-width:0;border:0;background:transparent;padding:5px 6px;border-radius:6px;color:#536078}.ppt-purpose button[aria-pressed=true]{background:#fff;color:#243d83;box-shadow:0 1px 4px #22335520;font-weight:600}
 
 /* 기본값은 용도에서 정하고, 세부 설정은 같은 크기의 두 열로 정렬한다. */
 .ppt-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
