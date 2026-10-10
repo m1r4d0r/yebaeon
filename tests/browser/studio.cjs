@@ -218,6 +218,15 @@ const assert=require('node:assert/strict');
  assert.equal(actualFonts.verify.length,5);assert.ok(actualFonts.verify.every(f=>f.warnings.length===0));assert.equal(actualFonts.aritaBold.family,'YebaeFont-arita-burib-otf');assert.equal(actualFonts.aritaBold.note,'');assert.equal(actualFonts.nanumBold.family,'YebaeFont-nanumgothicbold-otf');assert.equal(actualFonts.strokeChanged,true);assert.ok(actualFonts.loaded.every(f=>f.status==='loaded'));
  await fontsPage.locator('#scene').screenshot({path:'artifacts/studio-original-fonts.png'});console.log('Original font files and outlined render verified:',JSON.stringify(actualFonts));await fontsPage.close();
  assert.deepEqual(errors,[]);
+ // Image-only slides add a fresh text slide without copying the score or its background cue.
+ for(const kind of ['element','background']){
+  const original=await page.evaluate(kind=>{const image=kind==='element'?PP6.imageElementXML({source:'',rect:{x:0,y:0,w:1280,h:720}}):'';const background=kind==='background'?PP6.backgroundCueXML({source:'',name:'악보'}):'';const xml=PP6.documentXML({width:1280,height:720,groups:[{name:'악보',slides:PP6.slideXML({elements:image,background,label:'악보 원본'})}]});YebaeonEditor.open(xml,'image-only.pro6',true,'image-only-'+kind);return new XMLSerializer().serializeToString(YebaeonEditor.current());},kind);
+  await page.locator('#add').click();await page.locator('#quickDialog[open]').waitFor();
+  const added=await page.evaluate(()=>{const P=PP6,s=YebaeonEditor.current(),e=P.textElements(s)[0];return {count:P.slides(YebaeonEditor.model()).length,index:YebaeonEditor.selected(),images:P.mediaElements(s).length,background:!!P.ivar(s,'RVMediaCue','backgroundMediaCue'),text:P.parseRTF(P.textNode(e).textContent).text,rect:P.rect(e),source:e.getAttribute('source'),original:new XMLSerializer().serializeToString(P.slides(YebaeonEditor.model())[0])};});
+  assert.equal(added.count,2);assert.equal(added.index,1);assert.equal(added.images,0);assert.equal(added.background,false);assert.equal(added.text,'');assert.equal(added.source,'');assert.equal(added.original,original);assert.ok(Math.abs(added.rect.w-1280*11/12)<.01);assert.equal(added.rect.h,600);
+  await page.keyboard.press('Escape');await page.locator('.slide-card').last().click();await page.locator('#undo').click();assert.equal(await page.locator('.slide-card').count(),1);await page.locator('#redo').click();assert.equal(await page.locator('.slide-card').count(),2);
+ }
+ assert.deepEqual(errors,[]);
  console.log('Studio browser flows passed: original/preview reuse, version/edit/font invalidation, template names after apply/reopen/reload, editing, save, undo, clipboard, reflow, IME, menu, Bible, explicit order save, draft recovery/conflict and activity');
  }finally{await page.screenshot({path:'artifacts/studio-final.png'}).catch(()=>{});await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});
