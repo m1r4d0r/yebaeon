@@ -45,3 +45,5 @@ body{overflow:hidden}button{touch-action:manipulation}button:focus-visible,selec
  #documentsPane .pane-heading #libraryRefresh{flex:0 0 48px;width:48px;min-width:48px;height:44px;min-height:44px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--studio-selected);color:var(--blue)}
  #libraryRefresh svg{width:26px;height:26px}
 }
+
+@media(pointer:coarse),(max-width:700px){.media-star{width:44px;min-width:44px;height:44px;min-height:44px;max-height:44px;display:grid;place-items:center;padding:0;font-size:20px;line-height:1}}

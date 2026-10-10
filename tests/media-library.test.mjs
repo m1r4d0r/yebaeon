@@ -51,4 +51,18 @@ test('media library: folder listing without ImportedImages, cacheable bytes, sha
   const status=await ok(await call('/status?details=1'));
   assert.deepEqual(status.storage.images,{count:3,bytes:a.length+b.length+8});
   assert.deepEqual(status.storage.imageFolders.map(f=>[f.folder,f.count]),[['Images',2],['ImportedImages',1],['YebaeOn',2]]);
+  // Local D1 dates deliberately differ from filename order; equal dates cross a page boundary.
+  const db=await mf.getD1Database('DB');
+  await db.prepare("UPDATE yebaeon_media_paths SET updated_at='2026-01-01T00:00:00Z'").run();
+  const recent=Array.from({length:65},(_,i)=>({path:ROOT+'Images/recent-'+String(i).padStart(2,'0')+'.png',date:i<62?'2026-10-09T00:00:00Z':'2026-10-10T00:00:00Z'}));
+  await db.batch(recent.map(x=>db.prepare("INSERT INTO yebaeon_media_paths(path,sha256,size,state,updated_at,updated_by) VALUES(?,?,?,'active',?,'test')").bind(x.path,hash(a),a.length,x.date)));
+  const first=await ok(await call('/media/paths?folder=Images&sort=updated'));
+  const second=await ok(await call('/media/paths?folder=Images&sort=updated&after='+encodeURIComponent(first.next)));
+  assert.equal(first.paths.length,60);assert.equal(second.next,null);
+  const expected=[...recent.slice(62),...recent.slice(0,62)].map(x=>x.path);
+  assert.deepEqual([...first.paths,...second.paths].map(x=>x.path),[...expected,...images.paths.map(x=>x.path)]);
+  assert.deepEqual((await ok(await call('/media/paths?folder=Images&sort=updated&q=recent-64'))).paths.map(x=>x.path),[recent[64].path]);
+  assert.equal((await call('/media/paths?folder=YebaeOn&sort=updated&after='+encodeURIComponent(first.next))).status,400);
+  assert.equal((await call('/media/paths?folder=Images&sort=updated&after=invalid')).status,400);
+
 });

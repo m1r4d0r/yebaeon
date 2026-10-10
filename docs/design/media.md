@@ -68,6 +68,7 @@ PP6-Update/
 
 - 그림 바이트(`GET /api/media/<sha256>/content`)는 sha 주소라 내용이 바뀌지 않으므로 `private, max-age=31536000, immutable`로 보낸다. 공용 캐시(CDN)에는 남지 않고 입장한 브라우저에만 남는다.
 - 서랍은 ★ 공용 즐겨찾기(`/api/favorites`, sha 기준), 열린 재생목록 문서가 슬라이드 배경(`backgroundMediaCue`)으로 쓰는 그림, 나머지 서버 그림 순으로 보인다. 배경 칸은 ImportedImages를 빼고, 접힌 `사용된 전체 이미지 보기`는 얹은 그림·가져온 이미지까지 모두 보인다.
+- 나머지 그림과 모두 보기는 최근 서버 경로표 수정 시각 내림차순(같은 시각은 경로순)이다. `sort=updated`와 수정 시각·경로 커서로 다음 페이지도 같은 순서를 유지한다. 즐겨찾기 순서는 그대로 둔다.
 - 나머지 그림은 `GET /api/media/paths?folder=Images|YebaeOn`으로 그 폴더의 경로 범위만 쪽 단위(60)로 읽는다. ImportedImages(PPT 슬라이드 그림)는 목록으로 내주지 않는다. 이름 검색은 `instr`로 한다(D1 LIKE 패턴 길이 한도 때문에 경로 앞부분에 LIKE를 쓰지 않는다).
 - `그림 추가`는 내 컴퓨터·드롭박스 그림(PNG·JPG·WebP·GIF·BMP, 20MB 이하)을 원본 그대로 올리고 `YebaeOn/<이름>-<n>.<원본 확장자>` 경로를 서버에서 받는다. 단색은 슬라이드 크기 PNG로 만든다. 문서에 넣는 주소는 PP6가 다시 저장할 때 쓰는 `file:///Users/Shared/Renewed%20Vision%20Media/…` 형식이다(Sync 2는 평문 경로와 같은 내용으로 본다, 83a16a7).
 - 배경 자르기는 원본을 바꾸지 않는다. 고른 영역을 새 그림(원본이 JPEG면 JPEG)으로 올려 그 장의 배경 주소만 바꾼다. 채우기·맞추기·늘이기는 그림 요소의 `scaleBehavior`를 1·0·3으로 바꾼다(10-05 교회 PP6에서 확인. 2는 뜻을 모르며 Studio는 채우기로 그린다). 새 배경 요소는 PP6가 저장하는 모양 그대로 쓴다: 큐 `behavior="2" enabled="false" displayName=<파일 이름>`, 그림 요소에 위치 `{0 0 0 0 0}`(화면 전체)·그림자·테두리 사전, `format="PNG 이미지"`/`"JPEG 이미지"`.

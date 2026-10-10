@@ -56,7 +56,7 @@
     if(shown.length){const more=el('details','media-all-used'),sum=el('summary',null,`사용된 전체 이미지 보기 (${shown.length}) · 가져온 이미지·광고·설교 그림 포함`);more.append(sum);more.addEventListener('toggle',()=>{if(more.open&&more.children.length===1)more.append(grid(shown));},{once:false});s.append(more);}
     parts.push(s);}else parts.push(section('배경으로 쓰는 그림',null,el('p','help','재생목록을 열면 그 순서의 문서가 쓰는 그림이 여기에 모입니다.')));
    const rest=section('나머지 그림',null,el('p','help','불러오는 중…'));parts.push(rest);root.replaceChildren(...parts);
-   const page=await(await C.api('/media/paths?'+new URLSearchParams({folder:'Images',...query?{q:query}:{}}))).json();if(token!==generation)return;
+   const page=await(await C.api('/media/paths?'+new URLSearchParams({folder:'Images',sort:'updated',...query?{q:query}:{}}))).json();if(token!==generation)return;
    const items=page.paths.slice(0,12).map(p=>({sha:p.sha256,path:p.path,source:fileURL(p.path)})),open=el('button','media-more','모두 보기 ›');open.type='button';open.onclick=()=>showAll(query);
    rest.querySelector('h3').append(open);rest.lastChild.replaceWith(items.length?grid(items):el('p','help',query?'이 이름의 그림이 없습니다.':'서버에 그림이 없습니다.'));
   }catch(error){if(token===generation)root.replaceChildren(el('p','help bad',error.message));}}
@@ -112,7 +112,7 @@
  let cursor=null,dialogToken=0;
  async function load(reset){const token=++dialogToken,folder=dialog.dataset.folder,q=dialog.querySelector('input').value.normalize('NFC').trim(),list=dialog.querySelector('.media-all-grid'),more=dialog.querySelector('[data-more]'),note=dialog.querySelector('.dialog-message');
   dialog.querySelectorAll('[data-folder]').forEach(b=>b.classList.toggle('active',b.dataset.folder===folder));if(reset){cursor=null;list.replaceChildren();}note.textContent='불러오는 중…';more.hidden=true;
-  try{await Favorites.load();const page=await(await C.api('/media/paths?'+new URLSearchParams({folder,...q?{q}:{},...cursor?{after:cursor}:{}}))).json();if(token!==dialogToken)return;
+  try{await Favorites.load();const page=await(await C.api('/media/paths?'+new URLSearchParams({folder,sort:'updated',...q?{q}:{},...cursor?{after:cursor}:{}}))).json();if(token!==dialogToken)return;
    for(const p of page.paths)list.append(tile({sha:p.sha256,path:p.path,source:fileURL(p.path)},{dialog:true}));cursor=page.next;more.hidden=!cursor;note.textContent=list.children.length?`${list.children.length}개${cursor?' · 더 있음':''}`:'그림이 없습니다.';}
   catch(error){if(token===dialogToken)note.textContent=error.message;}}
 
