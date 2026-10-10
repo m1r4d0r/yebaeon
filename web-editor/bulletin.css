@@ -100,11 +100,10 @@
 .bulletin-slides .sl{position:relative;flex:0 0 136px;aspect-ratio:16/9;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:1px;padding:6px;overflow:hidden;border-radius:5px;background:#1f2a3a;color:#eef2f7;font-size:10px;line-height:1.35;text-align:center}
 .bulletin-slides .ser{font-size:8.5px;color:#9fb0c6}
 .bulletin-slides .ttl{font-size:11px;font-weight:600}
+.bulletin-slides .ttl,.bulletin-slides .ser{max-width:100%;white-space:pre-line;word-break:keep-all;overflow-wrap:anywhere;text-wrap:balance}
 .bulletin-slides .ref{position:absolute;top:4px;right:6px;font-size:9.5px;font-weight:600}
 .bulletin-slides .no{position:absolute;left:5px;bottom:3px;font-size:8.5px;color:#8193aa}
 .bulletin-slides .warn{box-shadow:inset 0 0 0 2px #f28ba1}
-.bulletin-sermon-preview{min-height:138px;min-width:0}
-.bulletin-sermon-preview .bulletin-thumbs canvas{width:224px}
 .bulletin-review-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin-bottom:10px}
 .bulletin-review-head label{display:flex;align-items:center;gap:6px;font-size:12px;color:#5b677b}
 .bulletin-review{display:grid;gap:8px}
