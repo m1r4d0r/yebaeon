@@ -2,6 +2,7 @@
   'use strict';
   const $ = id => document.getElementById(id), editor = window.YebaeonEditor;
   const online = /^https?:$/.test(location.protocol);
+  let workspaceReady=false;
   let user = null, ready = false, linked = null, epoch = 0, saving = false;
   const drafts = window.YebaeonDrafts;
   let draftID = drafts.id(), baseXML = editor.document().xml, draftMark = null;
@@ -74,6 +75,7 @@
   async function showPlaylists() {
     if (!window.YebaeonPlaylists) await new Promise(resolve => window.addEventListener('yebaeonplaylistsready', resolve, { once: true }));
     await Promise.all([list(),window.YebaeonPlaylists.show()]);
+    workspaceReady=true;window.dispatchEvent(new Event('yebaeonworkspaceready'));
   }
   function needUser() { if (user) return true; showEntry(); return false; }
 
@@ -111,7 +113,7 @@
     if(!confirm(`${chosen.length}개 문서에 ${searchEnabled?'본문 검색 켬':'본문 검색 끔'} / ${historyEnabled?'이력 보관 켬':'이력 보관 끔'}을 적용할까요? 기존 백업은 유지됩니다.`))return;
     let done=0;try{for(const item of chosen){const doc=(await(await api('/documents/'+item.id)).json()).document;await api('/documents/'+item.id+'/policy',{method:'PUT',headers:{'Content-Type':'application/json','If-Match':`"${doc.version}"`},body:JSON.stringify({searchEnabled,historyEnabled,policyRevision:doc.policyRevision||0})});done++;}$('libraryMessage').textContent=`${done}개 설정 저장됨 · 검색 결과는 다음 검색 때 반영됩니다.`;}catch(error){$('libraryMessage').textContent=`${done}/${chosen.length}개 적용 후 중단 · ${error.message}`;}
   }
-  async function openCloud(id, fromPlaylist = false, known = null) {
+  async function openCloud(id, fromPlaylist = false, known = null, resume = null) {
     if(window.YebaeonSave?.busy())return false;
     const token=++openSequence;
     try {
@@ -124,14 +126,16 @@
         const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
         if(hash!==doc.sha256)throw new Error('받은 문서의 내용 확인에 실패했습니다.');
         serverXML=new TextDecoder('utf-8',{fatal:true}).decode(bytes);rememberOriginal(doc,serverXML);}
-      if(token!==openSequence||window.YebaeonSave?.busy())return false;
+      const record=resume?.draftID?(await drafts.all()).find(r=>r.id===resume.draftID&&r.kind==='document'&&r.base?.id===id&&r.author===user?.name&&typeof r.xml==='string'&&typeof r.baseXML==='string'):null;
+      if(token!==openSequence||window.YebaeonSave?.busy()||resume&&!resume.isCurrent())return false;
+      if(record&&!editor.isDirty(id))place(record.base,record.baseXML,record.xml,record.id,record.bulletin||null);
       if(linked)contexts.set(linked.id,{linked:{...linked},baseXML,draftID,mark:draftMark});
       const previous=contexts.get(id),cached=editor.cache?.(id),local=previous&&cached?.dirty;
       const xml=local?cached.xml:serverXML;
       if(!editor.open(xml,doc.name,true,id))return false;
       if(local){linked={...previous.linked,serial:-1};baseXML=previous.baseXML;draftID=previous.draftID;draftMark=previous.mark||null;editor.markDirty();}
       else {linked={...doc,serial:editor.state().serial};baseXML=xml;}
-      update();window.dispatchEvent(new CustomEvent('yebaeonclouddocument',{detail:{doc,fromPlaylist}}));
+      update();window.dispatchEvent(new CustomEvent('yebaeonclouddocument',{detail:{doc,fromPlaylist,resuming:!!resume}}));
       editor.status(local ? `이 탭의 미저장 작업을 이어갑니다.${doc.version!==linked.version?' 서버에도 새 버전이 있습니다. 저장하면 최신 불러오기나 사본 저장을 고릅니다.':''}` : `서버 v${doc.version}을 열었습니다.`);
       return true;
     } catch(error){$('libraryMessage').textContent=error.message;editor.status(error.message);if(fromPlaylist)throw error;return false;}
@@ -407,7 +411,7 @@
   document.addEventListener('visibilitychange', () => { if(document.hidden)checkpointDraft().catch(drafts.report); });
   // 서버에서 이름이 바뀐 문서: 열린 문서·보관 맥락·편집기 캐시의 이름만 맞춘다. 내용과 버전은 그대로다.
   function renamed(doc){const c=contexts.get(doc.id);if(c?.linked)c.linked={...c.linked,path:doc.path,name:doc.name};const cached=editor.cache?.(doc.id);if(cached)cached.name=doc.name;if(linked?.id===doc.id){linked={...linked,path:doc.path,name:doc.name};editor.model().name=doc.name;editor.redraw();update();}}
-  window.YebaeonCloud = { api, authenticated:()=>!!user, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, renamed, refresh:list, checkpointDraft, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)),pendingDocuments,pendingAll,marked,saveRecord,resolveConflict,choose,stageDocument,adoptDrafts,listedDocument:id=>documents.find(doc=>doc.id===id),
+  window.YebaeonCloud = { api, workspaceReady:()=>workspaceReady, authenticated:()=>!!user, needUser, openDocument: openCloud, online, restoreDraft, worker:()=>user?.name || recalledName(), linked:()=>linked, renamed, refresh:list, checkpointDraft, currentDraft:()=>editor.state().dirty?draftID:null, selectedDocuments:()=>documents.filter(d=>select.chosen.has(d.id)),pendingDocuments,pendingAll,marked,saveRecord,resolveConflict,choose,stageDocument,adoptDrafts,listedDocument:id=>documents.find(doc=>doc.id===id),
     async documentCopySource(id){
       const local=editor.cache(id);if(local?.dirty)return {xml:local.xml,local:true};
       const doc=(await(await api('/documents/'+id)).json()).document;

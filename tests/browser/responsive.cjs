@@ -29,7 +29,7 @@ const assert=require('node:assert/strict');
  await page.goto(`http://127.0.0.1:${server.address().port}/`);await page.waitForFunction(()=>window.YebaeonSave&&YebaeonCloud.authenticated());await page.addScriptTag({path:'web-editor/sample-demo.js'});
  const xml=await page.evaluate(()=>{const m=PP6.parse(PP6_SAMPLE.xml,'fixture');PP6.all(m.doc,'[source]').forEach(e=>e.remove());return PP6.serialize(m);});for(let i=0;i<3;i++)docs.set(ids[i],{name:['찬양','말씀','별도'][i]+'.pro6',version:1,xml});
  templateXML=await page.evaluate(()=>{const slide=PP6.slides(PP6.parse(PP6_SAMPLE.xml,'template'))[0],box=PP6.textElements(slide)[0],ref=box.cloneNode(true);PP6.refreshIDs(ref);PP6.setText(ref,'창세기 1:1');box.parentNode.append(ref);return new XMLSerializer().serializeToString(slide);});
- await page.reload();await page.waitForFunction(()=>window.YebaeonResponsive&&YebaeonPlaylists.selectedPlaylist());
+ await page.evaluate(()=>YebaeonResponsive.navigate('order'));await page.reload();await page.waitForFunction(()=>window.YebaeonResponsive&&YebaeonPlaylists.selectedPlaylist());
  await page.waitForFunction(()=>YebaeonResponsive.page()==='order');
  const setView=async view=>{if(await page.locator('#studioViewSelect').isVisible())await page.locator('#studioViewSelect').selectOption(view);else await page.locator(`[data-view="${view}"]`).click();};
  const nav=page.locator('.responsive-nav');assert.equal(await nav.isVisible(),true);
@@ -134,9 +134,45 @@ const assert=require('node:assert/strict');
  await page.evaluate(()=>{const pane=document.getElementById('slidePane');pane.style.maxHeight='180px';pane.scrollTop=50;});assert.ok(await page.locator('#slidePane').evaluate(el=>el.scrollTop>0));await pullFrom('#slides .slide-card:first-child canvas',0,110);assert.equal(await page.evaluate(()=>window.refreshAttempts),3);await page.evaluate(()=>{const pane=document.getElementById('slidePane');pane.style.maxHeight='';pane.scrollTop=0;});
  await pullFrom('#responsiveTitle',0,110);await page.waitForFunction(()=>window.refreshAttempts===4);assert.equal(reloads,0,'failed draft preservation prevents reload');await page.evaluate(()=>{YebaeonCloud.checkpointDraft=window.originalCheckpoint;delete window.originalCheckpoint;});
 
+ await page.evaluate(()=>{YebaeonEditor.selection.select('2');YebaeonEditor.setView('editor');});
+ await page.addInitScript(()=>{window.seenPages=[];new MutationObserver(()=>{const value=document.body?.dataset.page;if(value&&window.seenPages.at(-1)!==value)window.seenPages.push(value);}).observe(document,{subtree:true,attributes:true,attributeFilter:['data-page']});});
  const draftsBefore=await page.evaluate(async()=>{await YebaeonCloud.checkpointDraft();await YebaeonPlaylists.checkpoint();return (await YebaeonDrafts.all()).map(r=>({id:r.id,kind:r.kind,xml:r.xml,items:r.items}));});assert.ok(draftsBefore.some(r=>r.kind==='document'));assert.ok(draftsBefore.some(r=>r.kind==='playlist'));const writesBefore=JSON.stringify(writes);
  await Promise.all([page.waitForEvent('load'),pullFrom('#responsiveTitle',0,110)]);await page.waitForFunction(()=>window.YebaeonDrafts&&window.YebaeonResponsive);assert.equal(reloads,1);
  const draftsAfter=await page.evaluate(async()=>(await YebaeonDrafts.all()).map(r=>({id:r.id,kind:r.kind,xml:r.xml,items:r.items})));for(const before of draftsBefore)assert.deepEqual(draftsAfter.find(r=>r.id===before.id),before,'pull refresh retains document and playlist drafts');assert.equal(JSON.stringify(writes),writesBefore,'pull refresh never saves to the server');
+ await page.waitForFunction(()=>YebaeonEditor.ready()&&YebaeonEditor.view()==='editor');
+ assert.equal(await page.evaluate(()=>YebaeonResponsive.page()),'edit');
+ assert.equal(await page.evaluate(()=>YebaeonEditor.selected()),2);
+ assert.equal(await page.evaluate(()=>YebaeonEditor.state().dirty),true,'same-tab unsaved document is resumed');
+ assert.equal(await page.evaluate(()=>YebaeonEditor.document().xml),draftsBefore.find(r=>r.kind==='document').xml,'restored content matches the exact unsaved draft');
+ assert.deepEqual(await page.evaluate(()=>window.seenPages),['edit'],'cached edit screen never visits playlists/order');
+ for(const section of ['playlists','order']){
+  await page.evaluate(section=>YebaeonResponsive.navigate(section),section);
+  await page.reload();await page.waitForFunction(()=>window.YebaeonEditor?.ready());
+  assert.equal(await page.evaluate(()=>YebaeonResponsive.page()),section);
+  assert.deepEqual(await page.evaluate(()=>window.seenPages),[section],'reload starts directly in the cached screen');
+ }
+ // A clean document is fetched again; slide identity survives a server reorder.
+ await page.evaluate(id=>YebaeonCloud.openDocument(id),ids[1]);
+ const slideID=await page.evaluate(()=>{YebaeonEditor.selection.select('1');return PP6.attr(YebaeonEditor.current(),'UUID');});
+ docs.get(ids[1]).xml=await page.evaluate(xml=>{const model=PP6.parse(xml,'fixture'),slides=PP6.slides(model);slides[0].parentNode.insertBefore(slides[1],slides[0]);return PP6.serialize(model);},docs.get(ids[1]).xml);docs.get(ids[1]).version++;
+ await page.reload();await page.waitForFunction(()=>window.YebaeonEditor?.ready());
+ assert.equal(await page.evaluate(()=>YebaeonEditor.selected()),0,'the same slide is selected at its new position');
+ assert.equal(await page.evaluate(()=>PP6.attr(YebaeonEditor.current(),'UUID')),slideID);
+ assert.equal(await page.evaluate(()=>YebaeonCloud.linked().version),docs.get(ids[1]).version,'reload checks current server version');
+ // Navigation during a slow restore must win over the pending document request.
+ let releaseRestore,restoreRequested=false;const restoreGate=new Promise(resolve=>releaseRestore=resolve);
+ const documentURL=`**/api/documents/${ids[1]}`;
+ await page.route(documentURL,async route=>{restoreRequested=true;await restoreGate;await route.fallback();});
+ await page.reload();while(!restoreRequested)await page.waitForTimeout(20);
+ await page.evaluate(()=>YebaeonResponsive.navigate('playlists'));releaseRestore();
+ await page.waitForTimeout(200);assert.equal(await page.evaluate(()=>YebaeonResponsive.page()),'playlists');assert.equal(await page.evaluate(()=>YebaeonEditor.ready()),false,'cancelled restore does not replace the document');
+ await page.unroute(documentURL);
+ await page.evaluate(id=>YebaeonCloud.openDocument(id),ids[1]);
+ await page.route(documentURL,route=>route.fulfill({status:404,json:{message:'문서를 찾을 수 없습니다.'}}));
+ await page.reload();await page.waitForFunction(()=>window.YebaeonResponsive?.page()==='order');
+ assert.equal(await page.evaluate(()=>YebaeonEditor.ready()),false,'missing documents fall back to order');
+ await page.unroute(documentURL);
+ assert.equal(JSON.stringify(writes),writesBefore,'restoration performs no server writes');
  assert.deepEqual(errors,[]);console.log('Responsive passed: navigation without requests, explicit search, local click/touch-drag/cancel, draft retention, quick/reflow/layout, phone editor strip/pager/swipe, slide finger drag, multi-selection, CAS failure/retry, six widths, compact all-screen shell and preserved controller DOM.');
  }catch(error){await mkdir('artifacts',{recursive:true});await page.screenshot({path:'artifacts/responsive-failure.png'});console.error(await page.evaluate(()=>({page:YebaeonResponsive.page(),active:document.activeElement?.outerHTML.slice(0,300),busy:YebaeonSave.busy()})),errors);throw error;}finally{await browser.close();await new Promise(r=>server.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1;});

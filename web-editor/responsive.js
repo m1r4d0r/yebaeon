@@ -4,7 +4,8 @@
  const $=id=>document.getElementById(id),E=YebaeonEditor,C=YebaeonCloud,L=YebaeonPlaylists,S=YebaeonSelection;
  const compact=()=>matchMedia('(max-width:1100px)').matches,phone=()=>matchMedia('(max-width:700px)').matches;
  const studio=document.querySelector('.studio'),top=document.querySelector('.topbar'),tabs=document.querySelector('.view-tabs'),browser=document.querySelector('.playlist-browser');
- let page='playlists',searchOpen=false,multiple=false,composing=null,pendingPage=null,noticeTimer;
+ const workspace=window.YebaeonWorkspace;let resume=phone()?workspace.saved:null,restoring=false,initializing=true,navigated=false;
+ let page=resume?.page||'playlists',searchOpen=false,multiple=false,composing=null,pendingPage=null,noticeTimer;
  const make=(tag,cls,html='')=>{const el=document.createElement(tag);el.className=cls;el.innerHTML=html;return el;};
  const button=(id,label,title=label)=>{const b=document.createElement('button');b.id=id;b.type='button';b.textContent=label;b.title=title;b.setAttribute('aria-label',title);return b;};
  function dialog(id,title){const el=make('dialog','studio-dialog');el.id=id;el.setAttribute('aria-labelledby',id+'Title');el.innerHTML=`<div class="dialog-heading"><h2 id="${id}Title">${title}</h2></div>`;const close=button(id+'Close','×','닫기');close.onclick=()=>el.close();el.firstChild.append(close);document.body.append(el);return el;}
@@ -53,7 +54,7 @@
  function properties(open){document.body.classList.toggle('responsive-properties',open&&compact());propertiesButton.setAttribute('aria-expanded',String(open&&compact()));}
  function closeSearch(focus=true){if(drawer.contains(document.activeElement))document.activeElement.blur();window.YebaeonStudioDrag?.cancel();searchOpen=false;drawer.hidden=true;fab.setAttribute('aria-expanded','false');if(focus&&phone())fab.focus();}
  function closeOverlays(){closeSearch(false);properties(false);if($('quickDialog').open)$('quickDialog').close();window.YebaeonResources?.closeBible();$('mediaDrawer').hidden=true;$('contextMenu').hidden=true;}
- function navigate(value){if(window.YebaeonSave?.busy())return;if(composing){pendingPage=value;return;}closeOverlays();page=value;update();if(value==='edit')E.selection.activate();else if(value==='order')L.selection.activate();}
+ function navigate(value,automatic=false){if(window.YebaeonSave?.busy())return;resume=null;if(!automatic)navigated=true;if(composing){pendingPage=value;return;}closeOverlays();page=value;update();if(value==='edit')E.selection.activate();else if(value==='order')L.selection.activate();}
  function search(){if(window.YebaeonSave?.busy())return;expandSearch();if(phone()){if(!L.selectedPlaylist()){tell('문서를 추가할 재생목록을 먼저 선택하세요.');navigate('playlists');return;}properties(false);page='order';searchOpen=true;update();drawer.hidden=false;fab.setAttribute('aria-expanded','true');}$('libraryQuery').focus();}
  function append(id){if(window.YebaeonSave?.busy())return;const doc=C.listedDocument(id);if(!doc)return;const ok=L.appendDocuments([doc]);const text=ok?doc.name.replace(/\.pro6$/i,'')+' · 순서 맨 아래에 추가됨':$('playlistsMessage').textContent;$('responsiveSearchStatus').textContent=text;tell(text);}
  function menuAt(button,items){const r=button.getBoundingClientRect();S.menu({preventDefault(){},clientX:r.left,clientY:r.bottom},items);}
@@ -69,15 +70,16 @@
  // ?는 사용설명서(/manual/)를 새 탭으로 연다. 단축키도 설명서의 ‘단축키’ 페이지에 있다.
  help.onclick=()=>window.open('/manual/','_blank','noopener');
  function decorate(){for(const row of $('libraryList').querySelectorAll('.document-item')){if(!row.querySelector('.responsive-add')){const b=button('','＋',row.querySelector('strong').textContent+' 순서 맨 아래에 추가');b.className='responsive-add';row.append(b);}}for(const row of $('playlistItems').querySelectorAll('.order-item:not(.is-header)'))if(!row.querySelector('.responsive-order-menu')){const b=button('','⋯','순서 항목 메뉴');b.className='responsive-order-menu';row.append(b);}}
+ function remember(){if(!phone()||resume||restoring||!C.authenticated())return;const doc=C.linked();workspace.write({page,worker:C.worker(),playlist:L.selectedPlaylist()?.name,document:doc&&E.ready()&&E.state().key===doc.id?{id:doc.id,name:E.state().name,draftID:C.currentDraft(),view:E.view(),index:E.selected(),slide:E.current()?.getAttribute('UUID')||null}:null});}
  function update(){const current=L.selectedPlaylist();document.body.classList.toggle('responsive',compact());document.body.dataset.page=page;
-  $('responsiveTitle').textContent=page==='playlists'&&phone()?'재생목록':phone()&&page==='order'?(current?.name||'순서'):E.state().name.replace(/\.pro6$/i,'');
+  $('responsiveTitle').textContent=page==='playlists'&&phone()?'재생목록':phone()&&page==='order'?(current?.name||resume?.playlist||'순서'):(resume?.document?.name||E.state().name).replace(/\.pro6$/i,'');
   $('responsiveBack').hidden=!phone()||page==='playlists';picker.textContent=(current?.name||'재생목록')+' ⌄';picker.title=current?.name||'재생목록 선택';
   nav.querySelectorAll('[data-page]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.page===page)));fab.hidden=!phone()||page!=='order';fab.disabled=!current?.editable;
   $('studioOrderCount').textContent='순서 '+L.selection.keys.length;
   $('documentNew').disabled=!current?.editable||L.state().busy||L.state().blocked||!!window.YebaeonSave?.busy();
   viewSelect.value=E.view();const chosen=E.selection.values().length,total=$('slideCount').textContent.replace(/장.*/,'');$('responsiveSelection').textContent=E.ready()?(chosen>1?chosen+'장 선택':chosen||E.view()==='editor'?(E.selected()+1)+' / '+total:total+'장'):'';
   for(const b of[quick,multi,more,propertiesButton])b.disabled=!E.ready();propertiesButton.hidden=E.view()!=='editor'||!compact();multi.hidden=E.view()==='editor';
-  $('resourceOpen').hidden=E.view()!=='slides';$('mediaOpen').hidden=E.view()!=='slides';if(E.view()!=='editor')properties(false);window.YebaeonSave?.update();
+  $('resourceOpen').hidden=E.view()!=='slides';$('mediaOpen').hidden=E.view()!=='slides';if(E.view()!=='editor')properties(false);window.YebaeonSave?.update();remember();
  }
  function viewport(){const v=window.visualViewport;document.body.classList.toggle('responsive-keyboard',!!v&&innerHeight-v.height>150);document.documentElement.style.setProperty('--responsive-height',(v?.height||innerHeight)+'px');document.documentElement.style.setProperty('--keyboard-offset',Math.max(0,innerHeight-(v?.height||innerHeight)-(v?.offsetTop||0))+'px');}
  function layout(){window.YebaeonStudioDrag?.cancel();closeSearch(false);properties(false);
@@ -98,7 +100,34 @@
  new MutationObserver(()=>tell($('status').textContent)).observe($('status'),{childList:true,characterData:true,subtree:true});
  new MutationObserver(()=>{if(/실패/.test($('draftState').textContent))tell($('draftState').textContent);}).observe($('draftState'),{childList:true,characterData:true,subtree:true});
  for(const event of['yebaeonrender','yebaeonselection','yebaeonorderhistory','yebaeoncloudsaved','yebaeonsession'])window.addEventListener(event,()=>queueMicrotask(update));
- window.addEventListener('yebaeonplaylistopen',()=>{playlistDialog.close();navigate('order');});window.addEventListener('yebaeonclouddocument',()=>{if(phone())navigate('edit');});
+ window.addEventListener('yebaeonplaylistopen',()=>{playlistDialog.close();if(!resume&&(!initializing||!navigated))navigate('order',true);});
+ window.addEventListener('yebaeonclouddocument',event=>{if(phone()&&!event.detail.resuming)navigate('edit');});
+ async function restoreWorkspace(){
+  initializing=false;const saved=resume;if(!saved)return;
+  if(saved.worker!==C.worker()){resume=null;page=L.selectedPlaylist()?'order':'playlists';update();return;}
+  restoring=true;
+  try{
+   if(saved.document){
+    const ok=await C.openDocument(saved.document.id,false,null,{draftID:saved.document.draftID,isCurrent:()=>resume===saved});
+    if(resume!==saved)return;
+    if(ok&&E.ready()){
+     const slides=PP6.slides(E.model()),found=saved.document.slide?slides.findIndex(s=>PP6.attr(s,'UUID')===saved.document.slide):-1;
+     const index=found>=0?found:Math.max(0,Math.min(Number(saved.document.index)||0,slides.length-1));
+     if(slides.length)E.selection.select(String(index));
+     E.setView(['slides','editor','reflow'].includes(saved.document.view)?saved.document.view:'slides');
+    }else if(page==='edit'){page=L.selectedPlaylist()?'order':'playlists';tell('이전 문서를 열 수 없어 순서로 돌아왔습니다.');}
+   }else if(page==='edit')page=L.selectedPlaylist()?'order':'playlists';
+  }finally{
+   if(resume===saved)resume=null;restoring=false;update();
+   if(page==='edit'&&E.ready())requestAnimationFrame(()=>$('slides').querySelector(`[data-key="${E.selected()}"]`)?.scrollIntoView({block:'nearest',inline:'nearest'}));
+  }
+ }
+ window.addEventListener('yebaeonworkspaceready',restoreWorkspace);
+ if(C.workspaceReady())queueMicrotask(restoreWorkspace);
+ window.addEventListener('yebaeonchange',()=>queueMicrotask(remember));
+ window.addEventListener('pagehide',remember);
+ $('accountLogout').addEventListener('click',()=>{resume=null;workspace.clear();});
+ $('playlistsList').addEventListener('click',event=>{if(event.target.closest('button'))resume=null;},true);
  matchMedia('(max-width:1100px)').addEventListener('change',layout);matchMedia('(max-width:700px)').addEventListener('change',layout);
  window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);window.addEventListener('resize',viewport);
  // The fixed mobile shell scrolls inside panes, so the page owns the pull gesture.
