@@ -115,10 +115,11 @@
 .ppt-steps{display:flex;gap:20px;padding:0 18px;border-bottom:1px solid var(--line,#dce2ed);flex:none;background:#fff}
 .ppt-steps button{border:0;border-radius:0;background:none;padding:10px 6px;color:#657185;border-bottom:2px solid transparent}
 .ppt-steps button[aria-selected=true]{color:var(--blue,#3e55cf);border-bottom-color:currentColor;font-weight:600}
-.ppt-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
-.ppt-compare>section{min-width:0}.ppt-compare h3{margin:0 0 10px;font-size:13px;color:#536078}
-.ppt-review-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.ppt-compare{position:relative;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:56px;align-items:start}
+.ppt-compare::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:#c4cedd;pointer-events:none}
+.ppt-compare>section{min-width:0;padding:14px;background:#f4f6fa;border:1px solid #e1e6ee;border-radius:9px}.ppt-compare>section+section{background:#f1f5ff;border-color:#d4ddf4}.ppt-compare h3{margin:0 0 16px;padding-bottom:12px;border-bottom:1px solid #d6deea;font-size:13px;color:#35425a}
+.ppt-review-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,180px));gap:12px;justify-content:center}
 .ppt-review-tile{display:block;min-width:0;padding:0;overflow:hidden;text-align:left;background:#fff;border:1px solid var(--line,#dce2ed);border-radius:6px}
 .ppt-review-tile canvas{display:block;width:100%;height:auto;background:#111}.ppt-review-tile small{display:block;padding:4px 7px;font-size:11px;color:#657185}
 #pptReviewLargeImage canvas{display:block;width:100%;height:auto}
-@media(max-width:600px){.ppt-compare{gap:8px}.ppt-review-tiles{grid-template-columns:minmax(0,1fr)}.ppt-steps{padding:0 10px}.ppt-compare h3{font-size:12px}}
+@media(max-width:600px){.ppt-compare{gap:24px}.ppt-compare>section{padding:8px}.ppt-review-tiles{grid-template-columns:minmax(0,1fr);gap:10px}.ppt-steps{padding:0 10px}.ppt-compare h3{font-size:12px}}
