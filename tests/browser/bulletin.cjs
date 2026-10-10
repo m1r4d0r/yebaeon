@@ -62,6 +62,18 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   assert.equal(await page.locator('#bulletinStart .file-start-name').textContent(),'synthetic.hwp');assert.equal(await page.locator('#bulletinDate').inputValue(),'2026. 10. 04.');assert.equal(await page.locator('#bulletinWork input[type=date]').count(),0);
   const slot=label=>page.locator('.bulletin-slot').filter({has:page.locator('label',{hasText:label})}).first();
   assert.equal(await page.locator('.bulletin-target select').evaluate(s=>s.selectedOptions[0].text),'1부 예배(품성)','first Sunday uses 품성');
+  const navState=()=>page.evaluate(()=>{const w=YebaeonBulletin.state();return [w.step,w.svc];});
+  assert.equal(await page.locator('#bulletinPrev').isDisabled(),true);
+  for(const expected of [['song',1],['song',2],['prayer',2]]){await page.locator('#bulletinNext').click();assert.deepEqual(await navState(),expected);}
+  for(const expected of [['song',2],['song',1],['song',0]]){await page.locator('#bulletinPrev').click();assert.deepEqual(await navState(),expected);}
+  assert.equal(await page.locator('#bulletinUndo').isDisabled(),true,'navigation alone is not an edit');
+  await page.getByRole('tab',{name:/기도/}).click();const prayerInput=slot('1부 기도').locator('input'),oldPrayer=await prayerInput.inputValue();
+  await prayerInput.click();await prayerInput.fill('가나다 권사');await prayerInput.press('Control+z');assert.equal(await prayerInput.inputValue(),oldPrayer,'undo works before leaving the input');
+  await prayerInput.press('Control+Shift+z');assert.equal(await prayerInput.inputValue(),'가나다 권사');
+  await page.getByRole('tab',{name:/주일말씀/}).click();await page.locator('#bulletinUndo').click();assert.deepEqual(await navState(),['prayer',0]);assert.equal(await prayerInput.inputValue(),oldPrayer,'undo returns to the edited field after switching steps');
+  await page.locator('#bulletinRedo').click();assert.equal(await prayerInput.inputValue(),'가나다 권사');await page.locator('#bulletinUndo').click();
+  await prayerInput.click();await prayerInput.fill('가나다 장로');assert.equal(await page.locator('#bulletinRedo').isDisabled(),true,'new edit clears redo');await page.locator('#bulletinUndo').click();
+  await page.getByRole('tab',{name:/찬양/}).click();
   const sourceTable=page.locator('#bulletinSource .bulletin-source-grid');
   assert.equal(await sourceTable.count(),1);
   const tableText=await sourceTable.innerText();for(const word of ['1부예배','2부예배','3부예배','합성 찬양 A','합성 찬양 C'])assert.ok(tableText.includes(word),'all services retain their place in the source table');
@@ -78,6 +90,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   const songBox=slot('찬양 1').locator('[id^=bulletin-]');await songBox.fill('악보');await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor({state:'detached'});assert.equal(await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 악보'}).count(),1,'typing in the slot box searches again');
   await songBox.fill('100 주');await songBox.press('Enter');await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor();
   await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).click();
+  await page.locator('#bulletinUndo').click();assert.doesNotMatch(await slot('찬양 1').textContent(),/고름: 100 주 이름 가사/);await page.locator('#bulletinRedo').click();assert.match(await slot('찬양 1').textContent(),/고름: 100 주 이름 가사/,'song choices are undoable after the row was rebuilt');
   await slot('설교 후 찬양').click();await page.locator('.bulletin-cands .cand',{hasText:'합성 찬양 D'}).waitFor();assert.equal(await page.locator('.bulletin-cands .cand',{hasText:'지금 이 자리'}).count(),0);
   await page.locator('.bulletin-cands .cand',{hasText:'합성 찬양 D'}).click();
   await page.locator('.bulletin-svc button',{hasText:'2부'}).click();assert.equal(await sourceTable.innerText(),tableText,'switching service keeps the complete source table');await slot('찬양 1').click();assert.match(await sourceTable.locator('.w.act').allTextContents().then(a=>a.join(' ')),/합성 찬양 A/);

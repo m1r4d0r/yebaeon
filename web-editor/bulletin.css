@@ -6,6 +6,8 @@
 .studio-import-dialog>header strong{min-width:0;margin-right:auto;font-size:15px;font-weight:650}
 .studio-import-dialog .import-close{display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;min-height:32px;padding:0;border-color:transparent;background:transparent;font-size:22px;font-weight:400;line-height:1}
 .studio-import-dialog .import-close:hover{background:#dbe3ef}
+.bulletin-history{display:flex;gap:3px}
+.studio-import-dialog .bulletin-history button{width:32px;min-height:32px;padding:0;background:transparent;font-size:22px;line-height:1}
 .studio-import-dialog :is(button,input,select,textarea){font:inherit;font-size:13px}
 .studio-import-dialog :is(button,select,input:not([type=checkbox]):not([type=radio])){min-height:32px}
 .studio-import-dialog :is(input[type=checkbox],input[type=radio]){flex:none;width:16px;height:16px;min-height:0;margin:0;accent-color:var(--blue,#3e55cf)}
