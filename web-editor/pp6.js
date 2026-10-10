@@ -207,14 +207,19 @@
     return map;
   }
   function duplicate(slide, blank=false) {
-    const copy=slide.cloneNode(true);refreshIDs(copy);
+    let copy;
+    if(blank&&!textElements(slide).length){
+      const root=slide.ownerDocument.documentElement,width=Number(attr(root,'width'))||1920,height=Number(attr(root,'height'))||1080;
+      const rtf=textRTF('',{font:'NanumGothicOTF',size:110*height/1080,bold:true,color:'rgb(255,255,255)',align:'center'});
+      const xml=slideXML({drawingBackgroundColor:true,elements:textElementXML({rect:{x:width/24,y:height/12,w:width*11/12,h:height*5/6},rtf})});
+      copy=slide.ownerDocument.importNode(new DOMParser().parseFromString(xml,'application/xml').documentElement,true);
+    }else{copy=slide.cloneNode(true);refreshIDs(copy);}
     // New slides must not repeat side-effect cues such as audio, timers or commands.
     const cues=ivar(copy,'array','cues');if(cues)cues.replaceChildren();
     for(const key of ['hotKey','notes','chordChartPath'])copy.setAttribute(key,'');
     copy.setAttribute('label',blank?'새 슬라이드':(attr(slide,'label')?attr(slide,'label')+' 복사':''));
     if(blank) {
       for(const element of textElements(copy))setText(element,'');
-      if(!textElements(copy).length)throw new Error('텍스트 상자가 있는 슬라이드를 선택해 새 슬라이드를 추가해 주세요.');
     }
     slide.parentNode.insertBefore(copy,slide.nextSibling);return copy;
   }
