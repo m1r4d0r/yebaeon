@@ -111,3 +111,14 @@
 .file-start-date{display:inline-flex;align-items:center;flex:none}
 .file-start-date input{font:inherit;font-size:12px;color:#465269;border:1px solid #dce2ed;background:#fff;border-radius:5px;padding:4px 6px;width:132px;min-width:0}
 @media(max-width:600px){.file-start-info{flex-basis:100%}.file-start-actions{flex-wrap:wrap;justify-content:flex-end}.file-start-add,.file-start-dropbox{white-space:nowrap}}
+
+.ppt-steps{display:flex;gap:20px;padding:0 18px;border-bottom:1px solid var(--line,#dce2ed);flex:none;background:#fff}
+.ppt-steps button{border:0;border-radius:0;background:none;padding:10px 6px;color:#657185;border-bottom:2px solid transparent}
+.ppt-steps button[aria-selected=true]{color:var(--blue,#3e55cf);border-bottom-color:currentColor;font-weight:600}
+.ppt-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+.ppt-compare>section{min-width:0}.ppt-compare h3{margin:0 0 10px;font-size:13px;color:#536078}
+.ppt-review-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.ppt-review-tile{display:block;min-width:0;padding:0;overflow:hidden;text-align:left;background:#fff;border:1px solid var(--line,#dce2ed);border-radius:6px}
+.ppt-review-tile canvas{display:block;width:100%;height:auto;background:#111}.ppt-review-tile small{display:block;padding:4px 7px;font-size:11px;color:#657185}
+#pptReviewLargeImage canvas{display:block;width:100%;height:auto}
+@media(max-width:600px){.ppt-compare{gap:8px}.ppt-review-tiles{grid-template-columns:minmax(0,1fr)}.ppt-steps{padding:0 10px}.ppt-compare h3{font-size:12px}}
