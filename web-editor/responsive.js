@@ -122,8 +122,11 @@
    if(page==='edit'&&E.ready())requestAnimationFrame(()=>$('slides').querySelector(`[data-key="${E.selected()}"]`)?.scrollIntoView({block:'nearest',inline:'nearest'}));
   }
  }
- window.addEventListener('yebaeonworkspaceready',restoreWorkspace);
- if(C.workspaceReady())queueMicrotask(restoreWorkspace);
+ // 복원이 끝나면(복원할 것이 없어도) 풀리는 약속. 새로고침 직후 화면을 다루는 검사가 기다린다.
+ let restoredDone;const restored=new Promise(resolve=>restoredDone=resolve);
+ const runRestore=()=>restoreWorkspace().finally(restoredDone);
+ window.addEventListener('yebaeonworkspaceready',runRestore);
+ if(C.workspaceReady())queueMicrotask(runRestore);
  window.addEventListener('yebaeonchange',()=>queueMicrotask(remember));
  window.addEventListener('pagehide',remember);
  $('accountLogout').addEventListener('click',()=>{resume=null;workspace.clear();});
@@ -162,5 +165,5 @@
  document.addEventListener('touchend',event=>{const ready=pull?.ready&&!refreshBlocked();if(pull?.claimed)suppressPullClickUntil=Date.now()+500;cancelPull();if(ready&&!event.touches.length)void refreshPage();},{passive:true,capture:true});
  window.addEventListener('click',event=>{if(Date.now()<suppressPullClickUntil){event.preventDefault();event.stopImmediatePropagation();}},{capture:true});
  document.addEventListener('touchcancel',cancelPull,{passive:true});
- window.YebaeonResponsive={compact,phone,search,navigate,page:()=>page,closeSearch,tell};layout();
+ window.YebaeonResponsive={compact,phone,search,navigate,page:()=>page,closeSearch,tell,restored:()=>restored};layout();
 })();

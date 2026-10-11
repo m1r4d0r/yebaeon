@@ -2,7 +2,13 @@
 
 이 파일은 세션마다 **덮어써서** 갱신한다. 새 인계 파일을 만들지 않는다. 끝난 일은 [CHANGELOG](CHANGELOG.md), 남은 일은 [BACKLOG](BACKLOG.md)에 둔다.
 
-갱신: 2026-10-11 · 질문 환경 기록·질문·답변 모아보기 추가.
+갱신: 2026-10-11 · 반응형 검사 간헐 실패 원인 수정.
+
+## 10-11 반응형 검사 간헐 실패
+
+- 증상: `tests/browser/responsive.cjs`의 `#responsiveQuick` 클릭이 약 8번에 1번 "보이지 않음" 시간 초과. 질문 창 작업 전 커밋에서도 재현.
+- 원인(확정, 실패 순간 기록): 새로고침 직후 이전 화면 복원(sessionStorage)이 진행 중일 때 검사가 문서를 열어, 복원의 문서 열기가 검사의 열기를 대신하고 화면을 저장된 '순서'로 되돌림. 검사 순서 경합이며 앱 동작 결함은 아님.
+- 조치: 복원이 끝나면 풀리는 `YebaeonResponsive.restored()`를 두고 검사가 이를 기다림. 수정 후 16회 연속 통과.
 
 ## 10-11 질문 창(Discord 알림)
 
@@ -15,7 +21,7 @@
 - 질문 환경(3차): Studio가 운영체제(Chrome 고급 정보로 macOS 버전·Windows 10/11)·브라우저·창 크기·열린 문서를 보내고, 서버가 다듬어 `client` 칸에 "Mac · macOS 10.13.6 · Chrome 116 · 창 1280×720 · 문서 …"로 저장(빠지면 User-Agent·Sec-CH-UA-Platform으로 채움). 예전 표에는 처음 쓸 때 칸 추가. Discord 알림 첫 줄·관리자 화면에 표시.
 - 모아보기: 작업자 메뉴 › 관리 [질문·답변]과 설정·관리 창 첫 칸(답 대기 수·[모아 보기]). 답 대기/전체, 60개씩 [더 보기], 카드마다 바로 답하기·고치기·지우기. 열 때·탭 바꿀 때만 조회(최근 60행 + 답 대기 수 집계 1회).
 - 운영 방침(사용자): 당분간 웹훅만 쓴다. 답변은 Studio 질문 창·모아보기에서. 봇·여러 사이트 허브는 BACKLOG 보류.
-- 남음(사용자): Cloudflare Secret 등록 — 웹훅 `DISCORD_WEBHOOK_URL`, 봇을 쓰면 위 봇 값과 Interactions Endpoint URL 설정([cloudflare/README](../cloudflare/README.md) 순서). 등록 전에는 알림 없이 저장만 된다.
+- 웹훅 `DISCORD_WEBHOOK_URL`은 사용자가 Cloudflare에 등록함(10-11). 봇을 쓰면 위 봇 값과 Interactions Endpoint URL 설정([cloudflare/README](../cloudflare/README.md) 순서). 등록 전에는 알림 없이 저장만 된다.
 
 ## 10-11 가져오기 작업 초기화
 

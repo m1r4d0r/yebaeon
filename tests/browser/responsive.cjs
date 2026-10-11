@@ -120,7 +120,7 @@ const assert=require('node:assert/strict');
  assert.deepEqual(await page.evaluate(()=>YebaeonDrafts.all()),[]);assert.equal(requests.filter((r,i)=>i>=beforeClear&&!/^GET /.test(r)).length,0,'draft cleanup writes nothing to the server');
  await other.close();handleDialog=d=>d.accept();
  // Pull-to-refresh preserves drafts, cancels short/horizontal gestures and never reloads after a failed checkpoint.
- await page.waitForFunction(()=>YebaeonPlaylists.selectedPlaylist());
+ await page.waitForFunction(()=>YebaeonPlaylists.selectedPlaylist());await page.evaluate(()=>YebaeonResponsive.restored());
  await page.evaluate(id=>YebaeonCloud.openDocument(id),ids[0]);await page.locator('#responsiveQuick').click();await page.locator('#quickInputs textarea').first().fill('새로고침 전 미저장 초안');await page.keyboard.press('Escape');
  await page.evaluate(id=>YebaeonPlaylists.appendDocuments([YebaeonCloud.linked()]),ids[0]);
  const pullFrom=async(selector,dx,dy,end='touchEnd')=>{const b=await page.locator(selector).boundingBox(),x=b.x+b.width/2,y=b.y+b.height/2;await stageTouch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});for(const step of [.015,.04,.075,.1,.16,.25,.4,.6,.8,1]){await stageTouch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x+dx*step,y:y+dy*step}]});await page.waitForTimeout(18);}await stageTouch.send('Input.dispatchTouchEvent',{type:end,touchPoints:[]});};
