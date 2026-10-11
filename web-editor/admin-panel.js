@@ -1,6 +1,6 @@
 (function(){'use strict';
  // 설정·관리 창. 열 때 관리자 확인을 먼저 받는다(하루 유지). 관리자 일만 모은다:
- // 휴지통 보기·비우기, 고아 이미지 정리·그림 휴지통, 카테고리 검색·이력 설정, 교회 Mac 보관본 정리, 누락 검색 자료 점검.
+ // 질문·답변, 휴지통 보기·비우기, 고아 이미지 정리·그림 휴지통, 카테고리 검색·이력 설정, 교회 Mac 보관본 정리, 누락 검색 자료 점검.
  const $=id=>document.getElementById(id),C=()=>window.YebaeonCloud,P=()=>window.YebaeonPanels,M=()=>window.YebaeonLibraryManage;
  const json=(method,body)=>({method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const stem=path=>(path||'').split('/').pop().replace(/\.pro6$/i,'');
@@ -60,6 +60,12 @@
   const items=await all('/playlists?scope=trashed','archives');s.count(items.length);button.disabled=!items.length;button.onclick=()=>purge('playlists','재생목록 휴지통',button);
   if(!items.length)empty(s.list,'휴지통이 비어 있습니다.');
   for(const item of items)s.list.append(el('div',{class:'line-row'},kind('playlist'),el('span',{class:'line-title',title:item.name},item.name),el('span',{class:'line-meta'},[item.archivedBy,item.archivedAt?when(item.archivedAt):''].filter(Boolean).join(' · '))));
+ }
+ // ── 질문·답변 ── 답을 기다리는 수만 보이고, 목록은 모아보기 창에서 본다.
+ async function questions(){
+  const {el}=P(),view=el('button',{type:'button',class:'line-btn',onclick:()=>{dialog.close();window.YebaeonQABoard.open('open');}},'모아 보기');
+  const s=section('질문·답변','오른쪽 아래 질문 창으로 들어온 질문입니다. 질문자·환경(Mac/PC·브라우저)을 보고 답합니다.',view);
+  const data=await(await C().api('/questions?open=1')).json();s.count(`답 대기 ${data.waiting||0}개`);s.list.remove();
  }
  // ── 카테고리 설정(검색·이력) ──
  async function categories(){
@@ -144,7 +150,7 @@
  async function render(){
   const {el}=P(),body=$('adminPanelBody');body.replaceChildren();
   $('adminPanelState').textContent=expiresAt?`관리자 확인됨 · ${P().when(expiresAt*1000)}까지`:'관리자 확인됨';
-  for(const part of [trashDocs,trashPlaylists,orphans,imageTrash,categories,revisions]){try{await part();}catch(error){body.append(el('p',{class:'line-empty'},error.message));}}
+  for(const part of [questions,trashDocs,trashPlaylists,orphans,imageTrash,categories,revisions]){try{await part();}catch(error){body.append(el('p',{class:'line-empty'},error.message));}}
   maintenance();
  }
  async function signOut(){

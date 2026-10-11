@@ -50,7 +50,7 @@
   if(!items.length)list.append(el('p',{class:'qa-empty'},state.admin?'아직 질문이 없습니다.':'질문을 남기면 담당자에게 알림이 갑니다. 답이 오면 이 창에 표시됩니다.'));
   for(const q of items){
    const thread=el('div',{class:'qa-thread'+(q.answer?'':' is-open')});
-   thread.append(bubble('question',q.body,[state.admin?q.author:null,when(q.createdAt)].filter(Boolean).join(' · ')));
+   thread.append(bubble('question',q.body,[state.admin?q.author:null,state.admin?q.client:null,when(q.createdAt)].filter(Boolean).join(' · ')));
    if(state.admin)thread.append(answerBox(q));
    else thread.append(q.answer?bubble('answer',q.answer,[q.answeredBy,when(q.answeredAt)].filter(Boolean).join(' · ')):el('p',{class:'qa-pending'},'답을 기다리는 중'));
    list.append(thread);
@@ -72,10 +72,20 @@
  }
  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&timer===null&&signedIn&&(waiting()&&!state.admin||state.admin&&!panel.hidden))load();});
 
+ // 질문한 환경: 운영체제(Chrome은 상세 버전까지)·브라우저·창 크기·열린 문서. 서버가 다듬고 빠진 값은 요청 머리글로 채운다.
+ async function environment(){
+  const ua=navigator.userAgent,d=navigator.userAgentData;let os='',browser='';
+  try{if(d){const h=await d.getHighEntropyValues(['platformVersion','fullVersionList']),v=h.platformVersion||'';
+   os=d.platform==='Windows'?(parseInt(v,10)>=13?'Windows 11':'Windows 10'):d.platform==='macOS'?`macOS ${v}`.trim():[d.platform,v].filter(Boolean).join(' ');
+   const brands=h.fullVersionList||d.brands||[],b=brands.find(x=>/Edge/.test(x.brand))||brands.find(x=>/Chrome/.test(x.brand));
+   if(b)browser=`${b.brand.replace(/^(Google|Microsoft) /,'')} ${String(b.version).split('.')[0]}`;}}catch(_){}
+  if(!os){const mac=/Mac OS X ([\d_]+)/.exec(ua);os=mac?'macOS '+mac[1].replace(/_/g,'.'):/Windows/.test(ua)?'Windows':'';}
+  return {os,browser,window:`${innerWidth}×${innerHeight}`,doc:(C()?.linked()?.name||'').replace(/\.pro6$/i,'')};
+ }
  async function ask(e){
   e.preventDefault();const body=input.value.trim();if(!body)return;
   send.disabled=true;note.textContent='보내는 중…';
-  try{const {question}=await(await C().api('/questions',json('POST',{body}))).json();input.value='';state.questions.unshift(question);render();
+  try{const {question}=await(await C().api('/questions',json('POST',{body,client:await environment()}))).json();input.value='';state.questions.unshift(question);render();
    note.textContent=question.notified?'질문을 보냈습니다. 답이 오면 여기에 표시됩니다.':'질문을 저장했습니다. 알림 전송은 실패했지만 담당자가 이 창에서 볼 수 있습니다.';schedule();}
   catch(error){note.textContent=error.message;}finally{send.disabled=false;}
  }

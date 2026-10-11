@@ -9,11 +9,28 @@ const ID = /^[0-9a-f-]{36}$/;
 async function table(db) {
   if (ready) return;
   await db.batch([
-    db.prepare('CREATE TABLE IF NOT EXISTS yebaeon_questions (id TEXT PRIMARY KEY, author TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL, notified INTEGER NOT NULL DEFAULT 0, answer TEXT, answered_by TEXT, answered_at TEXT)'),
+    db.prepare('CREATE TABLE IF NOT EXISTS yebaeon_questions (id TEXT PRIMARY KEY, author TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL, notified INTEGER NOT NULL DEFAULT 0, answer TEXT, answered_by TEXT, answered_at TEXT, client TEXT)'),
     db.prepare('CREATE INDEX IF NOT EXISTS yebaeon_questions_author ON yebaeon_questions(author,created_at)'),
     db.prepare('CREATE INDEX IF NOT EXISTS yebaeon_questions_recent ON yebaeon_questions(created_at)')
   ]);
+  // 질문 환경(client) 칸이 생기기 전에 만든 표에 칸을 더한다.
+  const columns = (await db.prepare('PRAGMA table_info(yebaeon_questions)').all()).results.map(r => r.name);
+  if (!columns.includes('client')) await db.prepare('ALTER TABLE yebaeon_questions ADD COLUMN client TEXT').run().catch(error => { if (!/duplicate column/i.test(error.message)) throw error; });
   ready = true;
+}
+// 질문한 사람의 환경: Studio가 보낸 값(운영체제·브라우저·창 크기·열린 문서)을 다듬고, 빠진 운영체제·브라우저는 요청 머리글로 채운다.
+// 보기: "Mac · macOS 10.13.6 · Chrome 116 · 창 1280×720 · 문서 주님의 은혜".
+const clean = (value, max) => typeof value === 'string' ? value.normalize('NFC').replace(/[\x00-\x1f\x7f·]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '';
+function clientOf(request, sent) {
+  const ua = request.headers.get('User-Agent') || '', hint = (request.headers.get('Sec-CH-UA-Platform') || '').replace(/"/g, '');
+  sent = sent && typeof sent === 'object' && !Array.isArray(sent) ? sent : {};
+  let os = clean(sent.os, 40);
+  if (!os) os = hint === 'macOS' || /Mac OS X/.test(ua) ? 'macOS' : hint === 'Windows' || /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : clean(hint, 20) || '알 수 없음';
+  const kind = /^(macOS|Mac)/i.test(os) ? 'Mac' : /^Windows/i.test(os) ? 'PC' : /Android|iOS|iPhone|iPad/i.test(os) ? '휴대폰·태블릿' : '';
+  const match = /(Edg|Chrome|Firefox|Version)\/(\d+)/.exec(ua);
+  const browser = clean(sent.browser, 30) || (match ? `${{ Edg: 'Edge', Version: 'Safari' }[match[1]] || match[1]} ${match[2]}` : '');
+  const size = v => /^\d{2,5}×\d{2,5}$/.test(v || '') ? v : '';
+  return [kind, os, browser, size(sent.window) && `창 ${sent.window}`, clean(sent.doc, 60) && `문서 ${clean(sent.doc, 60)}`].filter(Boolean).join(' · ').slice(0, 200);
 }
 function text(value, label) {
   if (typeof value !== 'string') throw new HttpError(400, 'invalid_text', `${label}을(를) 입력해 주세요.`);
@@ -22,12 +39,12 @@ function text(value, label) {
   if (out.length > TEXT_MAX) throw new HttpError(413, 'too_long', `${label}은(는) ${TEXT_MAX}자까지 쓸 수 있습니다.`);
   return out;
 }
-const row = r => ({ id: r.id, author: r.author, body: r.body, createdAt: r.created_at, notified: !!r.notified, answer: r.answer, answeredBy: r.answered_by, answeredAt: r.answered_at });
+const row = r => ({ id: r.id, author: r.author, body: r.body, createdAt: r.created_at, notified: !!r.notified, answer: r.answer, answeredBy: r.answered_by, answeredAt: r.answered_at, client: r.client || '' });
 
 // Discord 알림. 봇(DISCORD_BOT_TOKEN·DISCORD_CHANNEL_ID)이 있으면 [답변하기] 단추가 달린 메시지를 보내고, 없거나 실패하면 웹훅(DISCORD_WEBHOOK_URL)으로 글만 보낸다.
 // 멘션은 해석하지 않게 하고(allowed_mentions), 5초 안에 응답이 없으면 알림 실패로 둔다. 질문은 알림과 무관하게 저장된다.
 const DISCORD_API = 'https://discord.com/api/v10';
-const questionText = q => `**질문** · ${q.author}\n${q.body}`.slice(0, 1700);
+const questionText = q => `**질문** · ${q.author}${q.client ? ` · ${q.client}` : ''}\n${q.body}`.slice(0, 1700);
 function messageOf(q, origin) {
   const answered = q.answer ? `\n\n**답변** · ${q.answered_by || ''}\n${q.answer}`.slice(0, 1900 - Math.min(questionText(q).length, 1700)) : '';
   return {
@@ -96,18 +113,21 @@ export async function questionsRoute(request, env, user, id) {
   if (!id) {
     method(request, ['GET', 'POST']);
     if (request.method === 'GET') {
-      const admin = await isAdmin(request, env, user);
+      const admin = await isAdmin(request, env, user), params = new URL(request.url).searchParams;
+      // 관리자 모아보기: ?open=1 이면 답을 기다리는 것만, ?before=<시각> 이면 그보다 오래된 것을 이어서.
+      const before = params.get('before') || '9999', open = params.get('open') === '1';
       const rows = admin
-        ? (await db.prepare('SELECT * FROM yebaeon_questions ORDER BY created_at DESC LIMIT ?').bind(ADMIN_LIST).all()).results
+        ? (await db.prepare(`SELECT * FROM yebaeon_questions WHERE created_at<?${open ? ' AND answer IS NULL' : ''} ORDER BY created_at DESC LIMIT ?`).bind(before, ADMIN_LIST).all()).results
         : (await db.prepare('SELECT * FROM yebaeon_questions WHERE author=? ORDER BY created_at DESC LIMIT ?').bind(user.author, LIST).all()).results;
-      return json({ admin, author: user.author, questions: rows.map(row) });
+      const waiting = admin ? (await db.prepare('SELECT COUNT(*) AS n FROM yebaeon_questions WHERE answer IS NULL').first()).n : undefined;
+      return json({ admin, author: user.author, questions: rows.map(row), waiting, next: admin && rows.length === ADMIN_LIST ? rows.at(-1).created_at : null });
     }
     sameOrigin(request);
-    const body = text((await bodyJSON(request, 16 * 1024))?.body, '질문');
+    const sent = await bodyJSON(request, 16 * 1024), body = text(sent?.body, '질문'), client = clientOf(request, sent?.client);
     const open = await db.prepare('SELECT COUNT(*) AS n FROM yebaeon_questions WHERE author=? AND answer IS NULL').bind(user.author).first();
     if (open.n >= OPEN_MAX) throw new HttpError(429, 'too_many_questions', `답을 기다리는 질문이 ${OPEN_MAX}개입니다. 답을 받은 뒤 다시 남겨 주세요.`);
-    const question = { id: crypto.randomUUID(), author: user.author, body, created_at: new Date().toISOString(), notified: 0, answer: null, answered_by: null, answered_at: null };
-    await db.prepare('INSERT INTO yebaeon_questions(id,author,body,created_at) VALUES(?,?,?,?)').bind(question.id, question.author, body, question.created_at).run();
+    const question = { id: crypto.randomUUID(), author: user.author, body, created_at: new Date().toISOString(), notified: 0, answer: null, answered_by: null, answered_at: null, client };
+    await db.prepare('INSERT INTO yebaeon_questions(id,author,body,created_at,client) VALUES(?,?,?,?,?)').bind(question.id, question.author, body, question.created_at, client).run();
     if (await notify(env, request, question)) {
       question.notified = 1;
       await db.prepare('UPDATE yebaeon_questions SET notified=1 WHERE id=?').bind(question.id).run();

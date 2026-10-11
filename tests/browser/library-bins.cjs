@@ -130,12 +130,20 @@ const assert=require('node:assert/strict');
   assert.equal((await page.evaluate(async()=>(await(await fetch('/api/admin')).json()).admin)),false,'관리자 확인 끝내기 clears the cookie');
   // 질문 창: 작업자 질문 → 관리자 답변 → 관리자 해제 후 새 답변 배지와 답 표시.
   await page.locator('#qaToggle').click();await page.locator('#qaPanel textarea.qa-input').fill('저장은 어디서\n하나요?');await page.keyboard.press('Enter');await page.locator('#qaPanel .qa-question').waitFor();
-  await page.locator('#qaPanel .qa-admin').click();if(await page.locator('#adminDialog').evaluate(d=>d.open)){await page.locator('#adminPassword').fill('admin-only-1');await page.locator('#adminSubmit').click();}
+  await page.locator('#qaPanel .qa-admin').click();await page.locator('#adminDialog').waitFor();await page.locator('#adminPassword').fill('admin-only-1');await page.locator('#adminSubmit').click();
   await page.locator('#qaPanel.is-admin .qa-answer-form textarea').fill('위쪽 저장을 누르세요.');await page.locator('#qaPanel .qa-answer-form .qa-send').click();await page.locator('#qaPanel .qa-note').filter({hasText:'저장했습니다'}).waitFor();
   await page.locator('#qaPanel .qa-close').click();await page.evaluate(()=>fetch('/api/admin',{method:'DELETE',headers:{'Content-Type':'application/json'}}));await page.evaluate(()=>YebaeonQA.refresh());
   assert.equal(await page.locator('#qaToggle .qa-badge').textContent(),'1');await page.locator('#qaToggle').click();
   assert.equal(await page.locator('#qaPanel .qa-answer p').textContent(),'위쪽 저장을 누르세요.');assert.ok(await page.locator('#qaToggle .qa-badge').isHidden(),'opening marks the answer seen');
   await page.locator('#qaPanel .qa-close').click();
-  assert.deepEqual(errors,[]);console.log('Library bins passed: server categories, name hint, rename, archive/unarchive, trash/admin purge, orphan images/image trash, playlist trash/restore, Mac status and remote support, question chat');
+  // 관리 메뉴의 질문·답변 모아보기: 답 대기/전체, 질문 환경 표시, 그 자리에서 답하기.
+  await page.locator('#qaToggle').click();await page.locator('#qaPanel textarea.qa-input').fill('두 번째 질문');await page.keyboard.press('Enter');await page.waitForFunction(()=>document.querySelectorAll('#qaPanel .qa-question').length===2);await page.locator('#qaPanel .qa-close').click();
+  await page.locator('#cloudAccount').click();await page.locator('#qaBoardOpen').click();await page.locator('#adminDialog').waitFor();await page.locator('#adminPassword').fill('admin-only-1');await page.locator('#adminSubmit').click();
+  await page.locator('#qaBoard .qa-card').first().waitFor();assert.equal(await page.locator('#qaBoard .qa-card').count(),1,'only the waiting question');
+  assert.match(await page.locator('#qaBoard .qa-client').textContent(),/Chrome \d+ · 창 \d+×\d+/);
+  await page.locator('#qaBoard .qa-card textarea').fill('모아보기에서 답함');await page.locator('#qaBoard .qa-card .qa-send').click();await page.locator('#qaBoardMessage').filter({hasText:'답했습니다'}).waitFor();
+  assert.equal(await page.locator('#qaBoard .qa-card').count(),0);await page.locator('#qaBoard [data-filter=all]').click();await page.waitForFunction(()=>document.querySelectorAll('#qaBoard .qa-card').length===2);
+  await page.locator('#qaBoard .panel-close').click();
+  assert.deepEqual(errors,[]);console.log('Library bins passed: server categories, name hint, rename, archive/unarchive, trash/admin purge, orphan images/image trash, playlist trash/restore, Mac status and remote support, question chat and board');
  }finally{await browser.close();await new Promise(r=>server.close(r));await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
