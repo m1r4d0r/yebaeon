@@ -128,6 +128,14 @@ const assert=require('node:assert/strict');
   await page.locator('#adminPanel .admin-section',{hasText:'문서 휴지통'}).locator('.line-empty').waitFor();assert.equal(await docTrash.locator('.line-row').count(),0);
   await page.locator('#adminPanel .admin-state button').click();await page.waitForFunction(()=>!document.getElementById('adminPanel').open);
   assert.equal((await page.evaluate(async()=>(await(await fetch('/api/admin')).json()).admin)),false,'관리자 확인 끝내기 clears the cookie');
-  assert.deepEqual(errors,[]);console.log('Library bins passed: server categories, name hint, rename, archive/unarchive, trash/admin purge, orphan images/image trash, playlist trash/restore, Mac status and remote support');
+  // 질문 창: 작업자 질문 → 관리자 답변 → 관리자 해제 후 새 답변 배지와 답 표시.
+  await page.locator('#qaToggle').click();await page.locator('#qaPanel textarea.qa-input').fill('저장은 어디서\n하나요?');await page.keyboard.press('Enter');await page.locator('#qaPanel .qa-question').waitFor();
+  await page.locator('#qaPanel .qa-admin').click();if(await page.locator('#adminDialog').evaluate(d=>d.open)){await page.locator('#adminPassword').fill('admin-only-1');await page.locator('#adminSubmit').click();}
+  await page.locator('#qaPanel.is-admin .qa-answer-form textarea').fill('위쪽 저장을 누르세요.');await page.locator('#qaPanel .qa-answer-form .qa-send').click();await page.locator('#qaPanel .qa-note').filter({hasText:'저장했습니다'}).waitFor();
+  await page.locator('#qaPanel .qa-close').click();await page.evaluate(()=>fetch('/api/admin',{method:'DELETE',headers:{'Content-Type':'application/json'}}));await page.evaluate(()=>YebaeonQA.refresh());
+  assert.equal(await page.locator('#qaToggle .qa-badge').textContent(),'1');await page.locator('#qaToggle').click();
+  assert.equal(await page.locator('#qaPanel .qa-answer p').textContent(),'위쪽 저장을 누르세요.');assert.ok(await page.locator('#qaToggle .qa-badge').isHidden(),'opening marks the answer seen');
+  await page.locator('#qaPanel .qa-close').click();
+  assert.deepEqual(errors,[]);console.log('Library bins passed: server categories, name hint, rename, archive/unarchive, trash/admin purge, orphan images/image trash, playlist trash/restore, Mac status and remote support, question chat');
  }finally{await browser.close();await new Promise(r=>server.close(r));await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

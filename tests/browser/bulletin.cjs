@@ -18,7 +18,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   else if(path.startsWith('/api/documents/')){const id=path.split('/')[3],d=docs.get(id);if(!d){await route.fulfill({status:404,json:{message:'없음'}});return;}
    if(path.endsWith('/content')){contentReads.push(id);await route.fulfill({body:d.xml,contentType:'application/xml'});return;}
    if(req.method()==='PUT'){assert.equal(req.headers()['if-match'],`"${d.version}"`);d.xml=req.postData();d.version++;puts.push(d.path);}data={document:meta(id)};}
-  else throw Error('Unexpected '+path);await route.fulfill({json:data});});
+  else if(path==='/api/questions')data={admin:false,author:'',questions:[]};else throw Error('Unexpected '+path);await route.fulfill({json:data});});
  await page.route('**/resources/**',async route=>{const name=new URL(route.request().url()).pathname.split('/').pop();await route.fulfill({json:name==='catalog.json'?{fonts:[],media:[]}:name==='templates.json'?[{id:'104',name:'말씀',label:'본문',width:1920,height:1080,xml:template}]:bible});});
  try{await page.goto(`http://127.0.0.1:${server.address().port}`);await page.waitForFunction(()=>window.YebaeonBulletin&&YebaeonCloud.authenticated());
   const made=await page.evaluate(()=>{const make=slides=>{const m=PP6.parse(YebaeonLibraryActions.blankDocument('예배순서'),'x'),first=PP6.slides(m)[0],holder=first.parentNode,proto=first.cloneNode(true);first.remove();

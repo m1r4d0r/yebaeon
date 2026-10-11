@@ -18,6 +18,10 @@ Cloudflare 대시보드에서 **Workers & Pages → yebaeon → Settings → Run
 
 기존 `DB` → `pp6-library-db`, `FILES` → `pp6-library-files` 바인딩을 사용한다. 최초 설정 후 첫 API 요청에서 `schema.mjs`가 `yebaeon_` 접두사의 테이블/색인만 추가한다. 기존 테이블·자료를 삭제하지 않는다. 현재는 버전 1의 추가 초기화만 제공하며, 이후 구조 변경은 별도 마이그레이션이 필요하다. DB/R2 관리 권한을 배포 토큰에 추가할 필요가 없다. R2 원본을 공개 버킷/공개 URL로 열지 않는다.
 
+### 질문 창 Discord 알림(선택)
+
+Studio 오른쪽 아래 질문 창의 새 질문을 Discord로 받으려면 같은 화면에서 Secret **DISCORD_WEBHOOK_URL**에 Discord 채널의 웹훅 주소(채널 설정 → 연동 → 웹후크 → URL 복사)를 넣는다. 없거나 `https://discord.com/api/webhooks/…` 형식이 아니면 알림 없이 질문만 저장된다. 답변은 관리자 확인(`ADMIN_PASSWORD`)을 마친 사람이 질문 창의 [관리자]를 눌러 Studio에서 한다. 알림의 링크(`/#qa`)를 열면 질문 창이 열린다. 작업자는 같은 작업자 이름으로 남긴 질문만 보며, 답을 기다리는 질문은 이름당 10개까지다.
+
 ## 입장·기록 방식
 
 - 브라우저에는 이름과 로그인 세션을 기억한다. 비밀번호를 localStorage에 저장하지 않는다.
