@@ -1,7 +1,7 @@
 import { deviceSession, sync2Route } from './sync2.mjs';
 import { remoteSupportRoute } from './remote-support.mjs';
 import { appUpdateRoute } from './app-update.mjs';
-import { adminRoute, emptyTrashRoute } from './admin.mjs';
+import { adminRoute, emptyTrashRoute, requireAdmin } from './admin.mjs';
 import { orphansRoute } from './orphans.mjs';
 import { categoriesRoute } from './categories.mjs';
 import { editingRoute } from './editing.mjs';
@@ -77,7 +77,7 @@ export default {
       if(dropbox)return await dropboxRoute(request,env,dropbox[1]);
       if(pathname==='/api/inventory')return await inventoryRoute(request,env,user);
       if(pathname==='/api/sync-observations')return await syncObservationsRoute(request,env,user);
-      if(pathname==='/api/search-index'){method(request,['POST']);sameOrigin(request);return json(await indexSearch(env,8,new URL(request.url).searchParams.get('after')||''));}
+      if(pathname==='/api/search-index'){method(request,['POST']);sameOrigin(request);await requireAdmin(request,env,user);return json(await indexSearch(env,8,new URL(request.url).searchParams.get('after')||''));}
       if (pathname === '/api/playlist-bootstrap') return await bootstrapPlaylist(request, env, user);
       if (resource) {
         method(request, ['GET', 'HEAD']);

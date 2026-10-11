@@ -5,7 +5,7 @@
  const json=(method,body)=>({method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const stem=path=>(path||'').split('/').pop().replace(/\.pro6$/i,'');
  let dialog=null,expiresAt=null;
- // 누락 검색 자료 점검 단추는 cloud.js가 동작을 달아 둔 것을 이 창으로 옮겨 쓴다.
+ // 누락 검색 자료 점검 단추(관리자 전용)는 cloud.js가 동작을 달아 둔 숨은 단추를 이 창으로 옮겨 보인다.
  const runMaintenance=$('indexMaintenance');
 
  // 관리자 확인: 이미 확인돼 있으면 묻지 않고, 아니면 비밀번호 창. 취소하면 false.
@@ -143,7 +143,7 @@
  }
  // ── 검색 자료 ──
  function maintenance(){
-  const run=runMaintenance;run.className='line-btn';run.textContent='누락 검색 자료 점검';
+  const run=runMaintenance;run.className='line-btn';run.textContent='누락 검색 자료 점검';run.hidden=false;
   const s=section('검색 자료','새로 올리거나 저장한 문서는 검색 자료도 함께 갱신됩니다. 예전 자료의 본문·사용일이 검색에서 빠졌을 때만 실행하세요.',run);s.count(null);
   run.addEventListener('click',()=>dialog.close(),{once:true});s.list.remove();
  }

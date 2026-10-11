@@ -11,7 +11,7 @@ const hash = text => createHash('sha256').update(text).digest('hex');
 
 test('private document library with real Worker, D1 and R2 bindings', { timeout: 90000 }, async t => {
   const bundled = await build({ entryPoints: ['cloudflare/worker.mjs'], bundle: true, write: false, format: 'esm', platform: 'browser' });
-  const options = { modules: true, script: bundled.outputFiles[0].text, compatibilityDate: '2026-09-28', bindings: { SITE_PASSWORD: password }, d1Databases: ['DB'], r2Buckets: ['FILES'], serviceBindings: { ASSETS: () => new Response('private resource', { headers: { 'Cache-Control': 'public' } }) }, cf: false };
+  const options = { modules: true, script: bundled.outputFiles[0].text, compatibilityDate: '2026-09-28', bindings: { SITE_PASSWORD: password, ADMIN_PASSWORD: 'library-admin-1' }, d1Databases: ['DB'], r2Buckets: ['FILES'], serviceBindings: { ASSETS: () => new Response('private resource', { headers: { 'Cache-Control': 'public' } }) }, cf: false };
   const mf = new Miniflare(convertV4MiniflareOptions(options));
   t.after(() => mf.dispose());
   const db = await mf.getD1Database('DB');
@@ -191,7 +191,9 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     assert.equal(preparing.indexing,null);assert.equal(preparing.documents.length,100);
     assert.equal(preparing.documents[0].id,ids[129]);
     const collect=async(sort)=>{let result=[],next=null; do {const params=new URLSearchParams({q:'sort-fixture/',sort});if(next)params.set(sort.startsWith('name')?'after':'cursor',next);const page=await (await call('/documents?'+params,{cookie})).json();assert.equal(page.indexing?.remaining||0,0);result.push(...page.documents);next=page.next;}while(next);return result;};
-    let after='sort-fixture/';do{const p=await(await call('/search-index?after='+encodeURIComponent(after),{cookie,method:'POST'})).json();after=p.next;}while(after);
+    const admin=await call('/admin',{cookie,method:'POST',body:JSON.stringify({password:'library-admin-1'}),headers:{'Content-Type':'application/json'}});await code(admin,200);
+    const adminCookie=cookie+'; '+admin.headers.get('Set-Cookie').split(';')[0];
+    let after='sort-fixture/';do{const p=await(await call('/search-index?after='+encodeURIComponent(after),{cookie:adminCookie,method:'POST'})).json();after=p.next;}while(after);
     const used=await collect('used'); assert.equal(used.length,130);assert.equal(new Set(used.map(d=>d.id)).size,130);
     assert.equal(used[0].id,ids[128]);assert.equal(used[1].id,ids[129]);assert.equal(used.at(-1).id,ids[0]);
     const indexedCollect=async(sort)=>{let result=[],next=null; do {const params=new URLSearchParams({q:'sort-fixture/',sort,includeIndexed:'1'});if(next)params.set('cursor',next);const page=await (await call('/documents?'+params,{cookie})).json();result.push(...page.documents);next=page.next;}while(next);return result;};

@@ -12,7 +12,7 @@ test('content extraction handles Korean Unicode, CP949, escaped punctuation and 
 });
 test('catalog-only playlist entries and current-version content search preserve actual-file semantics',{timeout:90000},async t=>{
   const bundled=await build({entryPoints:['cloudflare/worker.mjs'],bundle:true,write:false,format:'esm',platform:'browser'});
-  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:bundled.outputFiles[0].text,compatibilityDate:'2026-09-28',bindings:{SITE_PASSWORD:'catalog-test-only'},d1Databases:['DB'],r2Buckets:['FILES'],cf:false}));t.after(()=>mf.dispose());
+  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:bundled.outputFiles[0].text,compatibilityDate:'2026-09-28',bindings:{SITE_PASSWORD:'catalog-test-only',ADMIN_PASSWORD:'catalog-admin-1'},d1Databases:['DB'],r2Buckets:['FILES'],cf:false}));t.after(()=>mf.dispose());
   const origin='https://example.test';let cookie='';
   const call=(path,method='GET',body,extra={})=>mf.dispatchFetch(origin+'/api'+path,{method,body,headers:{Cookie:cookie,...(method==='GET'?{}:{Origin:origin}),...extra}});
   const ok=async(response,status=200)=>{assert.equal(response.status,status,await response.clone().text());return response.json();};
@@ -61,6 +61,9 @@ test('catalog-only playlist entries and current-version content search preserve 
   const relevance=await ok(await call('/documents?includeIndexed=1&sort=relevance&q='+encodeURIComponent('주님의 마음')));
   assert.deepEqual(relevance.documents.map(d=>d.name),['주님의마음.pro6','주님의 마음 (G).pro6','[청년] 주님의 마음.pro6','마음을 주님의 손에.pro6','다른 찬양.pro6']);
   assert.equal(relevance.documents.at(-1).matchedBy,'content');assert.equal(relevance.documents[3].matchedBy,'name');
+  // 검색 자료 보완은 관리자만 한다.
+  assert.equal((await call('/search-index','POST')).status,403);
+  const admin=await call('/admin','POST',JSON.stringify({password:'catalog-admin-1'}),{'Content-Type':'application/json'});await ok(admin);cookie+='; '+admin.headers.get('Set-Cookie').split(';')[0];
   const progress=await ok(await call('/search-index','POST'));assert.equal(progress.next,null);assert.equal(progress.processed,1);
   assert.equal((await ok(await call('/documents?includeIndexed=1&q='+encodeURIComponent('새문장')))).documents[0].id,doc.id);
   assert.equal((await call('/documents?includeIndexed=1&cursor=bad')).status,400);
