@@ -9,7 +9,7 @@
 
  // 작업자 메뉴 › 관리 줄. 관리자 확인 뒤에 연다.
  const menu=document.createElement('button');menu.id='qaBoardOpen';menu.type='button';menu.setAttribute('role','menuitem');
- menu.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/></svg><span>질문·답변</span><span class="admin-chip">관리자</span>';
+ menu.innerHTML=window.YebaeonQA.icon+'<span>질문·답변</span><span class="admin-chip">관리자</span>';
  menu.onclick=()=>{P()?.hideAccount();open();};
  $('accountAdmin')?.append(menu);
 

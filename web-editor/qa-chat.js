@@ -5,6 +5,8 @@
  const C=()=>window.YebaeonCloud,P=()=>window.YebaeonPanels,M=()=>window.YebaeonLibraryManage;
  const json=(method,body)=>({method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
  const SEEN='yebaeon-qa-seen',POLL=60e3;
+ // 말풍선 아이콘. 작업자 메뉴의 [질문·답변]도 같은 것을 쓴다.
+ const ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4c4.7 0 8.5 3.1 8.5 7s-3.8 7-8.5 7c-1 0-2-.1-2.9-.4L5 19.5l1.2-3.4C4.8 14.8 3.5 13 3.5 11 3.5 7.1 7.3 4 12 4z"/><circle cx="8.5" cy="11" r=".9" class="qa-dot"/><circle cx="12" cy="11" r=".9" class="qa-dot"/><circle cx="15.5" cy="11" r=".9" class="qa-dot"/></svg>';
  function el(tag,props={},...children){const node=document.createElement(tag);for(const [k,v] of Object.entries(props)){if(k==='class')node.className=v;else if(k.startsWith('on'))node.addEventListener(k.slice(2),v);else if(k.includes('-')||k==='role')node.setAttribute(k,v);else if(v!==undefined&&v!==null&&v!==false)node[k]=v;}for(const c of children.flat())if(c!==null&&c!==undefined&&c!==false)node.append(c);return node;}
  const when=at=>P()?.when?P().when(at):new Date(at).toLocaleString('ko-KR');
  let state={admin:false,author:'',questions:[]},timer=null,loading=null,signedIn=false;
@@ -12,7 +14,7 @@
  const saveSeen=()=>{try{localStorage.setItem(SEEN,JSON.stringify([...seen].slice(-200)));}catch(_){}};
 
  const toggle=el('button',{type:'button',class:'qa-toggle',id:'qaToggle','aria-label':'질문하기','aria-expanded':'false',hidden:true,onclick:()=>panel.hidden?open():close()});
- toggle.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4c4.7 0 8.5 3.1 8.5 7s-3.8 7-8.5 7c-1 0-2-.1-2.9-.4L5 19.5l1.2-3.4C4.8 14.8 3.5 13 3.5 11 3.5 7.1 7.3 4 12 4z"/><circle cx="8.5" cy="11" r=".9" class="qa-dot"/><circle cx="12" cy="11" r=".9" class="qa-dot"/><circle cx="15.5" cy="11" r=".9" class="qa-dot"/></svg><span class="qa-badge" hidden></span>';
+ toggle.innerHTML=ICON+'<span class="qa-badge" hidden></span>';
  const list=el('div',{class:'qa-list',role:'log','aria-live':'polite'});
  const input=el('textarea',{class:'qa-input',rows:2,maxLength:2000,placeholder:'궁금한 점을 적어 주세요','aria-label':'질문'});
  const send=el('button',{type:'submit',class:'qa-send'},'보내기');
@@ -107,5 +109,5 @@
  }
  window.addEventListener('yebaeonsession',e=>session(!!e.detail?.authenticated));
  if(C()?.authenticated())session(true);
- window.YebaeonQA={open,close,refresh:load};
+ window.YebaeonQA={open,close,refresh:load,icon:ICON};
 })();

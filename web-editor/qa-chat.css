@@ -5,6 +5,7 @@
 .qa-toggle:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .qa-toggle svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round}
 .qa-toggle .qa-dot{fill:currentColor;stroke:none}
+#accountMenu #qaBoardOpen .qa-dot{fill:var(--muted);stroke:none}
 .qa-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#d33c2c;color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center}
 .qa-panel{position:fixed;right:16px;bottom:calc(70px + var(--responsive-nav-height,0px));z-index:70;width:300px;max-width:calc(100vw - 32px);height:380px;max-height:calc(100dvh - 140px - var(--responsive-nav-height,0px));display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 32px #13244738;font-size:13px;color:var(--ink);overflow:hidden}
 .qa-panel.is-admin{width:340px}
