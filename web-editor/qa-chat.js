@@ -12,9 +12,9 @@
  const saveSeen=()=>{try{localStorage.setItem(SEEN,JSON.stringify([...seen].slice(-200)));}catch(_){}};
 
  const toggle=el('button',{type:'button',class:'qa-toggle',id:'qaToggle','aria-label':'질문하기','aria-expanded':'false',hidden:true,onclick:()=>panel.hidden?open():close()});
- toggle.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.4" class="qa-mark"/></svg><span class="qa-badge" hidden></span>';
+ toggle.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4c4.7 0 8.5 3.1 8.5 7s-3.8 7-8.5 7c-1 0-2-.1-2.9-.4L5 19.5l1.2-3.4C4.8 14.8 3.5 13 3.5 11 3.5 7.1 7.3 4 12 4z"/><circle cx="8.5" cy="11" r=".9" class="qa-dot"/><circle cx="12" cy="11" r=".9" class="qa-dot"/><circle cx="15.5" cy="11" r=".9" class="qa-dot"/></svg><span class="qa-badge" hidden></span>';
  const list=el('div',{class:'qa-list',role:'log','aria-live':'polite'});
- const input=el('textarea',{class:'qa-input',rows:2,maxLength:2000,placeholder:'궁금한 점을 적어 주세요. 답이 오면 여기서 볼 수 있어요.','aria-label':'질문'});
+ const input=el('textarea',{class:'qa-input',rows:2,maxLength:2000,placeholder:'궁금한 점을 적어 주세요','aria-label':'질문'});
  const send=el('button',{type:'submit',class:'qa-send'},'보내기');
  const note=el('p',{class:'qa-note',role:'status'});
  const adminButton=el('button',{type:'button',class:'qa-admin',onclick:becomeAdmin,title:'관리자 확인 후 전체 질문에 답합니다'},'관리자');

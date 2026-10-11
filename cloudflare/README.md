@@ -18,9 +18,21 @@ Cloudflare 대시보드에서 **Workers & Pages → yebaeon → Settings → Run
 
 기존 `DB` → `pp6-library-db`, `FILES` → `pp6-library-files` 바인딩을 사용한다. 최초 설정 후 첫 API 요청에서 `schema.mjs`가 `yebaeon_` 접두사의 테이블/색인만 추가한다. 기존 테이블·자료를 삭제하지 않는다. 현재는 버전 1의 추가 초기화만 제공하며, 이후 구조 변경은 별도 마이그레이션이 필요하다. DB/R2 관리 권한을 배포 토큰에 추가할 필요가 없다. R2 원본을 공개 버킷/공개 URL로 열지 않는다.
 
-### 질문 창 Discord 알림(선택)
+### 질문 창 Discord 알림·답변(선택)
 
-Studio 오른쪽 아래 질문 창의 새 질문을 Discord로 받으려면 같은 화면에서 Secret **DISCORD_WEBHOOK_URL**에 Discord 채널의 웹훅 주소(채널 설정 → 연동 → 웹후크 → URL 복사)를 넣는다. 없거나 `https://discord.com/api/webhooks/…` 형식이 아니면 알림 없이 질문만 저장된다. 답변은 관리자 확인(`ADMIN_PASSWORD`)을 마친 사람이 질문 창의 [관리자]를 눌러 Studio에서 한다. 알림의 링크(`/#qa`)를 열면 질문 창이 열린다. 작업자는 같은 작업자 이름으로 남긴 질문만 보며, 답을 기다리는 질문은 이름당 10개까지다.
+Studio 오른쪽 아래 질문 창의 새 질문을 Discord로 보낸다. 같은 화면에서 아래 값을 **Secret**으로 넣는다. 없으면 알림 없이 질문만 저장된다.
+
+- 웹훅(알림만): **DISCORD_WEBHOOK_URL** — 채널 설정 → 연동 → 웹후크 → URL 복사. 답변은 Studio 질문 창의 [관리자](관리자 확인)로 한다.
+- 봇(알림 + Discord에서 답변): 봇 값이 있으면 웹훅 대신 봇으로 보내고, 봇 전송이 실패하면 웹훅으로 보낸다.
+  1. https://discord.com/developers/applications → New Application. General Information의 **Public Key**를 **DISCORD_PUBLIC_KEY**에 넣는다.
+  2. Bot 메뉴 → Reset Token으로 받은 토큰을 **DISCORD_BOT_TOKEN**에 넣는다.
+  3. OAuth2 → URL Generator에서 scope `bot`, 권한 View Channels·Send Messages를 골라 나온 주소로 서버에 초대한다.
+  4. Discord 설정 → 고급 → 개발자 모드를 켜고, 알림 받을 채널을 오른쪽 클릭 → 채널 ID 복사 → **DISCORD_CHANNEL_ID**.
+  5. (권장) 내 프로필 오른쪽 클릭 → 사용자 ID 복사 → **DISCORD_ANSWER_USERS**(여러 명은 쉼표). 없으면 채널에서 단추를 누를 수 있는 누구나 답할 수 있다.
+  6. 비밀값을 저장·배포한 뒤 General Information의 **Interactions Endpoint URL**에 `https://yebaeon.grace-jean-p.workers.dev/api/discord/interactions`를 넣고 저장한다(Discord가 서명 확인 요청을 보내 통과해야 저장된다).
+  - 메시지의 [답변하기] → 입력 창 → 제출하면 답이 저장되고 같은 메시지에 답이 붙는다. [Studio에서 보기]는 질문 창을 연다. Studio에서 단 답은 Discord 메시지에 반영되지 않는다.
+
+알림의 링크(`/#qa`)를 열면 질문 창이 열린다. 작업자는 같은 작업자 이름으로 남긴 질문만 보며, 답을 기다리는 질문은 이름당 10개까지다. 웹훅 주소와 봇 토큰은 공개 저장소에 넣지 않는다.
 
 ## 입장·기록 방식
 

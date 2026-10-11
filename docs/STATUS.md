@@ -2,7 +2,7 @@
 
 이 파일은 세션마다 **덮어써서** 갱신한다. 새 인계 파일을 만들지 않는다. 끝난 일은 [CHANGELOG](CHANGELOG.md), 남은 일은 [BACKLOG](BACKLOG.md)에 둔다.
 
-갱신: 2026-10-11 · 오른쪽 아래 질문 창 추가.
+갱신: 2026-10-11 · 질문 창에 Discord 봇 답변 추가.
 
 ## 10-11 질문 창(Discord 알림)
 
@@ -10,7 +10,9 @@
 - 서버: `/api/questions`(GET 목록, POST 질문), `/api/questions/:id`(관리자 POST 답변, DELETE). 표 `yebaeon_questions`는 isolate마다 처음 쓸 때 한 번 생성.
 - DB 비용: 입장 때 1회, 창 열 때 1회 조회(작업자 색인 조회 ≤30행, 관리자 ≤60행). 답을 기다리는 질문이 있거나 관리자가 창을 열어 둔 동안만 탭이 보일 때 1분마다 조회. 질문 1건 = 쓰기 1~2행. 기다리는 질문이 없으면 추가 조회 없음.
 - 검증: 서버 검사 95개(질문 3개 추가)·빌드, 브라우저 검사 전체(질문→관리자 답변→배지·답 표시 추가, 기존 모의 API에 질문 응답 추가, 빈 곳 클릭 좌표를 버튼 밖으로 이동). 휴대폰 폭에서는 문서 검색 버튼 위에 배치.
-- 남음: Discord 웹훅 주소를 Worker Secret `DISCORD_WEBHOOK_URL`로 등록(사용자). 등록 전에는 알림 없이 저장만 된다.
+- 봇 답변(2차): 봇 비밀값(`DISCORD_BOT_TOKEN`·`DISCORD_CHANNEL_ID`·`DISCORD_PUBLIC_KEY`, 선택 `DISCORD_ANSWER_USERS`)이 있으면 [답변하기]·[Studio에서 보기] 단추가 달린 봇 메시지로 알리고, `/api/discord/interactions`(Ed25519 서명 확인, 세션 없음)에서 입력 창 → 답 저장 → 같은 메시지에 답 표시. 봇 실패 시 웹훅으로 보냄. 단추 1회 = 질문 1행 읽기, 제출 1회 = 1행 쓰기. Studio에서 단 답은 Discord 메시지에 반영되지 않음.
+- 말풍선 모서리(14px, 꼬리 5px)·관리자 화면의 답 대기 질문을 연한 주황 바탕으로, 버튼 44px·말풍선 아이콘으로 정리.
+- 남음(사용자): Cloudflare Secret 등록 — 웹훅 `DISCORD_WEBHOOK_URL`, 봇을 쓰면 위 봇 값과 Interactions Endpoint URL 설정([cloudflare/README](../cloudflare/README.md) 순서). 등록 전에는 알림 없이 저장만 된다.
 
 ## 10-11 가져오기 작업 초기화
 

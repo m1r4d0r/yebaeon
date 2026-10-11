@@ -1,7 +1,7 @@
-import { HttpError, bodyJSON, json, method, sameOrigin } from './http.mjs';
+import { HttpError, bodyJSON, bytes, json, method, sameOrigin } from './http.mjs';
 import { isAdmin, requireAdmin } from './admin.mjs';
 
-// 질문·답변 창. 작업자가 남긴 질문을 Discord 웹훅(Worker 비밀값 DISCORD_WEBHOOK_URL)으로 알리고, 관리자가 Studio에서 답한다.
+// 질문·답변 창. 작업자가 남긴 질문을 Discord로 알리고, 관리자가 Studio 질문 창이나 Discord 메시지의 [답변하기]로 답한다.
 // 작업자는 같은 작업자 이름으로 남긴 질문만, 관리자는 전체를 본다. 표는 isolate마다 처음 쓸 때 한 번 만든다(스키마 버전과 무관한 추가 표).
 let ready = false;
 const TEXT_MAX = 2000, LIST = 30, ADMIN_LIST = 60, OPEN_MAX = 10;
@@ -24,17 +24,70 @@ function text(value, label) {
 }
 const row = r => ({ id: r.id, author: r.author, body: r.body, createdAt: r.created_at, notified: !!r.notified, answer: r.answer, answeredBy: r.answered_by, answeredAt: r.answered_at });
 
-// Discord가 멘션을 해석하지 않게 하고(allowed_mentions), 5초 안에 응답이 없으면 알림 실패로 둔다. 질문은 알림과 무관하게 저장된다.
+// Discord 알림. 봇(DISCORD_BOT_TOKEN·DISCORD_CHANNEL_ID)이 있으면 [답변하기] 단추가 달린 메시지를 보내고, 없거나 실패하면 웹훅(DISCORD_WEBHOOK_URL)으로 글만 보낸다.
+// 멘션은 해석하지 않게 하고(allowed_mentions), 5초 안에 응답이 없으면 알림 실패로 둔다. 질문은 알림과 무관하게 저장된다.
+const DISCORD_API = 'https://discord.com/api/v10';
+const questionText = q => `**질문** · ${q.author}\n${q.body}`.slice(0, 1700);
+function messageOf(q, origin) {
+  const answered = q.answer ? `\n\n**답변** · ${q.answered_by || ''}\n${q.answer}`.slice(0, 1900 - Math.min(questionText(q).length, 1700)) : '';
+  return {
+    content: questionText(q) + answered, allowed_mentions: { parse: [] },
+    components: [{ type: 1, components: [
+      { type: 2, style: q.answer ? 2 : 1, label: q.answer ? '답변 고치기' : '답변하기', custom_id: `qa:answer:${q.id}` },
+      { type: 2, style: 5, label: 'Studio에서 보기', url: `${origin}/#qa` }
+    ] }]
+  };
+}
 async function notify(env, request, question) {
+  const origin = new URL(request.url).origin, post = (url, body, headers = {}) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) }).then(r => r.ok, () => false);
+  if (typeof env.DISCORD_BOT_TOKEN === 'string' && env.DISCORD_BOT_TOKEN && /^\d{5,30}$/.test(env.DISCORD_CHANNEL_ID || '')
+    && await post(`${DISCORD_API}/channels/${env.DISCORD_CHANNEL_ID}/messages`, messageOf(question, origin), { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` })) return true;
   const url = env.DISCORD_WEBHOOK_URL;
   if (typeof url !== 'string' || !/^https:\/\/(?:\w+\.)?discord(?:app)?\.com\/api\/webhooks\//.test(url)) return false;
-  const link = `${new URL(request.url).origin}/#qa`;
-  const content = `**질문** · ${question.author}\n${question.body}`.slice(0, 1800) + `\n\n답변: ${link}`;
+  return post(url, { username: '예배온 질문', content: `${questionText(question)}\n\n답변: ${origin}/#qa`, allowed_mentions: { parse: [] } });
+}
+
+// Discord 상호작용 끝점(개발자 포털의 Interactions Endpoint URL). 세션 대신 DISCORD_PUBLIC_KEY 서명으로 확인한다.
+// [답변하기] → 답변 입력 창 → 제출하면 답을 저장하고 같은 메시지에 답을 붙인다. DISCORD_ANSWER_USERS(쉼표로 나눈 사용자 ID)가 있으면 그 사람만 답할 수 있다.
+const hexBytes = hex => Uint8Array.from(hex.match(/../g) || [], h => parseInt(h, 16));
+async function signed(request, env, body) {
+  const key = env.DISCORD_PUBLIC_KEY, signature = request.headers.get('X-Signature-Ed25519') || '', timestamp = request.headers.get('X-Signature-Timestamp') || '';
+  if (typeof key !== 'string' || !/^[0-9a-f]{64}$/i.test(key) || !/^[0-9a-f]{128}$/i.test(signature) || !timestamp) return false;
   try {
-    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: '예배온 질문', content, allowed_mentions: { parse: [] } }), signal: AbortSignal.timeout(5000) });
-    return response.ok;
+    const publicKey = await crypto.subtle.importKey('raw', hexBytes(key), { name: 'Ed25519' }, false, ['verify']);
+    return await crypto.subtle.verify({ name: 'Ed25519' }, publicKey, hexBytes(signature), new TextEncoder().encode(timestamp + body));
   } catch (_) { return false; }
 }
+const ephemeral = content => json({ type: 4, data: { content, flags: 64 } });
+export async function discordInteractionsRoute(request, env) {
+  method(request, ['POST']);
+  const raw = new TextDecoder().decode(await bytes(request, 64 * 1024));
+  if (!await signed(request, env, raw)) return new Response('invalid request signature', { status: 401 });
+  const interaction = JSON.parse(raw);
+  if (interaction.type === 1) return json({ type: 1 });
+  await table(env.DB);
+  const person = interaction.member?.user || interaction.user || {}, allowed = (env.DISCORD_ANSWER_USERS || '').split(',').map(v => v.trim()).filter(Boolean);
+  if (allowed.length && !allowed.includes(person.id)) return ephemeral('답변 권한이 없습니다.');
+  const [, kind, id] = /^qa:(answer|modal):([0-9a-f-]{36})$/.exec(interaction.data?.custom_id || '') || [];
+  const question = id && await env.DB.prepare('SELECT * FROM yebaeon_questions WHERE id=?').bind(id).first();
+  if (!question) return ephemeral('질문을 찾지 못했습니다. Studio에서 지워졌을 수 있습니다.');
+  if (interaction.type === 3 && kind === 'answer') {
+    const field = { type: 4, custom_id: 'answer', label: '답변', style: 2, required: true, max_length: TEXT_MAX, placeholder: question.body.replace(/\s+/g, ' ').slice(0, 100) };
+    if (question.answer) field.value = question.answer;
+    return json({ type: 9, data: { custom_id: `qa:modal:${id}`, title: `${question.author}님 질문에 답변`.slice(0, 45), components: [{ type: 1, components: [field] }] } });
+  }
+  if (interaction.type === 5 && kind === 'modal') {
+    const value = interaction.data.components?.flatMap(row => row.components || [])?.find(c => c.custom_id === 'answer')?.value;
+    let answer; try { answer = text(value, '답변'); } catch (error) { return ephemeral(error.message); }
+    const name = authorName(interaction.member?.nick || person.global_name || person.username || 'Discord');
+    const updated = await env.DB.prepare('UPDATE yebaeon_questions SET answer=?,answered_by=?,answered_at=? WHERE id=? RETURNING *').bind(answer, name, new Date().toISOString(), id).first();
+    if (!updated) return ephemeral('질문을 찾지 못했습니다. Studio에서 지워졌을 수 있습니다.');
+    // 단추가 달린 메시지에서 연 입력 창이면 그 메시지를 고쳐 답을 붙인다.
+    return interaction.message ? json({ type: 7, data: messageOf(updated, new URL(request.url).origin) }) : ephemeral('답변을 저장했습니다.');
+  }
+  return ephemeral('지원하지 않는 동작입니다.');
+}
+function authorName(value) { return String(value).normalize('NFC').replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 40) || 'Discord'; }
 
 export async function questionsRoute(request, env, user, id) {
   if (user.device) throw new HttpError(403, 'device_forbidden', '장치 열쇠로는 질문 창을 쓸 수 없습니다.');

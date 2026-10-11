@@ -1,11 +1,12 @@
 /* 오른쪽 아래 질문 창 */
-.qa-toggle{position:fixed;right:16px;bottom:calc(16px + var(--responsive-nav-height,0px));z-index:70;width:40px;height:40px;padding:0;border:1px solid var(--line);border-radius:50%;background:#fff;color:var(--blue);box-shadow:0 4px 14px #1324472e;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.qa-toggle{position:fixed;right:16px;bottom:calc(16px + var(--responsive-nav-height,0px));z-index:70;width:44px;height:44px;padding:0;border:1px solid var(--line);border-radius:50%;background:#fff;color:var(--blue);box-shadow:0 4px 14px #1324472e;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .qa-toggle[hidden],.qa-panel[hidden],.qa-badge[hidden],.qa-form[hidden],.qa-admin[hidden]{display:none}
 .qa-toggle:hover,.qa-toggle.is-open{background:var(--blue);color:#fff;border-color:var(--blue)}
 .qa-toggle:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
-.qa-toggle svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round}
+.qa-toggle svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round}
+.qa-toggle .qa-dot{fill:currentColor;stroke:none}
 .qa-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#d33c2c;color:#fff;font-size:10px;font-weight:700;line-height:16px;text-align:center}
-.qa-panel{position:fixed;right:16px;bottom:calc(64px + var(--responsive-nav-height,0px));z-index:70;width:300px;max-width:calc(100vw - 32px);height:380px;max-height:calc(100dvh - 140px - var(--responsive-nav-height,0px));display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 32px #13244738;font-size:13px;color:var(--ink);overflow:hidden}
+.qa-panel{position:fixed;right:16px;bottom:calc(70px + var(--responsive-nav-height,0px));z-index:70;width:300px;max-width:calc(100vw - 32px);height:380px;max-height:calc(100dvh - 140px - var(--responsive-nav-height,0px));display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 32px #13244738;font-size:13px;color:var(--ink);overflow:hidden}
 .qa-panel.is-admin{width:340px}
 .qa-head{display:flex;align-items:center;gap:6px;padding:8px 8px 8px 12px;border-bottom:1px solid var(--line);flex:none}
 .qa-head strong{font-size:13px}
@@ -16,13 +17,13 @@
 .qa-list{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:12px;background:#f7f8fb}
 .qa-empty{margin:auto 8px;color:var(--muted);text-align:center;line-height:1.5}
 .qa-thread{display:flex;flex-direction:column;gap:4px}
-.qa-msg{max-width:85%;padding:7px 10px;border-radius:10px;line-height:1.45}
+.qa-msg{max-width:85%;padding:8px 12px;border-radius:14px;line-height:1.45}
 .qa-msg p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 .qa-meta{display:block;margin-top:3px;font-size:10px;opacity:.7}
-.qa-question{align-self:flex-end;background:var(--blue);color:#fff;border-bottom-right-radius:3px}
-.qa-answer{align-self:flex-start;background:#fff;border:1px solid var(--line);border-bottom-left-radius:3px}
-.is-admin .qa-question{align-self:flex-start;max-width:100%;background:#fff;color:var(--ink);border:1px solid var(--line)}
-.is-admin .qa-thread.is-open .qa-question{border-color:#e3a33a;box-shadow:inset 3px 0 #e3a33a}
+.qa-question{align-self:flex-end;background:var(--blue);color:#fff;border-bottom-right-radius:5px}
+.qa-answer{align-self:flex-start;background:#fff;border:1px solid var(--line);border-bottom-left-radius:5px}
+.is-admin .qa-question{align-self:stretch;max-width:none;background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:10px}
+.is-admin .qa-thread.is-open .qa-question{background:#fff8eb;border-color:#efc77f}
 .qa-pending{align-self:flex-end;margin:0;color:var(--muted);font-size:11px}
 .qa-note{margin:0;padding:0 10px;color:var(--muted);font-size:11px;flex:none}
 .qa-note:not(:empty){padding:5px 10px}
@@ -35,5 +36,5 @@
 .qa-send:disabled{opacity:.5}
 .qa-remove{padding:6px 8px;border:0;border-radius:7px;background:transparent;color:#b42318;font-size:11px;cursor:pointer}
 /* 휴대폰 폭에서는 같은 자리의 문서 검색 버튼(44px) 위에 둔다. */
-@media(max-width:700px){.qa-toggle{bottom:calc(var(--responsive-nav-height,0px) + 70px)}.qa-panel{bottom:calc(var(--responsive-nav-height,0px) + 118px);max-height:calc(var(--responsive-height,100dvh) - 180px - var(--responsive-nav-height,0px))}}
+@media(max-width:700px){.qa-toggle{bottom:calc(var(--responsive-nav-height,0px) + 70px)}.qa-panel{bottom:calc(var(--responsive-nav-height,0px) + 124px);max-height:calc(var(--responsive-height,100dvh) - 180px - var(--responsive-nav-height,0px))}}
 @media print{.qa-toggle,.qa-panel{display:none}}
