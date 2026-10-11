@@ -14,6 +14,7 @@
 - 말풍선 모서리(14px, 꼬리 5px)·관리자 화면의 답 대기 질문을 연한 주황 바탕으로, 버튼 44px·말풍선 아이콘으로 정리.
 - 질문 환경(3차): Studio가 운영체제(Chrome 고급 정보로 macOS 버전·Windows 10/11)·브라우저·창 크기·열린 문서를 보내고, 서버가 다듬어 `client` 칸에 "Mac · macOS 10.13.6 · Chrome 116 · 창 1280×720 · 문서 …"로 저장(빠지면 User-Agent·Sec-CH-UA-Platform으로 채움). 예전 표에는 처음 쓸 때 칸 추가. Discord 알림 첫 줄·관리자 화면에 표시.
 - 모아보기: 작업자 메뉴 › 관리 [질문·답변]과 설정·관리 창 첫 칸(답 대기 수·[모아 보기]). 답 대기/전체, 60개씩 [더 보기], 카드마다 바로 답하기·고치기·지우기. 열 때·탭 바꿀 때만 조회(최근 60행 + 답 대기 수 집계 1회).
+- 운영 방침(사용자): 당분간 웹훅만 쓴다. 답변은 Studio 질문 창·모아보기에서. 봇·여러 사이트 허브는 BACKLOG 보류.
 - 남음(사용자): Cloudflare Secret 등록 — 웹훅 `DISCORD_WEBHOOK_URL`, 봇을 쓰면 위 봇 값과 Interactions Endpoint URL 설정([cloudflare/README](../cloudflare/README.md) 순서). 등록 전에는 알림 없이 저장만 된다.
 
 ## 10-11 가져오기 작업 초기화
