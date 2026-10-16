@@ -53,10 +53,12 @@
  function summaryText(sum){let text='';const map=[];if(sum)sum.c.lines.forEach((line,li)=>{map.push({li,start:text.length,line});text+=line+'\n';});
   return {text,at(start,value){const seg=[...map].reverse().find(s=>s.start<=start);const before=seg.line.slice(0,start-seg.start).split(' ').length-1;return {key:sum.key,line:seg.li,a:before,b:before+value.split(' ').length-1};}};}
  function groups(note,sum,loose=false){const list=[],{text,at}=summaryText(sum);let g=null,p=null,pos=0;
+  // 빈칸 없는 주보(특별 설교 등): 노트 칸에 빈칸 대지가 하나도 없으면 `1. 문장` 줄을 그대로 대지 문장으로 본다.
+  const plainPoints=!note.c.lines.some(l=>/^\d+\.\s*.*_{2,}/.test(l));
   note.c.lines.forEach((line,li)=>{
    if(QUESTION.test(line)){g={what:item(line,src(note.key,li,line)),points:[]};list.push(g);p=null;return;}
-   const pm=line.match(/^(\d+)\.\s*(.*_{2,}.*)$/);
-   if(pm&&!g&&loose){const prev=li>0?note.c.lines[li-1]:'',plain=prev&&!/^■/.test(prev)&&!/^\d+\./.test(prev);g={what:plain?item(prev,src(note.key,li-1,prev)):item(),points:[]};list.push(g);}
+   const pm=line.match(plainPoints?/^(\d+)\.\s*(\S.*)$/:/^(\d+)\.\s*(.*_{2,}.*)$/);
+   if(pm&&!g&&(loose||plainPoints)){const prev=li>0?note.c.lines[li-1]:'',plain=prev&&!/^■/.test(prev)&&!/^\d+\./.test(prev);g={what:plain?item(prev,src(note.key,li-1,prev)):item(),points:[]};list.push(g);}
    if(pm&&g){const template=pm[2],r=blanks(template,text,pos,g.points.length);pos=r.pos;p={template:item(template,src(note.key,li,line,template)),blanks:r.fills.map(f=>f?item(f.text,at(f.start,f.text)):item()),quotes:[]};g.points.push(p);return;}
    const qm=line.match(/^([가-힣]{1,4}\s?\d+:[\d,\-~]+)\s/);
    if(qm&&p)p.quotes.push(item(qm[1],src(note.key,li,line,qm[1])));
@@ -119,7 +121,8 @@
   if(titleLine){const body=titleLine.line.replace(/^■\s*/,''),r=series(body);S.series=item(r.series,r.series?src(titleLine.x.key,titleLine.li,titleLine.line,r.series):null);S.title=item(r.title,src(titleLine.x.key,titleLine.li,titleLine.line,r.title));}
   if(refLine){const v=refLine.line.replace(/^■\s*/,'');S.ref=item(v,src(refLine.x.key,refLine.li,refLine.line,v));}
   const sum=all.find(x=>x.c.lines.some(s=>/(^|\s)첫째,/.test(s)));if(sum)out.summary=sum.key;
-  const note=all.find(x=>x.c.lines.some(s=>QUESTION.test(s)));
+  // 설교 노트 칸: 질문 줄(What? 등)이 있는 칸, 없으면 제목(■)이 있고 `1.` `2.` 대지 줄이 둘 이상인 칸.
+  const note=all.find(x=>x.c.lines.some(s=>QUESTION.test(s)))||(titleLine&&titleLine.x.c.lines.filter(s=>/^\d+\.\s*\S/.test(s)).length>=2?titleLine.x:null);
   if(note)S.groups=groups(note,sum);
   return out;
  }
