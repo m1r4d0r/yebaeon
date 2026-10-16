@@ -26,8 +26,8 @@
  tabs.querySelectorAll('small').forEach(el=>el.remove());tabs.querySelectorAll('button').forEach(el=>{el.textContent=el.textContent.trim();});
  const tools=make('div','responsive-editor-tools','<span id="responsiveSelection"></span>');
  const quick=button('responsiveQuick','','글 고치기 (Enter)'),multi=button('responsiveMultiple','☑','여러 장 고르기'),propertiesButton=button('responsiveProperties','속성','레이어·속성'),more=button('responsiveMore','⋯','고른 장 메뉴');multi.setAttribute('aria-pressed','false');multi.innerHTML=svg('<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 3 3 5-6"/>')+'<span class="multiple-label">여러 장 선택</span>';quick.innerHTML='<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M5 5h14M12 5v14"/><path d="M9 19h6"/></svg>';propertiesButton.setAttribute('aria-expanded','false');
- $('resourceOpen').textContent='성경';$('mediaOpen').textContent='미디어';$('add').textContent='＋';$('add').setAttribute('aria-label','새 슬라이드 추가');$('add').title='선택한 장 뒤에 새 슬라이드 추가';
- $('templateOpen').textContent='템플릿';tools.append($('resourceOpen'),$('mediaOpen'),$('templateOpen'),quick,$('add'),propertiesButton,more);toolbar.append(tabs,viewSelect,multi,tools);$('editorBody').before(toolbar);
+ $('resourceOpen').textContent='성경';$('mediaOpen').textContent='미디어';$('imageAdd').innerHTML='이미지<span class="image-add-more"> 추가</span>';$('imageAdd').setAttribute('aria-label','이미지 추가');$('add').textContent='＋';$('add').setAttribute('aria-label','새 슬라이드 추가');$('add').title='선택한 장 뒤에 새 슬라이드 추가';
+ $('templateOpen').textContent='템플릿';tools.append($('resourceOpen'),$('mediaOpen'),$('imageAdd'),$('templateOpen'),quick,$('add'),propertiesButton,more);toolbar.append(tabs,viewSelect,multi,tools);$('editorBody').before(toolbar);
  const documentDialog=dialog('studioDocumentDialog','문서 정보·보기');documentDialog.append(document.querySelector('.document-heading'));
  const info=button('responsiveDocumentInfo','문서 정보');info.hidden=true;top.append(info);info.onclick=()=>documentDialog.showModal();
  const closeProperties=button('responsivePropertiesClose','×','속성 닫기');closeProperties.className='responsive-only';closeProperties.onclick=()=>properties(false);$('inspector').prepend(closeProperties);
@@ -79,7 +79,7 @@
   $('documentNew').disabled=!current?.editable||L.state().busy||L.state().blocked||!!window.YebaeonSave?.busy();
   viewSelect.value=E.view();const chosen=E.selection.values().length,total=$('slideCount').textContent.replace(/장.*/,'');$('responsiveSelection').textContent=E.ready()?(chosen>1?chosen+'장 선택':chosen||E.view()==='editor'?(E.selected()+1)+' / '+total:total+'장'):'';
   for(const b of[quick,multi,more,propertiesButton])b.disabled=!E.ready();propertiesButton.hidden=E.view()!=='editor'||!compact();multi.hidden=E.view()==='editor';
-  $('resourceOpen').hidden=E.view()!=='slides';$('mediaOpen').hidden=E.view()!=='slides';if(E.view()!=='editor')properties(false);window.YebaeonSave?.update();remember();
+  $('resourceOpen').hidden=E.view()!=='slides';$('mediaOpen').hidden=E.view()!=='slides';$('imageAdd').hidden=E.view()!=='slides';if(E.view()!=='editor')properties(false);window.YebaeonSave?.update();remember();
  }
  function viewport(){const v=window.visualViewport;document.body.classList.toggle('responsive-keyboard',!!v&&innerHeight-v.height>150);document.documentElement.style.setProperty('--responsive-height',(v?.height||innerHeight)+'px');document.documentElement.style.setProperty('--keyboard-offset',Math.max(0,innerHeight-(v?.height||innerHeight)-(v?.offsetTop||0))+'px');}
  function layout(){window.YebaeonStudioDrag?.cancel();closeSearch(false);properties(false);

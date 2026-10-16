@@ -47,3 +47,6 @@ body{overflow:hidden}button{touch-action:manipulation}button:focus-visible,selec
 }
 
 @media(pointer:coarse),(max-width:700px){.media-star{width:30px;min-width:30px;height:30px;min-height:30px;max-height:30px;display:grid;place-items:center;padding:0;font-size:17px;line-height:1}}
+@media(max-width:700px){.image-add-more{display:none}}
+.image-add-list{display:flex;flex-direction:column;gap:2px;margin:12px 0;max-height:min(420px,50dvh);overflow:auto}.image-add-row{display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid #edf0f5}.image-add-text{flex:1;min-width:0;white-space:pre-line;overflow-wrap:anywhere}.image-add-row select{flex:none;max-width:48%;padding:5px}.image-add-row.skipped{color:var(--muted);opacity:.65}.image-add-row.bad{color:#a34c25}.image-add-dialog{width:min(620px,94vw)}
+@media(max-width:700px){.image-add-row{flex-wrap:wrap;gap:6px}.image-add-row select{max-width:none;width:100%}}

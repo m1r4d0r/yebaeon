@@ -2,7 +2,17 @@
 
 이 파일은 세션마다 **덮어써서** 갱신한다. 새 인계 파일을 만들지 않는다. 끝난 일은 [CHANGELOG](CHANGELOG.md), 남은 일은 [BACKLOG](BACKLOG.md)에 둔다.
 
-갱신: 2026-10-11 · 검색 자료 점검 관리자 전용.
+갱신: 2026-10-16 · 문서 편집 [이미지 추가] (작업 브랜치, 레이아웃 승인·배포 대기).
+
+## 10-16 문서 편집 [이미지 추가] — 작업 브랜치 `claude/vibrant-wozniak-unxmxw`, main 병합·배포 전
+
+- 목적: 악보찬양 829곡의 배경 합쳐진 악보 그림(ImportedImages의 SlideN.jpg)을 PC에서 만든 투명 PNG(`SlideN-alpha.png`)로 바꾸고, 그림으로 내용 장을 직접 넣는다. 시범은 「아주 먼 옛날 하늘에서는」 5장.
+- 사용자 결정(10-16): 미디어(배경)와 별개 버튼 [이미지 추가]. 이름 짝이 맞으면 그 장 앞 그림 바꾸기, 나머지는 새 장. 새 장·대체 경로는 `ImportedImages/<문서이름>/`(미디어 서랍에 안 보임). 배포 전에 PC·휴대폰 버튼 위치를 아티팩트로 승인받는다.
+- Studio: `web-editor/image-add.js`(고르기·짝짓기·확인 창·올리기), `app.js` `placeImages`(한 번 실행취소), `resources.js` `prime`(올린 그림을 다시 묻지 않고 그림). 버튼 `#imageAdd`는 PC에서 `이미지 추가`, 700px 이하 `이미지`.
+- 서버: `POST /api/media/paths`에 `{document, items:[{sha256,name,beside}]}` 방식(`ledger.mjs` `placeImagePaths`). 규칙은 [media.md](design/media.md) Studio 미디어 창.
+- D1: 창 열기·대기 0회. 적용 1회 = 존재 조회 1 + 없는 그림만 PUT + 경로 정하기 1(이름별 경로 범위 읽기, 새 경로마다 경로표·일지 각 1행). 문서 저장은 평소와 같음.
+- 검증(로컬): 서버 검사 98개(경로 정하기 1개 추가: 원래 그림 옆·NFD/file URL 키·같은 sha 재사용·다른 sha -2/-3·허용 폴더 밖·새 장 대체 폴더·서랍 목록 제외·잘못된 요청·4개 동시 경합), `deploy:check`, 브라우저 검사 전체(media-lyrics에 흐름 추가: 이름 짝짓기·NFD 파일 이름·확인 창·창 열 때 요청 0·요청 순서·실행취소 한 번·저장 뒤 source·format·배경 유지).
+- 남은 것: 레이아웃 승인 → main 병합·운영 배포 → 시범 곡 교체와 교회 Mac 확인(BACKLOG).
 
 ## 10-11 검색 자료 점검 관리자 전용
 

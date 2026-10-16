@@ -21,9 +21,8 @@ export function importStem(name) {
 const IMPORT_FOLDER = MEDIA_ROOT + 'YebaeOn/';
 // POST: Studio 가져오기의 이미지마다 `YebaeOn/<문서이름>-<n>.png` 경로를 정해 경로표에 넣는다(sync.md 5.4).
 // 같은 sha가 이미 `YebaeOn/`에 있으면 그 경로를 그대로 쓴다. 번호는 같은 이름의 가장 큰 번호 다음부터다. 기존 경로는 바꾸지 않는다.
-async function allocateImportPaths(request, db, user) {
-  sameOrigin(request);
-  const body = await bodyJSON(request, 64 * 1024), hashes = Array.isArray(body?.items) ? [...new Set(body.items.map(i => i?.sha256))] : [];
+async function allocateImportPaths(body, db, user) {
+  const hashes = Array.isArray(body?.items) ? [...new Set(body.items.map(i => i?.sha256))] : [];
   if (!hashes.length || hashes.length > 200 || hashes.some(h => !SHA.test(h || ''))) throw new HttpError(400, 'invalid_media_paths', '이미지 sha256은 200개씩 보내 주세요.');
   // ext: 올린 원본의 확장자(그림 추가는 원본을 그대로 올린다). 없으면 png(PPT·PDF 가져오기).
   const ext = body.ext === undefined ? 'png' : String(body.ext).toLowerCase().replace(/^jpeg$/, 'jpg');
@@ -52,9 +51,66 @@ async function allocateImportPaths(request, db, user) {
   }
   return json({ paths: hashes.map(sha256 => ({ sha256, path: found.get(sha256), size: sizes.get(sha256) })) });
 }
+// POST {document, items:[{sha256, name, beside}]}: 문서 편집의 [이미지 추가]가 올린 그림의 경로를 정한다.
+// 원래 그림(beside)이 ImportedImages 안이면 그 폴더에, 아니면(빈 경로·다른 폴더·새 장) `ImportedImages/<문서이름>/`에 올린 파일 이름 그대로 둔다.
+// ImportedImages는 미디어 서랍 목록에 나오지 않는다. 그 경로가 같은 sha로 있으면 재사용하고, 다른 내용이 있으면 덮지 않고 `<이름>-2.<ext>`, `-3`… 다음 빈 번호를 쓴다.
+const IMPORTED_FOLDER = MEDIA_ROOT + 'ImportedImages/';
+const PLACE_EXT = /^(.*)\.(png|jpe?g|webp|gif|bmp)$/i;
+function placeName(value) {
+  const m = PLACE_EXT.exec(String(value || '').normalize('NFC').trim());
+  if (!m) return null;
+  const stem = [...m[1].replace(/[\x00-\x1f\x7f/\\:]/g, '-').replace(/\s+/g, ' ').trim()].slice(0, 80).join('').trim().replace(/^\.+/, '');
+  return { stem: stem || 'image', ext: m[2].toLowerCase().replace(/^jpeg$/, 'jpg') };
+}
+async function placeImagePaths(body, db, user) {
+  const list = Array.isArray(body.items) ? body.items : [];
+  if (!list.length || list.length > 50 || list.some(i => !SHA.test(i?.sha256 || ''))) throw new HttpError(400, 'invalid_media_paths', '그림은 50개씩 보내 주세요.');
+  const own = IMPORTED_FOLDER + importStem(body.document) + '/';
+  const items = list.map(i => {
+    const name = placeName(i.name);
+    if (!name) throw new HttpError(400, 'invalid_media_paths', 'PNG·JPG·WebP·GIF·BMP 그림 이름을 확인해 주세요.');
+    const beside = i.beside ? mediaPathKey(i.beside) : null;
+    const folder = beside?.startsWith(IMPORTED_FOLDER) ? beside.slice(0, beside.lastIndexOf('/') + 1) : own;
+    return { sha256: i.sha256, base: folder + name.stem, ext: name.ext };
+  });
+  const hashes = [...new Set(items.map(i => i.sha256))];
+  const sizes = new Map((await db.prepare('SELECT sha256,size FROM yebaeon_media_assets WHERE sha256 IN (SELECT value FROM json_each(?))').bind(JSON.stringify(hashes)).all()).results.map(r => [r.sha256, r.size]));
+  if (sizes.size !== hashes.length) throw new HttpError(409, 'import_image_missing', '이미지 업로드가 완료되지 않았습니다. 다시 시도해 주세요.');
+  const bases = [...new Set(items.map(i => i.base))];
+  // 같은 이름을 동시에 정하면 번호가 겹칠 수 있다. 그때는 덮지 않고 경로표를 다시 읽어 정한다(먼저 들어간 것은 같은 sha면 재사용된다).
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const rows = await db.batch(bases.map(base => db.prepare('SELECT path,sha256,state FROM yebaeon_media_paths WHERE path>=? AND path<?').bind(base, base + '\uffff')));
+    const existing = new Map(rows.flatMap(r => r.results).map(r => [r.path, r]));
+    const taken = new Map(), fresh = [];
+    const paths = items.map(item => {
+      for (let n = 1; n < 1000; n++) {
+        const path = item.base + (n > 1 ? '-' + n : '') + '.' + item.ext, row = existing.get(path), mine = taken.get(path);
+        if (mine) { if (mine === item.sha256) return path; continue; }
+        if (row) { if (row.sha256 === item.sha256 && row.state === 'active') { taken.set(path, item.sha256); return path; } continue; }
+        taken.set(path, item.sha256); fresh.push({ path, sha256: item.sha256, size: sizes.get(item.sha256) }); return path;
+      }
+      throw new HttpError(409, 'media_path_full', '같은 이름의 그림이 너무 많습니다. 파일 이름을 바꿔 주세요.');
+    });
+    if (fresh.length) {
+      const now = new Date().toISOString(), input = JSON.stringify(fresh);
+      const newOnly = `FROM (SELECT json_extract(j.value,'$.path') AS path, json_extract(j.value,'$.sha256') AS sha256, json_extract(j.value,'$.size') AS size FROM json_each(?) j) i WHERE NOT EXISTS (SELECT 1 FROM yebaeon_media_paths m WHERE m.path=i.path)`;
+      const [, written] = await db.batch([
+        db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) SELECT 'media',i.path,'created',i.sha256,i.size,i.path,?,? ${newOnly}`).bind(user.author, now, input),
+        db.prepare(`INSERT INTO yebaeon_media_paths(path,sha256,size,state,updated_at,updated_by) SELECT i.path,i.sha256,i.size,'active',?,? ${newOnly}`).bind(now, user.author, input)
+      ]);
+      if ((written.meta.changes || 0) !== fresh.length) continue;
+    }
+    return json({ paths: items.map((item, i) => ({ sha256: item.sha256, path: paths[i], size: sizes.get(item.sha256), created: fresh.some(f => f.path === paths[i]) })) });
+  }
+  throw new HttpError(409, 'media_path_busy', '이미지 이름을 정하는 중 겹쳤습니다. 다시 시도해 주세요.');
+}
 export async function mediaPathsRoute(request, env, user) {
   method(request, ['GET', 'PUT', 'POST']);
-  if (request.method === 'POST') return allocateImportPaths(request, env.DB, user);
+  if (request.method === 'POST') {
+    sameOrigin(request);
+    const body = await bodyJSON(request, 64 * 1024);
+    return typeof body?.document === 'string' ? placeImagePaths(body, env.DB, user) : allocateImportPaths(body, env.DB, user);
+  }
   const db = env.DB;
   if (request.method === 'GET') {
     // ?path= (여러 번, 최대 50): Studio가 문서의 이미지 경로로 sha를 찾는다. 경로마다 1행.

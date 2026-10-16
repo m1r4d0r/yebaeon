@@ -70,3 +70,47 @@ test('media library: folder listing without ImportedImages, cacheable bytes, sha
 
 
 });
+test('image add: path beside the original in ImportedImages, same sha reused, other sha numbered, fallback, race',{timeout:90000},async t=>{
+  const bundled=await build({entryPoints:['cloudflare/worker.mjs'],bundle:true,write:false,format:'esm',platform:'browser'});
+  const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:bundled.outputFiles[0].text,compatibilityDate:'2026-09-28',bindings:{SITE_PASSWORD:'place-test'},d1Databases:['DB'],r2Buckets:['FILES'],cf:false}));
+  t.after(()=>mf.dispose());
+  const origin='https://example.test';let cookie='';
+  const call=(path,method='GET',body,extra={})=>mf.dispatchFetch(origin+'/api'+path,{method,body,headers:{Cookie:cookie,...method==='GET'?{}:{Origin:origin,'Content-Type':'application/json'},...extra}});
+  const ok=async(response,status=200)=>{assert.equal(response.status,status,await response.clone().text());return response.json();};
+  const login=await call('/session','POST',JSON.stringify({name:'시험',password:'place-test'}));await ok(login);cookie=login.headers.get('Set-Cookie').split(';')[0];
+  const images=Array.from({length:6},(_,i)=>Buffer.concat([png,Buffer.from([i])]));
+  for(const bytes of images)await ok(await call('/media/'+hash(bytes)+'/content','PUT',bytes,{'Content-Type':'image/png','X-Yebaeon-SHA256':hash(bytes)}),201);
+  const [a,b,c,d,e,f]=images.map(hash);
+  const folder=ROOT+'ImportedImages/아주 먼 옛날/';
+  await ok(await call('/media/paths','PUT',JSON.stringify({items:[{path:folder+'Slide1.jpg',sha256:a,size:images[0].length}]})));
+  const db=await mf.getD1Database('DB'),log=async()=>(await db.prepare("SELECT COUNT(*) AS n FROM yebaeon_sync_log WHERE kind='media'").first()).n;
+  const before=await log();
+  const place=(items,document='아주 먼 옛날 하늘에서는.pro6')=>call('/media/paths','POST',JSON.stringify({document,items}));
+  // 원래 그림 옆(file URL·NFD도 같은 경로 키). 새 경로마다 경로표·일지 1행.
+  const beside='file://'+encodeURI((folder+'Slide1.jpg').normalize('NFD'));
+  let r=await ok(await place([{sha256:b,name:'Slide1-alpha.png',beside}]));
+  assert.deepEqual(r.paths.map(p=>[p.path,p.created]),[[folder+'Slide1-alpha.png',true]]);
+  assert.equal(await log(),before+1);
+  // 같은 sha는 그 경로를 다시 쓰고 아무것도 쓰지 않는다.
+  r=await ok(await place([{sha256:b,name:'Slide1-alpha.png',beside}]));
+  assert.deepEqual(r.paths.map(p=>[p.path,p.created]),[[folder+'Slide1-alpha.png',false]]);assert.equal(await log(),before+1);
+  // 다른 sha는 덮지 않고 -2, 같은 요청 안에서 이름이 겹치면 -3.
+  r=await ok(await place([{sha256:c,name:'Slide1-alpha.png',beside},{sha256:d,name:'Slide1-alpha.PNG',beside}]));
+  assert.deepEqual(r.paths.map(p=>p.path),[folder+'Slide1-alpha-2.png',folder+'Slide1-alpha-3.png']);
+  assert.equal((await db.prepare('SELECT sha256 FROM yebaeon_media_paths WHERE path=?').bind(folder+'Slide1-alpha.png').first()).sha256,b,'the first path is not overwritten');
+  // 원래 그림이 ImportedImages 밖이거나 비었으면(새 장) ImportedImages/<문서이름>/<파일 이름>.
+  const own=ROOT+'ImportedImages/아주 먼 옛날 하늘에서는/';
+  r=await ok(await place([{sha256:e,name:'악보.png',beside:ROOT+'YebaeOn/설교-1.png'},{sha256:e,name:'악보.png'},{sha256:f,name:'a/b:c.jpeg',beside:'/Users/x/Desktop/a.png'}]));
+  assert.deepEqual(r.paths.map(p=>p.path),[own+'악보.png',own+'악보.png',own+'a-b-c.jpg']);
+  assert.equal((await call('/media/paths?folder=All&sort=updated')).status,200);
+  assert.deepEqual((await ok(await call('/media/paths?folder=All&sort=updated'))).paths,[],'image add paths stay out of the media drawer');
+  // 잘못된 요청: 확장자, 서버에 없는 그림.
+  assert.equal((await place([{sha256:a,name:'x.exe'}])).status,400);
+  assert.equal((await place([{sha256:'0'.repeat(64),name:'x.png'}])).status,409);
+  // 경합: 같은 이름·다른 내용을 동시에 정해도 서로 덮지 않고 모두 다른 경로를 받는다.
+  const race=Array.from({length:4},(_,i)=>Buffer.concat([png,Buffer.from([9,i])]));
+  for(const bytes of race)await ok(await call('/media/'+hash(bytes)+'/content','PUT',bytes,{'Content-Type':'image/png','X-Yebaeon-SHA256':hash(bytes)}),201);
+  const results=await Promise.all(race.map(bytes=>place([{sha256:hash(bytes),name:'겹침.png'}]).then(x=>ok(x))));
+  const paths=results.map(x=>x.paths[0].path);assert.equal(new Set(paths).size,4,paths.join());
+  for(const [i,path] of paths.entries())assert.equal((await db.prepare('SELECT sha256 FROM yebaeon_media_paths WHERE path=?').bind(path).first()).sha256,hash(race[i]));
+});
