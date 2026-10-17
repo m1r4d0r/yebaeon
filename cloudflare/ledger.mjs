@@ -78,7 +78,7 @@ async function placeImagePaths(body, db, user) {
   if (sizes.size !== hashes.length) throw new HttpError(409, 'import_image_missing', '이미지 업로드가 완료되지 않았습니다. 다시 시도해 주세요.');
   const bases = [...new Set(items.map(i => i.base))];
   // 같은 이름을 동시에 정하면 번호가 겹칠 수 있다. 그때는 덮지 않고 경로표를 다시 읽어 정한다(먼저 들어간 것은 같은 sha면 재사용된다).
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 5; attempt++) {
     const rows = await db.batch(bases.map(base => db.prepare('SELECT path,sha256,state FROM yebaeon_media_paths WHERE path>=? AND path<?').bind(base, base + '\uffff')));
     const existing = new Map(rows.flatMap(r => r.results).map(r => [r.path, r]));
     const taken = new Map(), fresh = [];

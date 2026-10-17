@@ -110,7 +110,9 @@ test('image add: path beside the original in ImportedImages, same sha reused, ot
   // 경합: 같은 이름·다른 내용을 동시에 정해도 서로 덮지 않고 모두 다른 경로를 받는다.
   const race=Array.from({length:4},(_,i)=>Buffer.concat([png,Buffer.from([9,i])]));
   for(const bytes of race)await ok(await call('/media/'+hash(bytes)+'/content','PUT',bytes,{'Content-Type':'image/png','X-Yebaeon-SHA256':hash(bytes)}),201);
-  const results=await Promise.all(race.map(bytes=>place([{sha256:hash(bytes),name:'겹침.png'}]).then(x=>ok(x))));
+  // Studio처럼 409 media_path_busy면 한 번 더 보낸다.
+  const placeRetry=async items=>{let r=await place(items);if(r.status===409&&(await r.clone().json()).error==='media_path_busy')r=await place(items);return ok(r);};
+  const results=await Promise.all(race.map(bytes=>placeRetry([{sha256:hash(bytes),name:'겹침.png'}])));
   const paths=results.map(x=>x.paths[0].path);assert.equal(new Set(paths).size,4,paths.join());
   for(const [i,path] of paths.entries())assert.equal((await db.prepare('SELECT sha256 FROM yebaeon_media_paths WHERE path=?').bind(path).first()).sha256,hash(race[i]));
 });
