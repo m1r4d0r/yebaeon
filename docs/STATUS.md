@@ -2,7 +2,14 @@
 
 이 파일은 세션마다 **덮어써서** 갱신한다. 새 인계 파일을 만들지 않는다. 끝난 일은 [CHANGELOG](CHANGELOG.md), 남은 일은 [BACKLOG](BACKLOG.md)에 둔다.
 
-갱신: 2026-10-16 · 주보 빈칸 없는 대지 인식, 하단 서랍 시안.
+갱신: 2026-10-17 · PPT 장 그림 ImportedImages 경로·256색 PNG.
+
+## 10-17 PPT 가져오기: ImportedImages 경로·256색 PNG
+
+- 확인: 악보 PNG는 이미 전경(`displayElements`)에 들어가고 있었다(배경 cue는 선택 배경만). 바꾼 것은 경로와 용량.
+- 경로: 장 그림을 `YebaeOn/<문서이름>-<n>.png` → `ImportedImages/<문서이름>/Slide<원본 장 번호>.png`(서버 `POST /api/media/paths` document 방식, 같은 그림 재사용·다른 그림 -2…). 새 문서·기존 문서 교체 모두. 나눈 배경은 미디어용 YebaeOn 그대로. 이미 저장된 문서의 경로는 바꾸지 않음.
+- 256색: `web-editor/png-palette.mjs`(median cut, tRNS, fflate 압축)를 PPT 변환기에 넣음. 나눈 악보는 늘, 통 이미지는 256색 이하일 때만 무손실. 첫 구현에서 불투명 점이 반투명 칸에 묶여 알파 254가 되는 문제를 PPT 브라우저 검사가 잡음 → 불투명·반투명을 따로 줄이도록 고침. 합성 악보 160KB → 40KB.
+- 검증: 서버 검사(팔레트 PNG 2개 추가: 무손실 왕복·손실 오차·불투명 유지), PPT 브라우저 검사(경로·색 형식 3 확인 추가). 남음: 교회 PP6 표시 확인.
 
 ## 10-16 주보: 빈칸 없는 설교 대지
 

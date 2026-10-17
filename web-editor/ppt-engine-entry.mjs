@@ -1,6 +1,7 @@
 import {parseZip,buildPresentation,renderSlide} from '@aiden0z/pptx-renderer';
 import {toCanvas} from 'html-to-image';
 import {legacy} from './ppt-legacy.mjs';
+import {encodePalettePNG} from './png-palette.mjs';
 const MAX=40*1024*1024;
 const makeCanvas=(w,h)=>{const c=document.createElement('canvas');c.width=w;c.height=h;return c;};
 const blob=c=>new Promise((resolve,reject)=>c.toBlob(b=>b?resolve(b):reject(Error('이미지 변환 실패')),'image/png'));
@@ -99,5 +100,10 @@ export async function render(deck,i,{mode='full',removeWhite=false,crop=0.167,bo
  if(bottomCrop)fg.getContext('2d').clearRect(0,Math.floor(h*(1-bottomCrop)),w,h);
  let bg;if(background==='original')bg=await full(deck,i,true);else if(background!=='none'){bg=makeCanvas(w,h);const ctx=bg.getContext('2d');ctx.fillStyle=backgroundColor;ctx.fillRect(0,0,w,h);if(background==='image'&&backgroundImage){const img=await image(backgroundImage),scale=Math.max(w/img.width,h/img.height);ctx.drawImage(img,(w-img.width*scale)/2,(h-img.height*scale)/2,img.width*scale,img.height*scale);}}
  return {foreground:await blob(fg),background:bg?await blob(bg):null,warnings:[...s.warnings,...(removeWhite?['흰 바탕을 투명하게 처리했습니다. 흰 글자·테두리도 투명해지므로 배경을 넣어 확인하세요.']:!p.transparent?['선택한 악보 그림은 불투명합니다. 합쳐진 배경은 분리되지 않습니다.']:[])]};
+}
+// 256색 팔레트 PNG로 다시 저장한다. lossless면 256색 이하일 때만 바꾼다. 더 커지면 원래 그림을 그대로 둔다.
+export async function palette(source,{lossless=false}={}){
+ const bitmap=await createImageBitmap(source);let data,w,h;try{w=bitmap.width;h=bitmap.height;const c=makeCanvas(w,h),ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(bitmap,0,0);data=ctx.getImageData(0,0,w,h).data;}finally{bitmap.close();}
+ const r=encodePalettePNG(data,w,h,{lossless});if(!r||r.bytes.length>=source.size)return source;return new Blob([r.bytes],{type:'image/png'});
 }
 export {blob,makeCanvas};

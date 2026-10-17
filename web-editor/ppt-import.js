@@ -127,6 +127,8 @@
     else if(score&&separable(s)){const r=await lib.render(source.data,s.index,{mode:'score',removeWhite:choice('pptConversion')==='white',crop,bottomCrop,keepTitle:n===0||crop===0,background:'original'});o={image:r.foreground,margin:false,separated:true,warnings:r.warnings};if(replace){const fitted=await fit(r.foreground,size.width,size.height,ppt,true);o={...o,...fitted};}
      if(r.background&&!await plain(r.background)){const sha256=await hash(r.background);if(!found.has(sha256)){found.set(sha256,{sha256,blob:r.background});total+=r.background.size;}}}
     else{const r=await lib.render(source.data,s.index,{mode:'full'});o={...await fit(r.foreground,size.width,size.height,ppt),separated:false,warnings:r.warnings};}
+    // PPT 장 그림은 256색 팔레트 PNG로 줄인다. 나눈 악보는 늘, 통 이미지는 256색 이하일 때만(무손실).
+    if(ppt)o.image=await ppt.palette(o.image,{lossless:!o.separated});
     if(epoch!==renderEpoch)return;total+=o.image.size;if(total>IMAGE_MAX)throw Error('변환 이미지가 180MB를 넘습니다. 장을 나누어 가져와 주세요.');
     o.index=s.index;o.url=URL.createObjectURL(o.image);urls.push(o.url);made.push(o);
     const card=$('pptSlides').querySelector(`[data-index="${s.index}"]`);card.querySelector('.ppt-thumb').replaceChildren(composite(o));card.querySelector('.ppt-card-badge').textContent=score?(o.separated?(choice('pptConversion')==='white'?' · 흰 바탕 제거':' · 악보 분리'):' · 통 이미지'):o.margin?' · 여백':'';await new Promise(r=>setTimeout(r,0));}
@@ -137,13 +139,16 @@
  function documentName(value){const name=value.trim().normalize('NFC').replace(/\.pro6$/i,'');if(!name||/[\\/\x00-\x1f\x7f]/.test(name)||name.length>145)throw Error('문서 이름을 확인해 주세요. 폴더 구분 문자는 사용할 수 없습니다.');return name;}
  const slideXML=(o,src,label)=>P.slideXML({label:String(label),drawingBackgroundColor:!o.separated,backgroundColor:o.separated?'1 1 1 1':'0 0 0 1',background:o.separated&&background.get()?P.backgroundCueXML({source:background.get().source,name:background.get().name}):'',elements:imageElement(src,size.width,size.height)});
  async function prepare(){const name=documentName($('pptName').value),category=$('pptCategory').value;if(!category)throw Error('카테고리를 골라 주세요.');const assets=new Map();let slides='';
-  for(const o of outputs){const sha256=await hash(o.image);assets.set(sha256,{sha256,blob:o.image});slides+=slideXML(o,'file:///YebaeOn-Media/'+sha256+'.png',o.index+1);}
+  const names={};for(const o of outputs){const sha256=await hash(o.image);assets.set(sha256,{sha256,blob:o.image});names[sha256]??=slideName(o);slides+=slideXML(o,'file:///YebaeOn-Media/'+sha256+'.png',o.index+1);}
   const xml=P.documentXML({width:size.width,height:size.height,category,groups:[{name:'기본',slides}]});
-  return {path:name+'.pro6',xml,assets:[...assets.values()],backgrounds:[...backdrops.values()],owner:C.worker(),appendTarget:$('pptAppend').checked?L.selectedPlaylist()?.key:null};}
- // 서버가 정한 교회 Mac 경로(`/Users/Shared/Renewed Vision Media/YebaeOn/<문서이름>-<n>.png`)를 받아 준비 표시 `file:///YebaeOn-Media/<sha>.png`를 바꾼다.
+  return {path:name+'.pro6',xml,names,assets:[...assets.values()],backgrounds:[...backdrops.values()],owner:C.worker(),appendTarget:$('pptAppend').checked?L.selectedPlaylist()?.key:null};}
+ // 장 그림의 교회 Mac 경로는 서버가 `ImportedImages/<문서이름>/Slide<원본 장 번호>.png`로 정한다(같은 그림은 재사용, 다른 그림이면 -2…). 미디어 서랍에는 나오지 않는다.
+ // 준비 표시 `file:///YebaeOn-Media/<sha>.png`를 받은 경로로 바꾼다. 나눈 배경 그림만 미디어용 `YebaeOn/<이름>-<n>.png`(mediaPaths)이다.
+ const slideName=o=>'Slide'+(o.index+1)+'.png';
  const fileURL=path=>'file://'+path.split('/').map(p=>encodeURIComponent(p).replace(/'/g,'%27')).join('/');
- async function macPaths(hashes,name){const found=new Map();for(let i=0;i<hashes.length;i+=200){const body=JSON.stringify({name,items:hashes.slice(i,i+200).map(sha256=>({sha256}))});let result;for(let attempt=0;;attempt++){try{result=await(await C.api('/media/paths',{method:'POST',headers:{'Content-Type':'application/json'},body})).json();break;}catch(e){if(e.code!=='media_path_busy'||attempt>=2)throw e;}}for(const p of result.paths)found.set(p.sha256,fileURL(p.path));}return found;}
- async function placeMedia(xml,name){const pattern=/file:\/\/\/YebaeOn-Media\/([a-f0-9]{64})\.png/g,hashes=[...new Set([...xml.matchAll(pattern)].map(m=>m[1]))];if(!hashes.length)return xml;message('교회 Mac 이미지 경로를 정하고 있습니다…');const found=await macPaths(hashes,name);return xml.replace(pattern,(m,sha)=>found.get(sha));}
+ async function mediaPaths(hashes,name){const found=new Map();for(let i=0;i<hashes.length;i+=200){const body=JSON.stringify({name,items:hashes.slice(i,i+200).map(sha256=>({sha256}))});let result;for(let attempt=0;;attempt++){try{result=await(await C.api('/media/paths',{method:'POST',headers:{'Content-Type':'application/json'},body})).json();break;}catch(e){if(e.code!=='media_path_busy'||attempt>=2)throw e;}}for(const p of result.paths)found.set(p.sha256,fileURL(p.path));}return found;}
+ async function slidePaths(names,document){const found=new Map(),items=Object.entries(names).map(([sha256,name])=>({sha256,name}));for(let i=0;i<items.length;i+=50){const body=JSON.stringify({document,items:items.slice(i,i+50)});let result;for(let attempt=0;;attempt++){try{result=await(await C.api('/media/paths',{method:'POST',headers:{'Content-Type':'application/json'},body})).json();break;}catch(e){if(e.code!=='media_path_busy'||attempt>=2)throw e;}}for(const p of result.paths)found.set(p.sha256,fileURL(p.path));}return found;}
+ async function placeMedia(xml,name,names={}){const pattern=/file:\/\/\/YebaeOn-Media\/([a-f0-9]{64})\.png/g,hashes=[...new Set([...xml.matchAll(pattern)].map(m=>m[1]))];if(!hashes.length)return xml;message('교회 Mac 이미지 경로를 정하고 있습니다…');const found=await slidePaths(Object.fromEntries(hashes.map((sha,i)=>[sha,names[sha]||'Slide'+(i+1)+'.png'])),name);return xml.replace(pattern,(m,sha)=>found.get(sha));}
  async function upload(assets){const known=new Set();for(let i=0;i<assets.length;i+=80){const query=new URLSearchParams();for(const a of assets.slice(i,i+80))query.append('hash',a.sha256);const found=await(await C.api('/media?'+query)).json();for(const a of found.assets)known.add(a.sha256);}
   for(let i=0;i<assets.length;i++){const a=assets[i];if(known.has(a.sha256))continue;message(`이미지 저장 ${i+1}/${assets.length}…`);await C.api('/media/'+a.sha256+'/content',{method:'PUT',headers:{'Content-Type':'image/png','X-Yebaeon-SHA256':a.sha256},body:a.blob});known.add(a.sha256);}}
  // 대상 문서의 슬라이드 묶음만 새 그림 슬라이드 하나로 바꾼다. 문서의 나머지 속성(카테고리·크기·사용일 등)은 그대로다.
@@ -156,17 +161,17 @@
   groups.append(parsed.importNode(group,true));return '<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(root);}
  async function replace(){const opened=E.ready()&&E.state().key===target.id;if(opened&&E.state().dirty){message('편집기에 이 문서의 저장하지 않은 변경이 있습니다. 먼저 저장하거나 되돌려 주세요.');return;}
   try{for(const o of outputs)o.sha256??=await hash(o.image);const assets=[...new Map(outputs.map(o=>[o.sha256,{sha256:o.sha256,blob:o.image}])).values()];await upload(assets);
-   message('교회 Mac 이미지 경로를 정하고 있습니다…');const found=await macPaths(assets.map(a=>a.sha256),target.name);message('문서를 교체하고 있습니다…');
+   message('교회 Mac 이미지 경로를 정하고 있습니다…');const names={};for(const o of outputs)names[o.sha256]??=slideName(o);const found=await slidePaths(names,target.name);message('문서를 교체하고 있습니다…');
    await C.api('/documents/'+target.id,{method:'PUT',headers:{'Content-Type':'application/xml','If-Match':`"${target.version}"`},body:replaced(found)});
    const done=target,count=outputs.length;await C.openDocument(done.id);resetImport();dialog.close();E.status(`${done.name}의 슬라이드를 ${count}장으로 교체했습니다.`);
   }catch(e){if(e.status===409){resetReview();target=null;$('pptTargetInfo').textContent='';candidates();message('다른 곳에서 문서가 바뀌었습니다. 교체할 문서를 다시 고른 뒤 교체해 주세요. 변환한 그림은 그대로 둡니다.');}else message('교체 중단: '+e.message+'\n이미 올린 그림은 다시 올리지 않습니다. 다시 누르면 이어서 합니다.');}}
  // 나눈 배경 그림을 올리고 `<문서이름> 배경` 경로를 받는다. 실패해도 문서 추가는 그대로 두고 알리기만 한다.
  async function uploadBackgrounds(job){const list=job.backgrounds||[];if(!list.length)return '';
-  try{await upload(list);message('배경 그림을 미디어에 올리고 있습니다…');await macPaths(list.map(b=>b.sha256),job.path.replace(/\.pro6$/i,'')+' 배경');for(const b of list)window.YebaeonThumbnails?.make(b.sha256,b.blob).catch(()=>{});return ` 나눈 배경 그림 ${list.length}개는 미디어 › 모두 보기 › 웹에서 가져온 그림에 있습니다.`;}
+  try{await upload(list);message('배경 그림을 미디어에 올리고 있습니다…');await mediaPaths(list.map(b=>b.sha256),job.path.replace(/\.pro6$/i,'')+' 배경');for(const b of list)window.YebaeonThumbnails?.make(b.sha256,b.blob).catch(()=>{});return ` 나눈 배경 그림 ${list.length}개는 미디어 › 모두 보기 › 웹에서 가져온 그림에 있습니다.`;}
   catch(e){return ' 배경 그림은 미디어에 올리지 못했습니다: '+e.message;}}
  async function create(){try{if(!prepared){const next=await prepare();await recovery('put',next);prepared=next;}if(prepared.owner!==C.worker())throw Error('준비한 작업자 이름으로 입장해 주세요.');
    await upload(prepared.assets);
-   if(prepared.xml.includes('file:///YebaeOn-Media/')){prepared.xml=await placeMedia(prepared.xml,prepared.path.replace(/\.pro6$/i,''));await recovery('put',prepared);}
+   if(prepared.xml.includes('file:///YebaeOn-Media/')){prepared.xml=await placeMedia(prepared.xml,prepared.path.replace(/\.pro6$/i,''),prepared.names);await recovery('put',prepared);}
    message('문서를 등록하고 이미지 연결을 확인하고 있습니다…');const result=await(await C.api('/documents?'+new URLSearchParams({path:prepared.path}),{method:'POST',headers:{'Content-Type':'application/xml'},body:prepared.xml})).json();prepared.document=result.document;await recovery('put',prepared);
    const backgrounds=await uploadBackgrounds(prepared);
    let order='';if(prepared.appendTarget&&prepared.appendTarget===L.selectedPlaylist()?.key&&!L.memberIDs().includes(result.document.id)&&L.appendDocuments([result.document])){message('순서를 저장하고 있습니다…');await L.checkpoint();order=await L.save()?' ‘'+L.selectedPlaylist().name+'’ 순서 맨 아래에 넣고 저장했습니다.':' 순서에 넣었지만 저장하지 못했습니다. 서버 저장을 눌러 주세요.';}
@@ -178,5 +183,5 @@
  $('pptSave').onclick=()=>save();$('pptResume').onclick=()=>save(true);$('pptDiscard').onclick=async()=>{if(busy||!confirm('이 브라우저의 PPT 준비본을 버릴까요? 이미 서버에 저장된 이미지나 문서는 삭제하지 않습니다.'))return;try{await recovery('delete');prepared=null;invalidate();showRecovery();lock(false);message('준비본을 버렸습니다. 새 파일을 선택할 수 있습니다.');}catch(e){message(e.message);}};
  window.addEventListener('yebaeonsession',e=>{if(!e.detail.authenticated&&!busy){dialog.close();source?.data.dispose?.();source=null;target=null;invalidate();prepared=null;cards();options();}});
  options();
- window.YebaeonPPTImport={read,preview,save,open:openDialog,state:()=>({source,deck:source?.kind==='ppt'?source.data:null,outputs,prepared,target,busy}),imageElement,hash,macPaths,dialog};
+ window.YebaeonPPTImport={read,preview,save,open:openDialog,state:()=>({source,deck:source?.kind==='ppt'?source.data:null,outputs,prepared,target,busy}),imageElement,hash,mediaPaths,slidePaths,dialog};
 })();
