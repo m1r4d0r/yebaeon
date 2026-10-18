@@ -21,6 +21,7 @@ import { documentsRoute } from './documents.mjs';
 import { indexSearch } from './document-search.mjs';
 import { mediaReferencesRoute, mediaRoute } from './media-assets.mjs';
 import { favoritesRoute } from './favorites.mjs';
+import { templatesRoute } from './templates.mjs';
 import { discordInteractionsRoute, questionsRoute } from './questions.mjs';
 import { HttpError, headers, json, method, sameOrigin } from './http.mjs';
 export default {
@@ -41,10 +42,11 @@ export default {
       const mediaReferences = pathname === '/api/media/references', mediaPaths = pathname === '/api/media/paths';
       const admin = /^\/api\/admin(\/trash|\/orphans)?$/.exec(pathname), categories = /^\/api\/categories(?:\/([^/]{1,40}))?$/.exec(pathname), editing = pathname === '/api/editing';
       const questions = /^\/api\/questions(?:\/([^/]+))?$/.exec(pathname);
+      const userTemplates = /^\/api\/templates(?:\/([0-9a-f-]{36}))?$/.exec(pathname);
       const appUpdate = /^\/api\/sync\/app(\/download)?$/.exec(pathname);
       const remote = /^\/api\/sync\/devices\/([0-9a-f]{32})\/(status|support|commands)(?:\/([^/]+))?$/.exec(pathname);
       const sync2 = /^\/api\/sync\/(devices|changes|manifest|usage|revisions|ledger)(?:\/([0-9a-f-]{32,36})(?:\/(applied|content|resolve))?)?$/.exec(pathname);
-      if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && pathname !== '/api/inventory' && !resource && !route && !playlist && !media && !mediaReferences && !mediaPaths && !admin && !categories && !editing && pathname !== '/api/favorites' && !dropbox && !sync2 && !remote && !appUpdate && !questions && pathname !== '/api/discord/interactions') throw new HttpError(404, 'not_found', '없는 요청입니다.');
+      if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && pathname !== '/api/inventory' && !resource && !route && !playlist && !media && !mediaReferences && !mediaPaths && !admin && !categories && !editing && !userTemplates && pathname !== '/api/favorites' && !dropbox && !sync2 && !remote && !appUpdate && !questions && pathname !== '/api/discord/interactions') throw new HttpError(404, 'not_found', '없는 요청입니다.');
       // Discord가 보내는 상호작용은 세션이 아니라 Discord 서명으로 확인한다.
       if (pathname === '/api/discord/interactions') { await ensureSchema(env.DB); return await discordInteractionsRoute(request, env); }
       if (!configured(env)) {
@@ -72,6 +74,7 @@ export default {
       if (editing) return await editingRoute(request, env, user);
       if (questions) return await questionsRoute(request, env, user, questions[1]);
       if (pathname === '/api/favorites') return await favoritesRoute(request, env, user);
+      if (userTemplates) return await templatesRoute(request, env, user, userTemplates[1]);
       if (mediaPaths) return await mediaPathsRoute(request, env, user);
       if (route || playlist) await refreshCategories(env.DB);
       if(dropbox)return await dropboxRoute(request,env,dropbox[1]);
