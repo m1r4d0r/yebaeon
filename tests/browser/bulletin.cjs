@@ -93,6 +93,11 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   await page.locator('#bulletinUndo').click();assert.doesNotMatch(await slot('찬양 1').textContent(),/고름: 100 주 이름 가사/);await page.locator('#bulletinRedo').click();assert.match(await slot('찬양 1').textContent(),/고름: 100 주 이름 가사/,'song choices are undoable after the row was rebuilt');
   await slot('설교 후 찬양').click();await page.locator('.bulletin-cands .cand',{hasText:'합성 찬양 D'}).waitFor();assert.equal(await page.locator('.bulletin-cands .cand',{hasText:'지금 이 자리'}).count(),0);
   await page.locator('.bulletin-cands .cand',{hasText:'합성 찬양 D'}).click();
+  // A new empty song slot searches as the user types, and Enter searches at once.
+  await page.getByRole('button',{name:'+ 찬양 추가'}).click();const fresh=page.locator('.bulletin-slot.active'),freshBox=fresh.locator('[id^=bulletin-]');assert.equal(await fresh.locator('.bulletin-cands').isHidden(),true,'an empty song slot shows no candidate panel');
+  await freshBox.fill('100 주');await fresh.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor();
+  await freshBox.fill('악보');await freshBox.press('Enter');await fresh.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor({state:'detached'});
+  await freshBox.fill('');assert.equal(await fresh.locator('.bulletin-cands').isHidden(),true);await fresh.locator('.x').click();
   await page.locator('.bulletin-svc button',{hasText:'2부'}).click();assert.equal(await sourceTable.innerText(),tableText,'switching service keeps the complete source table');await slot('찬양 1').click();assert.match(await sourceTable.locator('.w.act').allTextContents().then(a=>a.join(' ')),/합성 찬양 A/);
   await page.locator('#bulletinSource .w',{hasText:/^합성$/}).first().click();await page.locator('#bulletinSource .w',{hasText:/^B$/}).first().click();
   assert.equal(await slot('찬양 1').locator('[id^=bulletin-]').inputValue(),'합성 B','first word replaces, next word appends');
