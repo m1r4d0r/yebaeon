@@ -21,6 +21,7 @@
 | 재생목록 노드(예배) | 없음(파일 버전에 포함) | `yebaeon_playlist_node_versions`(노드 XML·sha256·노드 버전), `yebaeon_playlist_controls`(활성·보관·삭제 상태) | 노드 교체의 기준은 그 노드의 서버 sha(`baseNodeHash`)뿐이다. 다른 예배의 변경과 부딪히지 않는다 |
 | 이미지 | `media/sha256/<앞 2자>/<sha256>` | `yebaeon_media_assets` | sha256이 식별자라 버전이 없다. [media.md](media.md) |
 | 목록 보관본 | `playlist-archives/<재생목록id>/<uuid>/`(보관 시점의 노드 XML·문서 원본 복사·`manifest.json`) | `yebaeon_playlist_controls.snapshot_key` | 일반 문서 이력 정리와 독립이다 |
+| 사이트 템플릿 | 없음 | `yebaeon_templates`(그룹 이름·이름·순서·크기·서식 지문·슬라이드 XML·저장자) | 버전 없음. 마지막 저장이 남는다. 슬라이드 XML은 만든 뒤 바뀌지 않고 이름·그룹 이름만 바뀐다 |
 | 교회 Mac 수정본 | `revisions/<id>.xml` | `yebaeon_sync_revisions`(대상·기준 버전·이유·해결 상태) | 현재본이 아닌 별도 보관본이다. 이력 끔 정리에 걸리지 않는다 |
 
 변경 일지(`yebaeon_sync_log`)와 장치(`yebaeon_sync_devices`)는 Sync 2가 쓰는 표다. 일지·영수증·판정 규칙은 [sync.md](sync.md)가 정한다.
