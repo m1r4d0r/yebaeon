@@ -86,6 +86,7 @@
 .bulletin-slot .ok,.bulletin-results .ok{color:#1f7a4a}
 .bulletin-slot .bad,.bulletin-results .bad,.bulletin-note.bad,.bulletin-op .bad{color:#b4233c}
 .bulletin-cands{grid-column:1 / -1;display:grid;gap:4px;margin-top:4px;padding:8px;background:var(--paper,#f2f4f8);border-radius:6px}
+.bulletin-cands[hidden]{display:none}
 
 
 
