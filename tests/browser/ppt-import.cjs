@@ -11,7 +11,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
  await page.locator('#mediaAddDialog [data-color]').click();await page.locator('#mediaAddDialog .media-add-result .primary').waitFor();
  assert.equal(media.size,1,'upload works without an open document');assert.equal(docs.size,0,'upload creates no document');
  assert.equal(await page.locator('#mediaAddDialog .media-add-result .primary').isDisabled(),true);
- assert.equal(await page.locator('#mediaAddDialog .media-pick').isDisabled(),true);
+ assert.equal(await page.locator('#mediaAddDialog .media-pick').isDisabled(),false,'the picture itself does not depend on an open document');await page.locator('#mediaAddDialog .media-pick').click();assert.equal(await page.locator('#contextMenu button',{hasText:'고른 장에 배경으로'}).isDisabled(),true,'only applying is off');await page.keyboard.press('Escape');await page.mouse.click(5,5);
  await page.locator('#mediaAddDialog [data-close]').click();await page.locator('#mediaClose').click();
  await page.waitForFunction(()=>document.querySelector('#mediaGrid .media-more'));media.clear();macPaths.clear();thumbnailPuts=[];
  const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=800;c.height=450;const x=c.getContext('2d');x.fillStyle='orange';x.fillRect(15,5,250,60);x.fillStyle='black';for(let y=100;y<200;y+=12)x.fillRect(30,y,730,3);x.font='28px sans-serif';x.fillText('SYNTHETIC SCORE',50,260);return c.toDataURL().split(',')[1];});

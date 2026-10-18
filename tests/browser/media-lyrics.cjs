@@ -19,7 +19,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
  console.log('media batch passed');
  // 미디어 그림 오른쪽 클릭 › 내려받기: 문서를 열지 않아도 원본 바이트를 경로의 파일 이름으로 받는다.
  await page.locator('#mediaOpen').click();const tileForDownload=page.locator('#mediaGrid .media-section').last().locator('.media-pick',{hasText:'second-1.png'});await tileForDownload.waitFor();
- await tileForDownload.click({button:'right',force:true});assert.equal(await page.locator('#contextMenu button',{hasText:'고른 장에 배경으로'}).isDisabled(),true,'no document open: background is off');
+ await tileForDownload.click({button:'right'});assert.equal(await page.locator('#contextMenu button',{hasText:'고른 장에 배경으로'}).isDisabled(),true,'no document open: background is off');
  const [download]=await Promise.all([page.waitForEvent('download'),page.locator('#contextMenu button',{hasText:'내려받기'}).click()]);assert.equal(download.suggestedFilename(),'second-1.png');
  assert.deepEqual(await require('node:fs/promises').readFile(await download.path()),Buffer.concat([fixture,Buffer.from([0])]),'downloaded bytes are the original upload');await page.locator('#mediaClose').click();
  console.log('media download passed');

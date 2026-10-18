@@ -38,11 +38,11 @@
  // 내려받기: 서버의 원본 바이트를 경로의 파일 이름 그대로 저장한다(브라우저 캐시를 쓰므로 이미 본 그림은 다시 받지 않는다).
  async function download(item){const name=fileName(item.path)||item.sha;E.status(`‘${name}’ 내려받는 중…`);const r=await fetch('/api/media/'+item.sha+'/content',{credentials:'same-origin'});if(!r.ok)throw new Error('그림을 받지 못했습니다.');
   const url=URL.createObjectURL(await r.blob()),a=el('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);E.status(`‘${name}’을 내려받았습니다.`);}
- // 오른쪽 클릭(터치는 길게 누르기) 메뉴: 배경으로 적용·내려받기·즐겨찾기.
+ // 오른쪽 클릭(터치는 길게 누르기) 메뉴: 배경으로 적용·내려받기·즐겨찾기. 그림 칸은 문서와 상관없이 같고, 문서가 없으면 배경 적용만 꺼진다(누르면 이 메뉴).
  function tileMenu(e,item){const fav=item.sha&&Favorites.has('media',item.sha);YebaeonSelection.menu(e,[{label:'고른 장에 배경으로',disabled:!E.ready(),action:()=>{E.setBackground(item.source||item.path);}},{label:'내려받기',disabled:!item.sha,action:()=>download(item).catch(error=>E.status(error.message))},{label:fav?'즐겨찾기에서 빼기':'즐겨찾기',disabled:!item.sha,action:()=>Favorites.toggle('media',item.sha,item.path).catch(error=>E.status(error.message))}]);}
- function tile(item,{dialog=false}={}){const b=el('div','media-tile'),pick=el('button','media-pick');pick.type='button';pick.title=item.path+(item.documents?'\n사용: '+[...item.documents].join(', '):'');pick.draggable=!dialog&&E.ready();if(!E.ready())pick.setAttribute('aria-disabled','true');if(!E.ready())pick.title+='\n문서를 열면 배경으로 적용할 수 있습니다.';
+ function tile(item,{dialog=false}={}){const b=el('div','media-tile'),pick=el('button','media-pick');pick.type='button';pick.title=item.path+(item.documents?'\n사용: '+[...item.documents].join(', '):'');pick.draggable=!dialog;
   if(item.sha){const img=el('img');YebaeonThumbnails.attach(img,item.sha);img.alt='';img.loading='lazy';img.decoding='async';pick.append(img);}else pick.append(el('span','media-missing','서버에 없음'));
-  pick.append(el('span','media-name',fileName(item.path)));pick.onclick=()=>{if(!E.ready())return;E.setBackground(item.source||item.path);if(dialog)E.status(`‘${fileName(item.path)}’을 배경으로 적용했습니다.`);};
+  pick.append(el('span','media-name',fileName(item.path)));pick.onclick=e=>{if(!E.ready()){tileMenu(e,item);return;}E.setBackground(item.source||item.path);if(dialog)E.status(`‘${fileName(item.path)}’을 배경으로 적용했습니다.`);};
   pick.oncontextmenu=e=>tileMenu(e,item);if(item.sha)pick.title+='\n오른쪽 클릭: 내려받기';
   pick.ondragstart=e=>{drag={source:item.source||item.path,name:fileName(item.path)};e.dataTransfer.setData('text/plain',drag.source);e.dataTransfer.effectAllowed='copy';};pick.ondragend=()=>{drag=null;};b.append(pick);
   if(item.sha){const star=el('button','media-star'+(Favorites.has('media',item.sha)?' on':''),Favorites.has('media',item.sha)?'★':'☆');star.type='button';star.dataset.sha=item.sha;star.setAttribute('aria-label',(Favorites.has('media',item.sha)?'즐겨찾기에서 빼기':'즐겨찾기')+' · '+fileName(item.path));
@@ -52,7 +52,7 @@
  const section=(title,count,body)=>{const s=el('section','media-section'),h=el('h3',null,title);if(count!=null)h.append(el('small',null,` ${count}`));s.append(h,body);return s;};
  const matches=(query,path)=>!query||fileName(path).normalize('NFC').toLowerCase().includes(query);
 
- async function fill(){const token=++generation,root=$('mediaGrid'),query=$('mediaQuery').value.normalize('NFC').trim().toLowerCase();root.replaceChildren(el('p','help','불러오는 중…'));$('mediaDrawer').querySelector(':scope > .help').textContent=E.ready()?'누르거나 슬라이드에 끌어 놓으면 배경이 됩니다. 여러 장을 고르면 함께 적용할 수 있습니다.':'문서를 열지 않아도 그림을 추가하고 즐겨찾기를 정리할 수 있습니다. 배경 적용은 문서를 연 뒤 가능합니다.';
+ async function fill(){const token=++generation,root=$('mediaGrid'),query=$('mediaQuery').value.normalize('NFC').trim().toLowerCase();root.replaceChildren(el('p','help','불러오는 중…'));$('mediaDrawer').querySelector(':scope > .help').textContent='누르거나 슬라이드에 끌어 놓으면 배경이 됩니다. 여러 장을 고르면 함께 적용할 수 있습니다. 오른쪽 클릭: 내려받기·즐겨찾기.';
   try{await Favorites.load();if(token!==generation)return;const parts=[];
    const favs=Favorites.list('media').filter(f=>matches(query,f.label)).map(f=>({sha:f.key,path:f.label,source:fileURL(f.label)}));
    parts.push(section('★ 즐겨찾기',favs.length,favs.length?grid(favs):el('p','help','그림의 ☆를 누르면 모두가 보는 즐겨찾기에 들어갑니다.')));
