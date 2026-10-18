@@ -28,12 +28,18 @@ body{overflow:hidden}button{touch-action:manipulation}button:focus-visible,selec
 .studio-editor-toolbar #responsiveMultiple{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;border:0;background:transparent}
 #responsiveMultiple .multiple-label{display:none}
 @media(min-width:701px) and (pointer:fine){.studio-editor-toolbar #responsiveMultiple{display:none}}
+/* 좁은 편집 칸: 성경·미디어가 하단 서랍으로 내려가 도구줄은 한 줄(보기 · 이미지 · 템플릿 · T · ＋ · ☑ · ⋯). */
 @container(max-width:420px){
- .studio-editor-toolbar{height:auto;min-height:44px;flex-wrap:wrap;gap:0 4px;padding:0 8px}
- .studio-editor-toolbar .studio-view-select{max-width:120px;min-height:40px}
- .studio-editor-toolbar #responsiveMultiple{width:auto;min-height:40px;margin-left:auto;padding:0 8px;font-size:12px}
- #responsiveMultiple .multiple-label{display:inline}
- .responsive-editor-tools{flex-basis:100%;justify-content:space-between;border-top:1px solid var(--line)}
+ .studio-editor-toolbar{padding:0 4px;gap:2px}
+ .studio-editor-toolbar .studio-view-select{max-width:96px;min-height:40px}
+ #responsiveSelection{display:none}
+ .responsive-editor-tools{gap:0}
+ .responsive-editor-tools button{padding-inline:5px}
+}
+@container(max-width:345px){
+ .studio-editor-toolbar .studio-view-select{max-width:84px;font-size:13px}
+ .responsive-editor-tools button{padding-inline:3px}
+ .studio-editor-toolbar #responsiveQuick,.studio-editor-toolbar #add,.studio-editor-toolbar #responsiveMore,.studio-editor-toolbar #responsiveMultiple{width:33px;min-width:33px}
 }
 
 #libraryRefresh{display:inline-flex;align-items:center;justify-content:center}
@@ -50,3 +56,32 @@ body{overflow:hidden}button{touch-action:manipulation}button:focus-visible,selec
 @media(max-width:700px){.image-add-more{display:none}}
 .image-add-list{display:flex;flex-direction:column;gap:2px;margin:12px 0;max-height:min(420px,50dvh);overflow:auto}.image-add-row{display:flex;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid #edf0f5}.image-add-text{flex:1;min-width:0;white-space:pre-line;overflow-wrap:anywhere}.image-add-row select{flex:none;max-width:48%;padding:5px}.image-add-row.skipped{color:var(--muted);opacity:.65}.image-add-row.bad{color:#a34c25}.image-add-dialog{width:min(620px,94vw)}
 @media(max-width:700px){.image-add-row{flex-wrap:wrap;gap:6px}.image-add-row select{max-width:none;width:100%}}
+
+/* 성경·미디어 하단 서랍(resource-drawer.js): 편집 칸 아래에 늘 보이는 손잡이, 닫힘·반·전체. */
+.editing-column.has-resource-drawer{position:relative}
+.has-resource-drawer .slides-pane,.has-resource-drawer .reflow-pane,.has-resource-drawer #layoutStagePane{padding-bottom:calc(var(--resource-drawer-height,36px) + 12px)}
+.has-resource-drawer .inspector{padding-bottom:var(--resource-drawer-height,36px)}
+.resource-drawer{position:absolute;left:0;right:0;bottom:0;z-index:24;display:flex;flex-direction:column;height:36px;background:white;border-top:1px solid #bbc8dd;box-shadow:0 -6px 18px #12244118;transition:height .2s ease}
+.resource-drawer.dragging{transition:none}
+@media (prefers-reduced-motion:reduce){.resource-drawer{transition:none}}
+.resource-drawer-handle{flex:none;height:36px;display:flex;align-items:center;gap:2px;padding:6px 8px 0;position:relative;cursor:ns-resize;touch-action:none;user-select:none;-webkit-user-select:none}
+.resource-drawer-grip{position:absolute;left:50%;top:5px;width:40px;height:4px;border-radius:2px;background:#b7c1d4;transform:translateX(-50%)}
+.resource-drawer-tabs{display:flex;gap:2px}
+.resource-drawer-tabs button{border:0;background:transparent;font-size:13px;padding:3px 12px;min-height:0;color:var(--muted);cursor:pointer}
+.resource-drawer-tabs button.active{color:var(--blue);font-weight:600}
+.resource-drawer-hint{margin-left:auto;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.resource-drawer-step{border:0;background:transparent;padding:2px 8px;min-height:0;font-size:12px;color:var(--muted)}
+.resource-drawer-body{flex:1;min-height:0;display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.resource-drawer[data-state=closed] .resource-drawer-body{display:none}
+.resource-drawer .bible-panel,.resource-drawer .media-drawer{position:static;inset:auto;top:auto;left:auto;right:auto;bottom:auto;height:auto;max-height:none;flex:1;min-height:0;box-shadow:none;border:0;z-index:auto;background:white}
+.resource-drawer .bible-panel>header,.resource-drawer .media-drawer>header{padding:6px 12px;gap:8px}
+.resource-drawer .bible-panel>header h2,.resource-drawer .media-drawer>header h2{display:none}
+.resource-drawer .bible-panel>header{flex-wrap:nowrap}.resource-drawer #bibleTarget{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}.resource-drawer .bible-panel>header button,.resource-drawer .media-drawer>header button{font-size:12px;padding:4px 8px;min-height:32px;flex:none}.resource-drawer #resourceClose{margin-left:0}
+.resource-drawer .bible-toolbar{padding:6px 12px;gap:8px}.resource-drawer #bibleQuery{font-size:16px}
+.resource-drawer .bible-filters{padding:4px 12px}.resource-drawer .bible-panel footer{padding:6px 12px}
+.resource-drawer .media-drawer>.help{margin:2px 12px}
+/* 반 높이: 말씀 장·그림을 가로 한 줄로 */
+.resource-drawer[data-state=half] .bible-grid:not(.reflow){grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:minmax(200px,23%);overflow-x:auto;overflow-y:hidden;align-content:stretch}
+.resource-drawer[data-state=half] #mediaGrid .media-tiles{grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:140px;overflow-x:auto;padding-bottom:4px}
+@media(pointer:coarse){.resource-drawer,.resource-drawer-handle{height:44px}.resource-drawer-tabs button{min-height:36px;font-size:14px}.resource-drawer-step{min-height:36px;min-width:36px}}
+@media(max-width:700px){body.resource-drawer-open .qa-toggle{display:none}.resource-drawer .media-drawer>.help{display:none}.resource-drawer{bottom:var(--keyboard-offset,0px)}.resource-drawer-hint{display:none}.resource-drawer .bible-filters,.resource-drawer .bible-panel>header #bibleTarget{font-size:11px}}

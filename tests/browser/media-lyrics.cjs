@@ -21,6 +21,15 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
  assert.equal(await page.locator('#resourceOpen').isDisabled(),false);await page.locator('#resourceOpen').click();await page.locator('#bibleQuery').fill('창 1:1-2');await page.waitForFunction(()=>document.querySelectorAll('.bible-card').length===2);
  assert.equal(await page.locator('#bibleAdd').isDisabled(),true,'no document: only adding is off');assert.match(await page.locator('#bibleTarget').textContent(),/문서를 열면 넣을 수 있습니다/);await page.locator('#bibleQuery').fill('');await page.locator('#resourceClose').click();
  console.log('bible without document passed');
+ // 하단 서랍: 처음엔 닫힘(손잡이만), 탭 → 반, ▲ → 전체, ▼ → 반, 끌어서 바꾼 반 높이 기억, 같은 탭 → 닫힘.
+ const drawer=()=>page.evaluate(()=>({state:YebaeonDrawer.state(),tab:YebaeonDrawer.tab(),h:document.getElementById('resourceDrawer').offsetHeight}));
+ assert.equal((await drawer()).state,'closed');assert.ok(await page.locator('#resourceDrawer .resource-drawer-handle').isVisible(),'the handle is always shown');
+ await page.locator('#mediaOpen').click();await page.waitForFunction(()=>YebaeonDrawer.state()==='half');const half=(await drawer()).h;
+ await page.locator('#drawerUp').click();assert.equal((await drawer()).state,'full');await page.locator('#drawerDown').click();assert.equal((await drawer()).state,'half');
+ await page.waitForTimeout(300);const grip=await page.locator('#resourceDrawer .resource-drawer-handle').boundingBox();await page.mouse.move(grip.x+grip.width/2,grip.y+10);await page.mouse.down();await page.mouse.move(grip.x+grip.width/2,grip.y-110,{steps:12});await page.waitForTimeout(250);await page.mouse.up();
+ await page.waitForTimeout(300);const resized=await drawer();assert.equal(resized.state,'half');assert.ok(resized.h>half+60,`dragged half height ${resized.h} > ${half}`);assert.ok(Number(await page.evaluate(()=>localStorage.getItem('yebaeon.drawer.half.v1')))>0.45,'the half height is remembered');
+ await page.locator('#resourceOpen').click();await page.waitForFunction(()=>YebaeonDrawer.tab()==='bible'&&YebaeonDrawer.state()==='half');await page.locator('#resourceOpen').click();await page.waitForFunction(()=>YebaeonDrawer.state()==='closed');
+ console.log('drawer passed');
  // 미디어 그림 오른쪽 클릭 › 내려받기: 문서를 열지 않아도 원본 바이트를 경로의 파일 이름으로 받는다.
  await page.locator('#mediaOpen').click();const tileForDownload=page.locator('#mediaGrid .media-section').last().locator('.media-pick',{hasText:'second-1.png'});await tileForDownload.waitFor();
  await tileForDownload.click({button:'right'});assert.equal(await page.locator('#contextMenu button',{hasText:'고른 장에 배경으로'}).isDisabled(),true,'no document open: background is off');
