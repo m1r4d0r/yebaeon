@@ -117,12 +117,12 @@
 
  // 슬라이드 크기가 다르면 늘이지 않고 가운데 두며 남는 곳은 검은색이다.
  async function fit(blob,w,h,lib,transparent=false){const bitmap=await createImageBitmap(blob);try{if(Math.abs(bitmap.width/bitmap.height-w/h)<.005&&bitmap.width===w)return {image:blob,margin:false};const c=lib.makeCanvas(w,h),x=c.getContext('2d');if(!transparent){x.fillStyle='#000';x.fillRect(0,0,w,h);}const scale=Math.min(w/bitmap.width,h/bitmap.height),dw=bitmap.width*scale,dh=bitmap.height*scale;x.drawImage(bitmap,(w-dw)/2,(h-dh)/2,dw,dh);return {image:await lib.blob(c),margin:Math.abs(dw-w)>1||Math.abs(dh-h)>1};}finally{bitmap.close();}}
- async function preview(){if(busy||!source)return;invalidate(false);rendering=true;lock(true);const epoch=renderEpoch,selected=source.pages.filter(s=>s.selected),made=[],found=new Map(),score=scoreMode(),replace=mode()==='replace'&&!!target,unit=source.kind==='pdf'?'쪽':'장';
+ async function preview(){if(busy||!source)return;invalidate(false);rendering=true;lock(true);const epoch=renderEpoch,selected=source.pages.filter(s=>s.selected),made=[],found=new Map(),score=scoreMode(),replace=mode()==='replace'&&!!target,unit=source.kind==='pdf'?'쪽':'장';let current=null;
   try{if(!selected.length)throw Error('가져올 장을 선택해 주세요.');const crop=$('pptCropOn').checked?Number($('pptCrop').value)/100:0;if(!Number.isFinite(crop)||crop<0||crop>.4)throw Error('자르기는 0~40%로 입력해 주세요.');
    const bottomCrop=$('pptBottomCropOn').checked?Number($('pptBottomCrop').value)/100:0;if(!Number.isFinite(bottomCrop)||bottomCrop<0||bottomCrop>.4)throw Error('하단 자르기는 0~40%로 입력해 주세요.');
    size=replace?{width:target.width,height:target.height}:source.kind==='pdf'?{width:1920,height:1080}:{width:1920,height:Math.round(1920*source.data.height/source.data.width)};
    const lib=source.kind==='pdf'?await pdf():await engine(),ppt=source.kind==='ppt'?await engine():null;let total=0;
-   for(const [n,s] of selected.entries()){message(`${n+1}/${selected.length}${unit} 변환 중…`);let o;
+   for(const [n,s] of selected.entries()){current=s;message(`${n+1}/${selected.length}${unit} 변환 중…`);let o;
     if(source.kind==='pdf'){const r=await lib.render(source.data,s.index,size);o={image:r.image,margin:r.margin,separated:false};}
     else if(score&&separable(s)){const r=await lib.render(source.data,s.index,{mode:'score',removeWhite:choice('pptConversion')==='white',crop,bottomCrop,keepTitle:n===0||crop===0,background:'original'});o={image:r.foreground,margin:false,separated:true,warnings:r.warnings};if(replace){const fitted=await fit(r.foreground,size.width,size.height,ppt,true);o={...o,...fitted};}
      if(r.background&&!await plain(r.background)){const sha256=await hash(r.background);if(!found.has(sha256)){found.set(sha256,{sha256,blob:r.background});total+=r.background.size;}}}
@@ -132,9 +132,13 @@
     if(epoch!==renderEpoch)return;total+=o.image.size;if(total>IMAGE_MAX)throw Error('변환 이미지가 180MB를 넘습니다. 장을 나누어 가져와 주세요.');
     o.index=s.index;o.url=URL.createObjectURL(o.image);urls.push(o.url);made.push(o);
     const card=$('pptSlides').querySelector(`[data-index="${s.index}"]`);card.querySelector('.ppt-thumb').replaceChildren(composite(o));card.querySelector('.ppt-card-badge').textContent=score?(o.separated?(choice('pptConversion')==='white'?' · 흰 바탕 제거':' · 악보 분리'):' · 통 이미지'):o.margin?' · 여백':'';await new Promise(r=>setTimeout(r,0));}
-   outputs=made;backdrops=found;
+   current=null;outputs=made;backdrops=found;
    message(`${made.length}${unit} 준비됨. 썸네일을 누르면 크게 볼 수 있어요.`);
-  }catch(e){if(epoch===renderEpoch){invalidate(false);message('변환 실패: '+e.message);}}finally{rendering=false;lock(false);drainPreview();}}
+  }catch(e){if(epoch===renderEpoch){invalidate(false);message('변환 실패: '+failure(e,current,unit));}}finally{rendering=false;lock(false);drainPreview();}}
+ // 어느 장에서 왜 멈췄는지: 장 번호, 그 장의 그림 수·크기, 읽을 때 남긴 경고
+ function failure(e,s,unit){const reason=e instanceof Error&&e.message?e.message:'알 수 없는 오류';if(!s)return reason;
+  const images=s.images||[],bytes=images.reduce((n,p)=>n+(p.bytes?.byteLength||0),0),info=images.length?` (그림 ${images.length}개 · ${(bytes/1048576).toFixed(1)}MB)`:'',notes=[...new Set(s.warnings||[])];
+  return `${s.index+1}${unit}${info}: ${reason}`+(notes.length?' · '+notes.join(' '):'');}
  const imageElement=(src,w,h)=>P.imageElementXML({source:src,rect:{x:0,y:0,w,h},scale:'0'});
  function documentName(value){const name=value.trim().normalize('NFC').replace(/\.pro6$/i,'');if(!name||/[\\/\x00-\x1f\x7f]/.test(name)||name.length>145)throw Error('문서 이름을 확인해 주세요. 폴더 구분 문자는 사용할 수 없습니다.');return name;}
  const slideXML=(o,src,label)=>P.slideXML({label:String(label),drawingBackgroundColor:!o.separated,backgroundColor:o.separated?'1 1 1 1':'0 0 0 1',background:o.separated&&background.get()?P.backgroundCueXML({source:background.get().source,name:background.get().name}):'',elements:imageElement(src,size.width,size.height)});

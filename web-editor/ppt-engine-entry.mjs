@@ -51,7 +51,8 @@ export async function parse(buffer){
 }
 async function rasterDOM(element,w,h){
  const host=document.createElement('div');host.style.cssText='position:fixed;left:-20000px;top:0;pointer-events:none;';host.append(element);document.body.append(host);
- try{await document.fonts.ready;await Promise.all([...element.querySelectorAll('img')].map(i=>i.decode().catch(()=>{throw Error('슬라이드 이미지 해석 실패');})));return await toCanvas(element,{width:w,height:h,pixelRatio:1920/w,skipFonts:true,cacheBust:false});}finally{host.remove();}
+ try{await document.fonts.ready;await Promise.all([...element.querySelectorAll('img')].map(i=>i.decode().catch(()=>{throw Error('슬라이드 이미지 해석 실패');})));return await toCanvas(element,{width:w,height:h,pixelRatio:1920/w,skipFonts:true,cacheBust:false});}
+ catch(e){if(e instanceof Error)throw e;throw Error('이 장을 그림으로 바꾸지 못했습니다. 그림이 많거나 크거나 브라우저가 못 그리는 개체가 있을 수 있습니다.');}finally{host.remove();}
 }
 const color=c=>typeof c==='string'?c:c?`rgb(${Math.round(c.r*255)},${Math.round(c.g*255)},${Math.round(c.b*255)})`:'#000';
 function legacyDOM(deck,slide){
