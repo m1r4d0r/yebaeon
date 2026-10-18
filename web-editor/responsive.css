@@ -77,8 +77,16 @@ body{overflow:hidden}button{touch-action:manipulation}button:focus-visible,selec
 .resource-drawer .bible-panel>header,.resource-drawer .media-drawer>header{padding:6px 12px;gap:8px}
 .resource-drawer .bible-panel>header h2,.resource-drawer .media-drawer>header h2{display:none}
 .resource-drawer .bible-panel>header{flex-wrap:nowrap}.resource-drawer #bibleTarget{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}.resource-drawer .bible-panel>header button,.resource-drawer .media-drawer>header button{font-size:12px;padding:4px 8px;min-height:32px;flex:none}.resource-drawer #resourceClose{margin-left:0}
-.resource-drawer .bible-toolbar{padding:6px 12px;gap:8px}.resource-drawer #bibleQuery{font-size:16px}
-.resource-drawer .bible-filters{padding:4px 12px}.resource-drawer .bible-panel footer{padding:6px 12px}
+.resource-drawer .bible-toolbar{display:flex;flex-wrap:nowrap;align-items:center;gap:8px;padding:8px 12px 4px;background:transparent;border:0}
+.resource-drawer #bibleQuery{flex:1;min-width:0;width:auto;font-size:16px;padding:7px 10px}.resource-drawer #bibleAdd{flex:none;white-space:nowrap}
+.bible-sub{display:flex;align-items:center;gap:8px;padding:0 12px 6px;font-size:12px;color:var(--muted);min-width:0}
+.bible-sub #bibleParsed{color:var(--blue);font-size:12px;margin:0;white-space:nowrap}.bible-sub #bibleParsed:empty{display:none}
+.bible-sub #bibleTarget{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bible-sub #bibleTemplate{flex:0 1 auto;max-width:150px;min-width:0;font-size:12px;padding:3px 6px;border-radius:12px;color:var(--ink)}
+.bible-view{flex:none}.bible-view button{font-size:12px;padding:3px 9px;min-height:0}.bible-view button.active{background:var(--blue);color:white;border-color:var(--blue)}
+.resource-drawer .bible-filters{padding:0 12px 6px;justify-content:flex-start}.resource-drawer .bible-filters button{font-size:12px;padding:3px 9px;min-height:0}
+@media(pointer:coarse){.bible-sub #bibleTemplate,.bible-view button,.resource-drawer .bible-filters button{min-height:32px}}
+@media(max-width:700px){.bible-sub{flex-wrap:wrap;row-gap:4px}.bible-sub #bibleTarget{flex-basis:100%;order:-1}}
 .resource-drawer .media-drawer>.help{margin:2px 12px}
 /* 반 높이: 말씀 장·그림을 가로 한 줄로 */
 .resource-drawer[data-state=half] .bible-grid:not(.reflow){grid-auto-flow:column;grid-template-columns:none;grid-auto-columns:minmax(200px,23%);overflow-x:auto;overflow-y:hidden;align-content:stretch}

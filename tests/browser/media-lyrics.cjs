@@ -19,7 +19,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
  console.log('media batch passed');
  // 성경도 문서 없이 열고 찾는다. 넣기만 꺼진다.
  assert.equal(await page.locator('#resourceOpen').isDisabled(),false);await page.locator('#resourceOpen').click();await page.locator('#bibleQuery').fill('창 1:1-2');await page.waitForFunction(()=>document.querySelectorAll('.bible-card').length===2);
- assert.equal(await page.locator('#bibleAdd').isDisabled(),true,'no document: only adding is off');assert.match(await page.locator('#bibleTarget').textContent(),/문서를 열면 넣을 수 있습니다/);await page.locator('#bibleQuery').fill('');await page.locator('#resourceClose').click();
+ assert.equal(await page.locator('#bibleAdd').isDisabled(),true,'no document: only adding is off');assert.match(await page.locator('#bibleTarget').textContent(),/문서를 열면 넣을 수 있습니다/);await page.locator('#bibleQuery').fill('');await page.locator('#resourceOpen').click();
  console.log('bible without document passed');
  // 하단 서랍: 처음엔 닫힘(손잡이만), 탭 → 반, ▲ → 전체, ▼ → 반, 끌어서 바꾼 반 높이 기억, 같은 탭 → 닫힘.
  const drawer=()=>page.evaluate(()=>({state:YebaeonDrawer.state(),tab:YebaeonDrawer.tab(),h:document.getElementById('resourceDrawer').offsetHeight}));
