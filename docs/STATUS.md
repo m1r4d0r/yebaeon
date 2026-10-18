@@ -2,7 +2,14 @@
 
 이 파일은 세션마다 **덮어써서** 갱신한다. 새 인계 파일을 만들지 않는다. 끝난 일은 [CHANGELOG](CHANGELOG.md), 남은 일은 [BACKLOG](BACKLOG.md)에 둔다.
 
-갱신: 2026-10-17 · PPT 장 그림 ImportedImages 경로·256색 PNG.
+갱신: 2026-10-18 · 미디어 그림 내려받기.
+
+## 10-18 미디어 그림 내려받기
+
+- 미디어 서랍·모두 보기의 그림 칸에 오른쪽 클릭(터치 길게 누르기) 메뉴: 고른 장에 배경으로·내려받기·즐겨찾기. 내려받기는 서버 원본 바이트를 경로 파일 이름으로 저장(`media-library.js` download).
+- 문서를 열지 않았을 때 그림 칸이 disabled 버튼이면 오른쪽 클릭 이벤트가 오지 않아 aria-disabled로 바꿈(누르기는 계속 막음).
+- D1: 내려받기 1번 = 그림 content 요청 1회(세션 확인만). 대기·메뉴 열기에는 요청 없음.
+- 검증: media-lyrics 브라우저 검사에 문서 없이 오른쪽 클릭 › 내려받기, 파일 이름·바이트 일치 추가. studio·responsive·ppt-import·library-bins·서버 검사 통과.
 
 ## 10-17 PPT 가져오기: ImportedImages 경로·256색 PNG
 

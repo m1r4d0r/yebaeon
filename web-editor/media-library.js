@@ -35,9 +35,15 @@
   const sha=await resolve([...found.keys()]);return {playlist,items:[...found.values()].map(x=>({...x,sha:sha(x.path)}))};}
 
  /* ---------- 그림 칸 ---------- */
- function tile(item,{dialog=false}={}){const b=el('div','media-tile'),pick=el('button','media-pick');pick.type='button';pick.title=item.path+(item.documents?'\n사용: '+[...item.documents].join(', '):'');pick.draggable=!dialog&&E.ready();pick.disabled=!E.ready();if(!E.ready())pick.title+='\n문서를 열면 배경으로 적용할 수 있습니다.';
+ // 내려받기: 서버의 원본 바이트를 경로의 파일 이름 그대로 저장한다(브라우저 캐시를 쓰므로 이미 본 그림은 다시 받지 않는다).
+ async function download(item){const name=fileName(item.path)||item.sha;E.status(`‘${name}’ 내려받는 중…`);const r=await fetch('/api/media/'+item.sha+'/content',{credentials:'same-origin'});if(!r.ok)throw new Error('그림을 받지 못했습니다.');
+  const url=URL.createObjectURL(await r.blob()),a=el('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);E.status(`‘${name}’을 내려받았습니다.`);}
+ // 오른쪽 클릭(터치는 길게 누르기) 메뉴: 배경으로 적용·내려받기·즐겨찾기.
+ function tileMenu(e,item){const fav=item.sha&&Favorites.has('media',item.sha);YebaeonSelection.menu(e,[{label:'고른 장에 배경으로',disabled:!E.ready(),action:()=>{E.setBackground(item.source||item.path);}},{label:'내려받기',disabled:!item.sha,action:()=>download(item).catch(error=>E.status(error.message))},{label:fav?'즐겨찾기에서 빼기':'즐겨찾기',disabled:!item.sha,action:()=>Favorites.toggle('media',item.sha,item.path).catch(error=>E.status(error.message))}]);}
+ function tile(item,{dialog=false}={}){const b=el('div','media-tile'),pick=el('button','media-pick');pick.type='button';pick.title=item.path+(item.documents?'\n사용: '+[...item.documents].join(', '):'');pick.draggable=!dialog&&E.ready();if(!E.ready())pick.setAttribute('aria-disabled','true');if(!E.ready())pick.title+='\n문서를 열면 배경으로 적용할 수 있습니다.';
   if(item.sha){const img=el('img');YebaeonThumbnails.attach(img,item.sha);img.alt='';img.loading='lazy';img.decoding='async';pick.append(img);}else pick.append(el('span','media-missing','서버에 없음'));
   pick.append(el('span','media-name',fileName(item.path)));pick.onclick=()=>{if(!E.ready())return;E.setBackground(item.source||item.path);if(dialog)E.status(`‘${fileName(item.path)}’을 배경으로 적용했습니다.`);};
+  pick.oncontextmenu=e=>tileMenu(e,item);if(item.sha)pick.title+='\n오른쪽 클릭: 내려받기';
   pick.ondragstart=e=>{drag={source:item.source||item.path,name:fileName(item.path)};e.dataTransfer.setData('text/plain',drag.source);e.dataTransfer.effectAllowed='copy';};pick.ondragend=()=>{drag=null;};b.append(pick);
   if(item.sha){const star=el('button','media-star'+(Favorites.has('media',item.sha)?' on':''),Favorites.has('media',item.sha)?'★':'☆');star.type='button';star.dataset.sha=item.sha;star.setAttribute('aria-label',(Favorites.has('media',item.sha)?'즐겨찾기에서 빼기':'즐겨찾기')+' · '+fileName(item.path));
    star.onclick=async e=>{e.stopPropagation();star.disabled=true;try{await Favorites.toggle('media',item.sha,item.path);}catch(error){E.status(error.message);}finally{star.disabled=false;}};b.append(star);}
@@ -125,5 +131,5 @@
  window.addEventListener('yebaeonfavorites',e=>{if(e.detail.kind!=='media')return;for(const star of document.querySelectorAll(`.media-star[data-sha="${e.detail.key}"]`)){star.classList.toggle('on',e.detail.on);star.textContent=e.detail.on?'★':'☆';}if(!$('mediaDrawer').hidden)fill();});
  window.YebaeonFavorites=Favorites;
  async function memberDocuments(){const out=[];for(const item of YebaeonPlaylists.items?.()||[]){const value=await memberXML(item);if(value&&!out.some(x=>x.id===value.id))out.push(value);}return out;}
- window.YebaeonMediaLibrary={fill,showAll,showAdd,crop,dragged:()=>drag,usedImages,memberDocuments};
+ window.YebaeonMediaLibrary={download,fill,showAll,showAdd,crop,dragged:()=>drag,usedImages,memberDocuments};
 })();
