@@ -273,8 +273,8 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         NSUInteger receivedCount = 0; for (NSDictionary *e in [web request:@"/api/status" method:@"GET" body:nil headers:nil][@"syncEvents"]) if ([e[@"kind"] isEqual:@"received"]) receivedCount++;
         Check(receivedCount == 1, @"a later report without a new apply adds no received line");
         // 백업 정리: 가장 최근 적용 회차만 남기고 나머지는 macOS 휴지통(검사에서는 시험 폴더)으로.
-        NSString *backups = [profile stringByAppendingPathComponent:@"backups"], *trashBin = [area stringByAppendingPathComponent:@"trash-bin"];
-        [NSFileManager.defaultManager createDirectoryAtPath:trashBin withIntermediateDirectories:YES attributes:nil error:NULL];
+        NSString *backups = [profile stringByAppendingPathComponent:@"backups"], *backupTrash = [area stringByAppendingPathComponent:@"trash-bin"];
+        [NSFileManager.defaultManager createDirectoryAtPath:backupTrash withIntermediateDirectories:YES attributes:nil error:NULL];
         for (NSString *old in @[@"20200101-000000-old1", @"20200102-000000-old2"]) {
             NSString *folder = [backups stringByAppendingPathComponent:old];
             [NSFileManager.defaultManager createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:NULL];
@@ -284,13 +284,13 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         NSDictionary *summary = [resident backupSummary];
         Check(lastApplyID.length && [summary[@"keep"] isEqual:lastApplyID] && [summary[@"count"] unsignedIntegerValue] >= 3 && [summary[@"bytes"] unsignedLongLongValue] >= 6000, [NSString stringWithFormat:@"backup summary: %@", summary]);
         resident.trashItem = ^NSString *(NSString *absolute) {
-            NSString *target = [trashBin stringByAppendingPathComponent:absolute.lastPathComponent];
+            NSString *target = [backupTrash stringByAppendingPathComponent:absolute.lastPathComponent];
             return [NSFileManager.defaultManager moveItemAtPath:absolute toPath:target error:NULL] ? target : nil;
         };
         NSDictionary *cleaned = [resident trashBackupsKeepingLastApply];
         NSArray *left = [NSFileManager.defaultManager contentsOfDirectoryAtPath:backups error:NULL];
         Check([left isEqual:@[lastApplyID]] && [cleaned[@"moved"] unsignedIntegerValue] == [summary[@"count"] unsignedIntegerValue] - 1 && [cleaned[@"bytes"] unsignedLongLongValue] >= 6000 && [cleaned[@"failed"] count] == 0, [NSString stringWithFormat:@"only the last apply backup stays: %@ %@", left, cleaned]);
-        Check([[NSFileManager.defaultManager contentsOfDirectoryAtPath:trashBin error:NULL] containsObject:@"20200101-000000-old1"] && [[resident backupSummary][@"count"] isEqual:@1], @"old backups moved to the trash");
+        Check([[NSFileManager.defaultManager contentsOfDirectoryAtPath:backupTrash error:NULL] containsObject:@"20200101-000000-old1"] && [[resident backupSummary][@"count"] isEqual:@1], @"old backups moved to the trash");
         Check([resident lastApply] != nil, @"the last apply can still be undone");
         // 점검 목록 글: Mac 쪽 사실과 함께 보내면 서버가 서버 상태를 붙인 글을 돌려준다.
         NSString *reviewText = [resident reviewReport:@[@{@"list": @"같은 이름, 다른 내용", @"title": @"1부기도.pro6", @"path": @"1부기도.pro6", @"detail": @"시험", @"actions": @[@"server"]}] rows:@[] status:@{@"build": @1}];
