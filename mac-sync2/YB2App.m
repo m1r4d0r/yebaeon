@@ -42,6 +42,10 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) BOOL organizerDirty;   // 정리 창에서 Mac·서버를 바꿨다: 닫을 때 다시 비교
 @property(nonatomic) NSMutableArray *organizerRows;    // {list, title, path, detail, item}
 @property(nonatomic) NSDictionary *organizerButtons;   // 동작 이름 → 버튼
+@property(nonatomic) NSTextField *backupLabel;         // 정리 창 아래 "백업 n회 · nMB"
+@property(nonatomic) NSButton *backupCleanButton, *reviewCopyButton;
+@property(nonatomic) NSDictionary *backupInfo;         // 마지막으로 센 백업 {count, bytes, keep, keepBytes}
+@property(nonatomic) BOOL copyingReview;
 @property(nonatomic) YB2Server *server;
 @property(nonatomic) NSStatusItem *statusItem;
 @property(nonatomic) NSDate *lastFullCompare;        // 서버에 변경 일지가 없을 때(배포 전) 1시간에 한 번만 비교하기 위해
@@ -644,6 +648,7 @@ static NSString *Summary(NSDictionary *result) {
             self.busy = NO;
             if (error) { [self note:[@"적용 실패 · " stringByAppendingString:error.reason ?: @""]]; [self alert:@"적용하지 못함" text:error.reason]; [self compareNow:nil]; return; }
             NSString *text = Summary(result);
+            [self countBackups];
             [self note:[@"적용 · " stringByAppendingString:text.length ? text : @"바뀐 것 없음"]];
             if (organizerNote) text = [text stringByAppendingFormat:@"%@%@", text.length ? @"\n" : @"", organizerNote];
             [self alert:@"완료" text:text.length ? text : @"바뀐 것이 없습니다."];
@@ -755,13 +760,13 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     });
 }
 - (void)buildOrganizer {
-    NSRect frame = NSMakeRect(0, 0, 980, 480);
+    NSRect frame = NSMakeRect(0, 0, 980, 514);
     self.organizer = [[NSWindow alloc] initWithContentRect:frame styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
-    self.organizer.title = @"예배온 Sync 2 · 정리"; self.organizer.delegate = self; self.organizer.releasedWhenClosed = NO; self.organizer.minSize = NSMakeSize(940, 360);
+    self.organizer.title = @"예배온 Sync 2 · 정리"; self.organizer.delegate = self; self.organizer.releasedWhenClosed = NO; self.organizer.minSize = NSMakeSize(940, 394);
     NSView *content = self.organizer.contentView; CGFloat w = frame.size.width, h = frame.size.height;
     NSTextField *help = Label(@"할 일만 모았습니다. 버튼을 누를 때만 Mac·서버가 바뀝니다.", NSMakeRect(16, h - 30, w - 32, 18), 12);
     help.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin; [content addSubview:help];
-    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 152, w - 32, h - 190)];
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(16, 186, w - 32, h - 224)];
     scroll.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable; scroll.hasVerticalScroller = YES; scroll.borderType = NSBezelBorder;
     self.organizerTable = [[NSTableView alloc] initWithFrame:scroll.bounds];
     self.organizerTable.dataSource = self; self.organizerTable.delegate = self; self.organizerTable.rowHeight = 22; self.organizerTable.allowsMultipleSelection = YES;
@@ -773,7 +778,7 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     scroll.documentView = self.organizerTable; [content addSubview:scroll];
     // 고른 항목 칸: 이름, 그 종류에 맞는 버튼만, 누르면 무엇이 바뀌는지 한 줄
     // 바탕(NSBox)은 뒤에 깔고 이름·버튼은 보통 칸에 둔다(NSBox 안의 버튼은 잘린다).
-    NSView *inner = [[NSView alloc] initWithFrame:NSMakeRect(16, 52, w - 32, 92)];
+    NSView *inner = [[NSView alloc] initWithFrame:NSMakeRect(16, 86, w - 32, 92)];
     inner.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin; [content addSubview:inner];
     NSBox *box = [[NSBox alloc] initWithFrame:inner.bounds];
     box.boxType = NSBoxCustom; box.cornerRadius = 5; box.borderColor = [NSColor colorWithCalibratedWhite:0.78 alpha:1];
@@ -790,9 +795,16 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
         [inner addSubview:button]; buttons[spec[0]] = button;
     }
     self.organizerButtons = buttons;
-    NSButton *check = Button(@"전체 확인 지금", NSMakeRect(16, 14, 130, 28), self, @selector(fullCheckNow:)); check.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
-    self.organizerStatus = Label(@"", NSMakeRect(156, 20, w - 172, 18), 12); self.organizerStatus.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
-    [content addSubview:check]; [content addSubview:self.organizerStatus];
+    // 아래 첫 줄: 전체 확인 · 상태 · [목록 복사]. 둘째 줄: 백업 폴더 열기 · 백업 정리 · 백업 회차 수와 크기.
+    NSButton *check = Button(@"전체 확인 지금", NSMakeRect(16, 48, 130, 28), self, @selector(fullCheckNow:)); check.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
+    self.organizerStatus = Label(@"", NSMakeRect(156, 54, w - 282, 18), 12); self.organizerStatus.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
+    self.reviewCopyButton = Button(@"목록 복사", NSMakeRect(w - 116, 48, 100, 28), self, @selector(copyReview:));
+    self.reviewCopyButton.toolTip = @"확인 필요 목록과 그 항목들의 Mac·서버 상태를 글로 복사합니다. Claude에게 붙여 넣으면 처리 방안을 제안받을 수 있습니다.";
+    NSButton *openBackups = Button(@"백업 폴더 열기", NSMakeRect(16, 12, 130, 28), self, @selector(openBackups:)); openBackups.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
+    self.backupCleanButton = Button(@"백업 정리…", NSMakeRect(152, 12, 110, 28), self, @selector(cleanBackups:)); self.backupCleanButton.autoresizingMask = NSViewMaxXMargin | NSViewMaxYMargin;
+    self.backupCleanButton.toolTip = @"가장 최근 적용(마지막 적용 되돌리기에 쓰임)만 남기고 나머지 백업을 macOS 휴지통으로 옮깁니다.";
+    self.backupLabel = Label(@"", NSMakeRect(272, 18, w - 288, 18), 11); self.backupLabel.textColor = NSColor.secondaryLabelColor; self.backupLabel.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
+    for (NSView *view in @[check, self.organizerStatus, self.reviewCopyButton, openBackups, self.backupCleanButton, self.backupLabel]) [content addSubview:view];
 }
 #pragma mark - 오른쪽 클릭 강제 동작
 
@@ -902,7 +914,7 @@ static NSString *DocumentComparisonLabel(NSDictionary *row, NSString *path) {
 }
 - (void)showOrganizer:(id)sender {
     if (!self.organizer) [self buildOrganizer];
-    [self reloadOrganizer];
+    [self reloadOrganizer]; [self countBackups];
     [self.organizer makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
 }
 - (void)reloadOrganizer {
@@ -968,6 +980,10 @@ static NSString *ActionHint(NSString *action, NSString *list) {
         [button sizeToFit]; NSRect fit = button.frame; fit.size.width += 12; fit.origin = NSMakePoint(x, 28); button.frame = fit; x += fit.size.width + 6;
     }
     self.organizerHint.stringValue = note ?: (shown.count ? ActionHint(shown[[shown.firstObject isEqual:@"diff"] && shown.count > 1 ? 1 : 0], list) : @"");
+    // 백업 정리는 다른 버튼처럼 작업 중·전체 확인 중·PP6 실행 중이면 막는다. 남길 회차 말고 옮길 것이 없어도 끈다.
+    NSUInteger movable = [self.backupInfo[@"count"] unsignedIntegerValue] - ([self.backupInfo[@"keep"] length] ? 1 : 0);
+    self.backupCleanButton.enabled = idle && !self.checking && !YBPresenterRunning() && self.backupInfo && movable > 0;
+    self.reviewCopyButton.enabled = !self.copyingReview;
 }
 // 작업 큐에서 돌리고 끝나면 목록을 새로 그린다.
 - (void)runOrganizer:(NSString *)message task:(id (^)(void))task done:(void (^)(id result))done {
@@ -978,7 +994,7 @@ static NSString *ActionHint(NSString *action, NSString *list) {
         @try { result = task(); } @catch (NSException *e) { error = e; }
         dispatch_async(dispatch_get_main_queue(), ^{
             self.busy = NO; self.statusLabel.stringValue = error ? error.reason : @"완료";
-            [self refreshReview]; [self reloadOrganizer];
+            [self refreshReview]; [self reloadOrganizer]; [self countBackups];
             if (error) { [self note:[NSString stringWithFormat:@"%@ 실패 · %@", message, error.reason ?: @""]]; [self alert:@"하지 못함" text:error.reason]; }
             else if (done) done(result);
         });
@@ -1347,6 +1363,78 @@ static NSString *RemoteLabel(NSDictionary *command) {
     if ([action isEqual:@"force"]) return [@"강제 동작 · " stringByAppendingString:path];
     if ([action isEqual:@"message"]) return @"안내";
     return [action isKindOfClass:NSString.class] ? action : @"알 수 없는 명령";
+}
+
+#pragma mark - 백업 정리·점검 목록 복사
+
+static NSString *Bytes(unsigned long long bytes) { return [NSByteCountFormatter stringFromByteCount:(long long)bytes countStyle:NSByteCountFormatterCountStyleFile]; }
+// 백업 회차 수와 크기는 정리 창을 열 때와 적용·정리 뒤에만 센다(주기적으로 세지 않는다).
+- (void)countBackups {
+    if (!self.organizer || !self.engine) return;
+    YB2Engine *engine = self.engine;
+    dispatch_async(self.work, ^{
+        NSDictionary *info = [engine backupSummary];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (engine != self.engine) return;
+            self.backupInfo = info;
+            NSUInteger count = [info[@"count"] unsignedIntegerValue];
+            self.backupLabel.stringValue = count ? [NSString stringWithFormat:@"백업 %lu회 · %@%@", (unsigned long)count, Bytes([info[@"bytes"] unsignedLongLongValue]), [info[@"keep"] length] ? @" · 가장 최근 적용 회차는 되돌리기에 쓰여 남깁니다" : @""] : @"백업 없음";
+            [self refreshOrganizerButtons];
+        });
+    });
+}
+- (void)cleanBackups:(id)sender {
+    if (self.busy || self.checking || YBPresenterRunning() || !self.backupInfo) return;
+    NSDictionary *info = self.backupInfo;
+    NSUInteger keep = [info[@"keep"] length] ? 1 : 0, moving = [info[@"count"] unsignedIntegerValue] - keep;
+    if (!moving) return;
+    NSAlert *confirm = [NSAlert new]; confirm.messageText = @"백업을 정리할까요?";
+    confirm.informativeText = [NSString stringWithFormat:@"%@%lu회(%@)를 macOS 휴지통으로 옮길까요?\n\n휴지통을 비우기 전까지는 Finder에서 되살릴 수 있습니다.", keep ? @"가장 최근 적용 회차(마지막 적용 되돌리기에 쓰임)만 남기고 " : @"", (unsigned long)moving, Bytes([info[@"bytes"] unsignedLongLongValue] - [info[@"keepBytes"] unsignedLongLongValue])];
+    [confirm addButtonWithTitle:@"휴지통으로"]; [confirm addButtonWithTitle:@"취소"];
+    if ([confirm runModal] != NSAlertFirstButtonReturn) return;
+    [self runOrganizer:@"백업 정리 중" task:^id{ return [self.engine trashBackupsKeepingLastApply]; } done:^(NSDictionary *result) {
+        NSString *text = [NSString stringWithFormat:@"백업 %@회(%@)를 휴지통으로 옮겼습니다.", result[@"moved"], Bytes([result[@"bytes"] unsignedLongLongValue])];
+        if ([result[@"failed"] count]) text = [text stringByAppendingFormat:@"\n옮기지 못함: %@", [result[@"failed"] componentsJoinedByString:@", "]];
+        [self note:text]; [self alert:@"백업 정리" text:text];
+    }];
+}
+// 정리 창 목록을 글로: 서버가 Mac 쪽 사실에 서버 상태를 더해 만든다. 서버에 닿지 않으면 Mac 쪽 내용만 복사한다.
+- (void)copyReview:(id)sender {
+    if (self.copyingReview) return;
+    NSMutableArray *items = [NSMutableArray array];
+    for (NSDictionary *each in [self reviewItems]) {
+        NSMutableDictionary *item = [@{@"list": each[@"list"] ?: @"", @"title": each[@"title"] ?: @"", @"path": each[@"path"] ?: @"", @"detail": each[@"detail"] ?: @"", @"actions": RemoteActions(each)} mutableCopy];
+        if ([each[@"item"][@"references"] isKindOfClass:NSArray.class]) item[@"references"] = each[@"item"][@"references"];
+        [items addObject:item];
+    }
+    NSDictionary *report = [self statusReport:YES];
+    NSMutableDictionary *status = [NSMutableDictionary dictionary];
+    for (NSString *key in @[@"build", @"summary", @"presenter", @"busy", @"fullCheckAt", @"lastApplyAt", @"error"]) if (report[key]) status[key] = report[key];
+    self.copyingReview = YES; [self refreshOrganizerButtons]; self.organizerStatus.stringValue = @"점검 목록을 만드는 중";
+    YB2Engine *engine = self.engine;
+    // 영수증을 읽으므로 다른 엔진 작업과 같은 작업 큐에서 돈다.
+    dispatch_async(self.work, ^{
+        NSString *text = nil, *failure = nil;
+        @try { text = [engine reviewReport:items rows:report[@"rows"] status:status]; }
+        @catch (NSException *e) {
+            failure = e.reason ?: @"서버에 닿지 않음";
+            NSMutableString *local = [NSMutableString stringWithFormat:@"# 예배온 Sync 점검 목록 (Mac 쪽만, 서버 상태 없음: %@)\n\nClaude에게: 저장소 m1r4d0r/yebaeon의 docs/guides/sync-review.md 기준으로 항목마다 추천 처리를 제안해 주세요.\n\n%@\n", failure, status[@"summary"] ?: @""];
+            for (NSDictionary *item in items) {
+                [local appendFormat:@"\n- [%@] %@%@", item[@"list"], item[@"title"], [item[@"detail"] length] ? [@" · " stringByAppendingString:item[@"detail"]] : @""];
+                NSDictionary *facts = [engine macFacts:item[@"path"]];
+                if (facts) [local appendFormat:@"\n  Mac: %@ · %@ · sha %@ · 영수증 기준 v%@", [facts[@"exists"] boolValue] ? @"파일 있음" : @"파일 없음", facts[@"size"] ? Bytes([facts[@"size"] unsignedLongLongValue]) : @"-", [facts[@"sha256"] length] >= 8 ? [facts[@"sha256"] substringToIndex:8] : @"-", facts[@"ledger"][@"version"] ?: @"?"];
+            }
+            text = [local stringByAppendingString:@"\n"];
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.copyingReview = NO;
+            [NSPasteboard.generalPasteboard clearContents];
+            [NSPasteboard.generalPasteboard setString:text forType:NSPasteboardTypeString];
+            self.organizerStatus.stringValue = failure ? [@"서버에 닿지 않아 Mac 쪽 목록만 복사했습니다 · " stringByAppendingString:failure] : [NSString stringWithFormat:@"점검 목록 %lu개를 복사했습니다. Claude에게 붙여 넣어 보내세요.", (unsigned long)items.count];
+            [self note:self.organizerStatus.stringValue];
+            [self refreshOrganizerButtons];
+        });
+    });
 }
 
 - (void)note:(NSString *)text {

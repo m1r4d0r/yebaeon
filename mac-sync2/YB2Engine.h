@@ -103,6 +103,17 @@
 - (BOOL)hasLocalDocument:(NSString *)path;       // 문서 폴더에 그 파일이 있나(NFC·NFD 모두)          // Studio에서 그 문서 열기
 - (NSData *)serverBytes:(NSString *)path;        // 차이 창용 서버 바이트
 + (NSData *)comparableBytes:(NSData *)data;      // 차이 창용: Sync가 같은지 판단할 때 쓰는 비교용 글(4판)
+// 백업 회차(profile/backups 아래 폴더) 수와 합친 크기 {count, bytes, keep(남길 회차 이름 또는 ""), keepBytes}. 창을 열 때와 적용·정리 뒤에만 센다.
+- (NSDictionary *)backupSummary;
+// 가장 최근 적용 회차(마지막 적용 되돌리기에 쓰임, 영수증 lastApplyID)만 남기고 나머지 회차를 macOS 휴지통으로 옮긴다.
+// 반환: {moved, bytes, failed:[회차 이름…]}
+- (NSDictionary *)trashBackupsKeepingLastApply;
+// 정리 창 목록을 Claude에게 보낼 글로: 항목마다 Mac 쪽 사실(파일 있음·크기·수정 시각·sha·영수증 기준)을 붙여 서버에 보내면
+// 서버가 서버 상태를 더해 글을 만든다(POST /api/sync/devices/<id>/review). 반환: 글. 서버에 닿지 않으면 예외.
+- (NSString *)reviewReport:(NSArray *)items rows:(NSArray *)rows status:(NSDictionary *)status;
+// 정리 창 항목의 Mac 쪽 사실 {exists, size, modifiedAt, sha256, ledger}. 문서 경로가 아니면 nil.
+- (NSDictionary *)macFacts:(NSString *)path;
+
 // 마지막 적용 기록({id, at, applied:[…]}) 또는 nil. 되돌리면 그 다음 것이 아니라 nil이 된다(한 단계만).
 - (NSDictionary *)lastApply;
 // 마지막 적용을 되돌린다. 적용 뒤 바뀐 파일은 건너뛴다. PP6가 꺼져 있어야 한다. 반환: {restored:[…], skipped:[…]}

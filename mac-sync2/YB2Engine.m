@@ -17,6 +17,7 @@
 @property(nonatomic) NSString *sourceRoot;              // 서버 재생목록이 아는 문서 폴더 표기(~/… 또는 /Users/…)
 @property(nonatomic) NSMutableDictionary *imageCache;   // 문서 sha → 그 문서가 가리키는 허용 폴더 이미지 경로
 @property(nonatomic) NSSet *knownImagePaths;            // 마지막 비교의 예배 문서들이 가리키는 이미지 경로(변경 일지 거르기용)
+@property(nonatomic) NSMutableDictionary *pendingReceived;  // 아직 서버에 보고하지 않은 [적용]의 받은 내용(적용 보고 때 함께 보내고 비운다)
 @end
 
 static NSString *MacTrashKey(NSString *path) { return [@"macTrash:" stringByAppendingString:path.precomposedStringWithCanonicalMapping]; }
@@ -693,6 +694,9 @@ static NSString *ImageDiskPath(NSString *path) {
     // 이 시점부터는 중단되어도 다음 실행이 같은 내용으로 끝까지 마무리한다.
     [self performJournal:journal stageRoot:stageRoot backupRoot:backupRoot];
     [self pruneBackupsKeeping:10];
+    NSMutableArray *receivedNodes = [NSMutableArray array];
+    for (NSDictionary *record in nodeRecords) if (![record[@"forget"] boolValue] && [record[@"name"] length]) [receivedNodes addObject:record[@"name"]];
+    [self noteReceived:@{@"nodes": receivedNodes, @"documentNames": [stagedDocs valueForKey:@"path"], @"images": @(stagedImages.count), @"held": @(held.count), @"revisions": @(revisions), @"applyID": applyID}];
     return @{@"applied": applied, @"held": held, @"failed": failed, @"backup": backupRoot, @"revisions": @(revisions), @"revisionFailed": revisionFailed, @"images": @(stagedImages.count), @"imageFailed": imageFailed};
 }
 // 받을 이미지를 준비 폴더에 둔다. 영수증 경로표 사본에 없는 경로는 서버 경로표에 50개씩 묻는다(새로 가져온 이미지).
@@ -1823,8 +1827,102 @@ static BOOL RowChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @
         if (reason.length) item[@"reason"] = reason.length > 200 ? [reason substringToIndex:200] : reason;
         [pending addObject:item];
     }
-    NSData *body = [NSJSONSerialization dataWithJSONObject:@{@"seq": seq, @"pending": pending} options:0 error:NULL];
+    // receivedReports: 이 빌드는 [적용]마다 받은 내용을 보고한다(서버는 커서 기준 받기 줄을 만들지 않는다).
+    NSMutableDictionary *report = [@{@"seq": seq, @"pending": pending, @"receivedReports": @YES} mutableCopy];
+    NSDictionary *received = [self.pendingReceived copy];
+    if (received) report[@"received"] = received;
+    NSData *body = [NSJSONSerialization dataWithJSONObject:report options:0 error:NULL];
     [self.server request:[NSString stringWithFormat:@"/api/sync/devices/%@/applied", ((YB2Server *)self.server).deviceID] method:@"POST" body:body headers:JSONHeaders()];
+    if (received && [self.pendingReceived isEqual:received]) self.pendingReceived = nil;
+}
+// [적용]에서 받은 것을 모아 둔다. 받은 게 없으면(보관본·보류만) 남기지 않는다. 다음 적용 보고가 보낸다.
+// {nodes:[예배 이름 최대 20], documents, documentNames:[앞 50], images, held, revisions, applyID}
+- (void)noteReceived:(NSDictionary *)applied {
+    NSArray *nodes = applied[@"nodes"], *names = applied[@"documentNames"];
+    if (!nodes.count && !names.count && ![applied[@"images"] integerValue]) return;
+    NSMutableDictionary *total = self.pendingReceived ?: [@{@"nodes": @[], @"documents": @0, @"documentNames": @[], @"images": @0, @"held": @0, @"revisions": @0} mutableCopy];
+    NSMutableOrderedSet *allNodes = [NSMutableOrderedSet orderedSetWithArray:total[@"nodes"]], *allNames = [NSMutableOrderedSet orderedSetWithArray:total[@"documentNames"]];
+    [allNodes addObjectsFromArray:nodes];
+    for (NSString *path in names) [allNames addObject:path.lastPathComponent.stringByDeletingPathExtension];
+    total[@"nodes"] = allNodes.count > 20 ? [allNodes.array subarrayWithRange:NSMakeRange(0, 20)] : allNodes.array;
+    total[@"documentNames"] = allNames.count > 50 ? [allNames.array subarrayWithRange:NSMakeRange(0, 50)] : allNames.array;
+    for (NSString *key in @[@"images", @"held", @"revisions"]) total[key] = @([total[key] integerValue] + [applied[key] integerValue]);
+    total[@"documents"] = @([total[@"documents"] integerValue] + names.count);
+    total[@"applyID"] = applied[@"applyID"] ?: @"";
+    self.pendingReceived = total;
+}
+
+#pragma mark - 백업 폴더
+
+static unsigned long long FolderBytes(NSString *path) {
+    unsigned long long total = 0;
+    NSDirectoryEnumerator *walk = [NSFileManager.defaultManager enumeratorAtURL:[NSURL fileURLWithPath:path] includingPropertiesForKeys:@[NSURLFileSizeKey, NSURLIsRegularFileKey] options:0 errorHandler:nil];
+    for (NSURL *url in walk) {
+        NSNumber *regular = nil, *size = nil;
+        [url getResourceValue:&regular forKey:NSURLIsRegularFileKey error:NULL];
+        if (regular.boolValue && [url getResourceValue:&size forKey:NSURLFileSizeKey error:NULL]) total += size.unsignedLongLongValue;
+    }
+    return total;
+}
+- (NSArray *)backupNames {
+    NSString *root = [self.profile stringByAppendingPathComponent:@"backups"];
+    NSMutableArray *names = [NSMutableArray array];
+    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:root error:NULL]) {
+        BOOL folder = NO;
+        if (![name hasPrefix:@"."] && [NSFileManager.defaultManager fileExistsAtPath:[root stringByAppendingPathComponent:name] isDirectory:&folder] && folder) [names addObject:name];
+    }
+    return [names sortedArrayUsingSelector:@selector(compare:)];
+}
+- (NSDictionary *)backupSummary {
+    NSString *root = [self.profile stringByAppendingPathComponent:@"backups"], *keep = [self.receipt value:@"lastApplyID"] ?: @"";
+    NSArray *names = [self backupNames]; unsigned long long bytes = 0, keepBytes = 0;
+    for (NSString *name in names) { unsigned long long size = FolderBytes([root stringByAppendingPathComponent:name]); bytes += size; if ([name isEqual:keep]) keepBytes = size; }
+    return @{@"count": @(names.count), @"bytes": @(bytes), @"keep": [names containsObject:keep] ? keep : @"", @"keepBytes": @(keepBytes)};
+}
+- (NSDictionary *)trashBackupsKeepingLastApply {
+    NSString *root = [self.profile stringByAppendingPathComponent:@"backups"], *keep = [self.receipt value:@"lastApplyID"] ?: @"";
+    NSUInteger moved = 0; unsigned long long bytes = 0; NSMutableArray *failed = [NSMutableArray array];
+    for (NSString *name in [self backupNames]) {
+        if ([name isEqual:keep]) continue;
+        NSString *path = [root stringByAppendingPathComponent:name]; unsigned long long size = FolderBytes(path);
+        if (self.trashItem(path)) { moved++; bytes += size; } else [failed addObject:name];
+    }
+    return @{@"moved": @(moved), @"bytes": @(bytes), @"failed": failed};
+}
+
+#pragma mark - 점검 목록 글
+
+- (NSDictionary *)macFacts:(NSString *)path {
+    if (![path isKindOfClass:NSString.class] || ![path.pathExtension.lowercaseString isEqual:@"pro6"]) return nil;
+    NSMutableDictionary *facts = [NSMutableDictionary dictionary];
+    NSString *absolute = [self diskPath:path];
+    facts[@"exists"] = @(absolute != nil);
+    if (absolute) {
+        NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:absolute error:NULL];
+        facts[@"size"] = @([attributes fileSize]);
+        NSDate *modified = [attributes fileModificationDate];
+        if (modified) facts[@"modifiedAt"] = [[NSISO8601DateFormatter new] stringFromDate:modified];
+        NSData *data = [NSData dataWithContentsOfFile:absolute];
+        if (data) facts[@"sha256"] = YBHash(data);
+    }
+    NSDictionary *ledger = [self.receipt ledger:path], *known = [self.receipt document:path];
+    if (ledger || known) facts[@"ledger"] = @{@"version": known[@"version"] ?: ledger[@"version"] ?: @0, @"sha256": known[@"sha"] ?: ledger[@"sha"] ?: @"", @"state": ledger[@"state"] ?: @""};
+    return facts;
+}
+- (NSString *)reviewReport:(NSArray *)items rows:(NSArray *)rows status:(NSDictionary *)status {
+    YBRequire([self.server isKindOfClass:YB2Server.class] && ((YB2Server *)self.server).deviceID.length, @"장치 열쇠로 연결된 뒤에 쓸 수 있습니다.");
+    NSMutableArray *sent = [NSMutableArray array];
+    for (NSDictionary *item in items) {
+        if (sent.count >= 200) break;
+        NSMutableDictionary *one = [item mutableCopy];
+        NSDictionary *facts = [self macFacts:item[@"path"]];
+        if (facts) one[@"mac"] = facts;
+        [sent addObject:one];
+    }
+    NSData *body = [NSJSONSerialization dataWithJSONObject:@{@"items": sent, @"rows": rows ?: @[], @"status": status ?: @{}} options:0 error:NULL];
+    NSDictionary *result = [self.server request:[NSString stringWithFormat:@"/api/sync/devices/%@/review", ((YB2Server *)self.server).deviceID] method:@"POST" body:body headers:JSONHeaders()];
+    YBRequire([result[@"text"] isKindOfClass:NSString.class], @"서버에서 점검 목록을 받지 못했습니다.");
+    return result[@"text"];
 }
 
 - (void)pruneBackupsKeeping:(NSUInteger)limit {
