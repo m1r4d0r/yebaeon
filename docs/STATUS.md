@@ -2,7 +2,15 @@
 
 이 파일은 세션마다 **덮어써서** 갱신한다. 새 인계 파일을 만들지 않는다. 끝난 일은 [CHANGELOG](CHANGELOG.md), 남은 일은 [BACKLOG](BACKLOG.md)에 둔다.
 
-갱신: 2026-10-21 · Sync 2 [적용] 새 문서·강제 동작 예약(빌드 151 게시), 사이트 템플릿 1단계, PPT 변환 실패 문구, 주보 찬양 칸 검색.
+갱신: 2026-10-21 · PDF 가져오기 옛 브라우저 오류, Sync 2 [적용] 새 문서·강제 동작 예약(빌드 151 게시), 사이트 템플릿 1단계, PPT 변환 실패 문구, 주보 찬양 칸 검색.
+
+## 10-21 PDF 가져오기 `Promise.withResolvers is not a function`(사용자 지적)
+
+- 증상: Studio PPT·PDF 가져오기에서 PDF(설교 슬라이드 14쪽)를 고르면 `파일 읽기 실패: Promise.withResolvers is not a function`.
+- 원인(확정): pdf.js 6.4.299 legacy 빌드가 변환기·작업자 모두에서 `Promise.withResolvers`를 그대로 부르고 메우지 않는다. 이 기능은 Chrome 119·Safari 17.4부터 있다. 사용자 브라우저 버전은 미확인(추정: High Sierra의 Chrome 116처럼 그보다 옛 버전).
+- 조치: `web-editor/pdf-polyfill.mjs`를 변환기 맨 앞에 import하고, 빌드가 같은 파일을 `pdf-worker.js` 앞에 붙인다. PPT 변환기·서버·D1 변화 없음. pdf.js가 쓰는 다른 최신 기능(ReadableStream for-await, `.bytes()`)은 실패 시 대체 경로가 있거나 이 화면이 쓰지 않는 경로임을 코드로 확인.
+- 검증: ppt-import 브라우저 검사가 화면과 PDF 작업자 모두에서 `Promise.withResolvers`를 지운 채 돈다. 고치기 전 코드에서 운영과 같은 문구로 실패 재현, 고친 뒤 통과. `npm test` 102개 통과, 배포 사전 검사 통과.
+- 남음: 사용자 브라우저에서 같은 PDF를 다시 가져와 확인.
 
 ## 10-18 Sync 2 [적용] 새 문서·단추 이름·강제 동작 예약 — main dbbb097, Sync 빌드 151 게시(사용자 승인 10-21)
 

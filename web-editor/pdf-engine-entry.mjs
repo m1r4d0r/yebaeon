@@ -1,3 +1,4 @@
+import './pdf-polyfill.mjs';
 import {getDocument,GlobalWorkerOptions} from 'pdfjs-dist/legacy/build/pdf.mjs';
 // 말씀 PDF를 슬라이드 크기 PNG로 바꾼다. 브라우저 안에서만 하며 원본은 서버로 보내지 않는다.
 // 최신 JS 기능을 메워 둔 legacy 빌드를 쓴다(교회·집 브라우저 버전 차이).

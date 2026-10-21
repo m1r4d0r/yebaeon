@@ -34,7 +34,7 @@ export const pdfFiles=Object.freeze(['pdf-engine.js','pdf-worker.js','pdf-LICENS
 let pendingPDF;
 export function buildPDF(){return pendingPDF??=(async()=>{
  const result=await build({absWorkingDir:root,entryPoints:['web-editor/pdf-engine-entry.mjs'],bundle:true,minify:true,format:'iife',globalName:'YebaeonPDFEngine',platform:'browser',target:'chrome110',write:false,legalComments:'inline',logLevel:'error'});
- const worker=await readFile(pdfRoot+'legacy/build/pdf.worker.min.mjs');
+ const worker=Buffer.concat([await readFile(root+'web-editor/pdf-polyfill.mjs'),await readFile(pdfRoot+'legacy/build/pdf.worker.min.mjs')]);
  const notices='Bundled browser PDF import component (pdfjs-dist, see the pinned package-lock.json).\n\n===== pdfjs-dist / LICENSE =====\n'+await readFile(pdfRoot+'LICENSE','utf8');
  return [['pdf-engine.js',result.outputFiles[0].contents],['pdf-worker.js',worker],['pdf-LICENSES.txt',Buffer.from(notices)],...await Promise.all(pdfCMaps.map(async n=>['pdf-cmap-'+n,await readFile(pdfRoot+'cmaps/'+n)]))];
 })();}
