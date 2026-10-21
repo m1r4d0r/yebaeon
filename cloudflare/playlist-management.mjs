@@ -27,20 +27,20 @@ async function documentRows(env,paths){
   for(let i=0;i<paths.length;i+=80){const batch=paths.slice(i,i+80);found.push(...(await env.DB.prepare(`SELECT d.id,d.path,d.current_version AS version,d.sha256,d.size,v.object_key AS objectKey FROM yebaeon_documents d JOIN yebaeon_versions v ON v.document_id=d.id AND v.version=d.current_version WHERE d.path IN (${batch.map(()=>'?').join(',')})`).bind(...batch).all()).results);}
   return found;
 }
-async function snapshot(env,r,parsed,node,user){
+// 보관: 문서 원본을 보관 전용 경로에 한 번 복사한다(곡 이력 정리와 상관없이 보관 당시 원본을 내려받을 수 있게).
+// 휴지통: 꺼낼 때 지금 문서를 다시 연결하므로 순서와 문서 목록만 남기고 원본은 읽지도 복사하지도 않는다.
+async function snapshot(env,r,parsed,node,user,{copy}){
   const paths=[...new Set(node.items.filter(i=>i.kind==='document').map(i=>referencePath(i.sourcePath,r.source_root)).filter(Boolean))];
   const documents=await documentRows(env,paths);
-  // Originals are copied once into an archive-owned namespace. Subsequent song
-  // history pruning can safely remove its disposable versions without losing this copy.
-  if(documents.length>500||documents.reduce((n,d)=>n+d.size,0)>80*1024*1024)throw new HttpError(413,'archive_too_large','한 번에 보관할 문서의 크기가 큽니다. 목록을 나눠 주세요.');
-  const prefix=`playlist-archives/${r.id}/${crypto.randomUUID()}`,files=[];
-  for(let i=0;i<documents.length;i+=4)files.push(...await Promise.all(documents.slice(i,i+4).map(async d=>{
+  if(copy&&(documents.length>500||documents.reduce((n,d)=>n+d.size,0)>80*1024*1024))throw new HttpError(413,'archive_too_large','한 번에 보관할 문서의 크기가 큽니다. 목록을 나눠 주세요.');
+  const prefix=`playlist-archives/${r.id}/${crypto.randomUUID()}`,files=copy?[]:documents.map(({objectKey,...d})=>d);
+  if(copy)for(let i=0;i<documents.length;i+=4)files.push(...await Promise.all(documents.slice(i,i+4).map(async d=>{
     const object=await env.FILES.get(d.objectKey);if(!object)throw new HttpError(409,'archive_file_missing','연결된 문서 원본이 없어 보관을 완료하지 못했습니다. 원본을 확인해 주세요.');
     const data=await object.arrayBuffer();if(await sha256(data)!==d.sha256)throw new HttpError(503,'archive_hash_mismatch','문서 원본 검증에 실패했습니다. 보관하지 않았습니다.');
     const key=prefix+'/'+d.id+'.pro6';await env.FILES.put(key,data,{sha256:d.sha256,httpMetadata:{contentType:'application/xml'}});
     return {...d,objectKey:key};
   })));
-  const key=prefix+'/manifest.json',manifest={schema:1,libraryId:r.id,nodeId:node.id,name:node.name,sourceRoot:r.source_root,xml:parsed.xml.slice(node.node.start,node.node.end),createdAt:new Date().toISOString(),createdBy:user.author,documents:files,missing:paths.filter(p=>!documents.some(d=>d.path===p)),unmapped:node.items.filter(i=>i.kind==='document'&&!referencePath(i.sourcePath,r.source_root)).length,media:'references-only'};
+  const key=prefix+'/manifest.json',manifest={schema:1,libraryId:r.id,nodeId:node.id,name:node.name,sourceRoot:r.source_root,xml:parsed.xml.slice(node.node.start,node.node.end),createdAt:new Date().toISOString(),createdBy:user.author,documents:files,missing:paths.filter(p=>!documents.some(d=>d.path===p)),unmapped:node.items.filter(i=>i.kind==='document'&&!referencePath(i.sourcePath,r.source_root)).length,media:'references-only',documentCopies:!!copy};
   await env.FILES.put(key,JSON.stringify(manifest),{httpMetadata:{contentType:'application/json'}});
   return {key,manifest};
 }
@@ -53,7 +53,9 @@ export async function managePlaylist(request,env,user,r,action,helpers){
     const object=control?.snapshot_key&&await env.FILES.get(control.snapshot_key);if(!object)throw new HttpError(404,'not_found','보관 원본을 찾지 못했습니다.');
     const saved=await object.json(),documentId=url.searchParams.get('document');
     if(documentId){
-      const doc=saved.documents.find(d=>d.id===documentId),file=doc&&await env.FILES.get(doc.objectKey);
+      const doc=saved.documents.find(d=>d.id===documentId);
+      if(doc&&!doc.objectKey)throw new HttpError(404,'not_found','휴지통 예배는 문서 사본을 두지 않습니다.');
+      const file=doc&&await env.FILES.get(doc.objectKey);
       if(!file)throw new HttpError(404,'not_found','보관 문서를 찾지 못했습니다.');
       return new Response(file.body,{headers:{...headers,'Content-Type':'application/xml; charset=utf-8','Cache-Control':'private, no-store','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(doc.path.split('/').pop())}`,'X-Yebaeon-SHA256':doc.sha256}});
     }
@@ -94,8 +96,7 @@ export async function managePlaylist(request,env,user,r,action,helpers){
   }else{
     const selected=parsed.playlists.find(p=>p.id===nodeId);if(!selected)throw new HttpError(404,'not_found','재생목록을 찾지 못했습니다.');
     if(typeof body.baseNodeHash==='string'&&body.baseNodeHash!==await sha256(encoder.encode(parsed.xml.slice(selected.node.start,selected.node.end))))throw conflict();
-    // 보관함과 휴지통 모두 그 순간의 순서와 문서 사본을 남긴다. 꺼낼 때 그대로 돌아온다.
-    const copy=await snapshot(env,r,parsed,selected,user);
+    const copy=await snapshot(env,r,parsed,selected,user,{copy:archive});
     xml=removePlaylist(parsed,nodeId);change={id:nodeId,name:selected.name,state:archive?'archived':'trashed',snapshotKey:copy.key};
     summary={archived:archive,trashed:trash,missing:copy.manifest.missing||[],mediaVerified:false};
   }

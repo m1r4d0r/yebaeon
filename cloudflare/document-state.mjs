@@ -27,7 +27,7 @@ export async function documentStateRoute(request, env, user, id, action, helpers
     const writeId = crypto.randomUUID(), now = new Date().toISOString();
     const results = await db.batch([
       db.prepare(`UPDATE yebaeon_documents SET state=?,state_at=?,state_by=?,write_id=? WHERE id=? AND state IN (${step.from.map(() => '?').join(',')})`).bind(step.to, now, user.author, writeId, id, ...step.from),
-      documentLog(db, { id, writeId, action: step.log, author: user.author, now })
+      documentLog(db, { id, writeId, action: step.log, author: user.author, device: user.device || null, now })
     ]);
     if (results[0].meta.changes !== 1) throw new HttpError(409, 'invalid_state', '다른 작업자가 먼저 바꿨습니다. 목록을 새로고침해 주세요.');
     return json({ document: helpers.document({ ...row, state: step.to, state_at: now, state_by: user.author }) });
@@ -47,7 +47,7 @@ export async function documentStateRoute(request, env, user, id, action, helpers
     results = await db.batch([
       db.prepare('UPDATE yebaeon_documents SET path=?,write_id=? WHERE id=? AND current_version=? AND path=?').bind(path, writeId, id, row.current_version, row.path),
       db.prepare('UPDATE yebaeon_library_catalog SET path=?,original_path=? WHERE path=? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=?)').bind(path, path, row.path, id, writeId),
-      documentLog(db, { id, writeId, action: 'renamed', author: user.author, now, previous: row.path })
+      documentLog(db, { id, writeId, action: 'renamed', author: user.author, device: user.device || null, now, previous: row.path })
     ]);
   } catch (error) {
     if (/UNIQUE/i.test(String(error?.message))) throw new HttpError(409, 'path_exists', '같은 이름의 문서가 이미 있습니다. 다른 이름을 입력해 주세요.');

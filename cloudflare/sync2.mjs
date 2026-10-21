@@ -1,7 +1,7 @@
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
 import { documentAttributes } from './document-usage.mjs';
 import { ledgerRoute } from './ledger.mjs';
-import { resolveRevisionRoute } from './admin.mjs';
+import { resolveRevisionRoute, purgeRevisionsRoute, deleteRevisionRoute } from './admin.mjs';
 
 // Sync 2 · 서버 2단계 (재설계안 7.1).
 // - 변경 일지(sync_log): 문서·예배 쓰기와 같은 batch 안에서 write_id 조건으로 한 줄씩 쌓는다. CAS가 실패한 저장은 남지 않는다.
@@ -33,13 +33,29 @@ export async function migrateSync2(db) {
   }
 }
 
+// 일지의 장치 번호(device_id). 기존 행은 NULL로 둔다(옛 줄은 이름으로만 구분됐다).
+export const SYNC_LOG_DEVICE_MIGRATION = 'sync-log-device-v1';
+export async function migrateSyncLogDevice(db) {
+  if (await db.prepare(`SELECT name FROM yebaeon_schema_migrations WHERE name='${SYNC_LOG_DEVICE_MIGRATION}'`).first()) return;
+  const columns = new Set((await db.prepare('PRAGMA table_info(yebaeon_sync_log)').all()).results.map(r => r.name));
+  try {
+    await db.batch([
+      ...(columns.has('device_id') ? [] : [db.prepare('ALTER TABLE yebaeon_sync_log ADD COLUMN device_id TEXT')]),
+      db.prepare(`INSERT INTO yebaeon_schema_migrations(name) VALUES ('${SYNC_LOG_DEVICE_MIGRATION}')`)
+    ]);
+  } catch (error) {
+    if (!await db.prepare(`SELECT name FROM yebaeon_schema_migrations WHERE name='${SYNC_LOG_DEVICE_MIGRATION}'`).first()) throw error;
+  }
+}
+
 // 일지 한 줄. 쓰기가 실제로 커밋됐을 때만 남도록 write_id 조건을 단다.
-export function documentLog(db, { id, writeId, action, author, now, previous = null }) {
-  return db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,size,path,previous,author,at) SELECT 'doc',id,?,current_version,sha256,size,path,?,?,? FROM yebaeon_documents WHERE id=? AND write_id=?`).bind(action, previous, author, now, id, writeId);
+// device: 장치 열쇠로 쓴 줄이면 그 장치 번호, 사람(Studio)이면 null. Sync 기록은 이름이 아니라 이 값으로 Mac 올리기와 Studio 작업을 나눈다.
+export function documentLog(db, { id, writeId, action, author, device = null, now, previous = null }) {
+  return db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,size,path,previous,author,device_id,at) SELECT 'doc',id,?,current_version,sha256,size,path,?,?,?,? FROM yebaeon_documents WHERE id=? AND write_id=?`).bind(action, previous, author, device, now, id, writeId);
 }
 // 예배(노드)는 entity = '<재생목록 id>:<노드 id>'. 순서가 바뀌면 kind 'node', 보관·삭제는 'node-state'.
-export function nodeLog(db, { libraryId, writeId, nodeId, name, sha, kind = 'node', action, author, now, previous = null }) {
-  return db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,name,previous,author,at) SELECT ?,id||':'||?,?,current_version,?,?,?,?,? FROM yebaeon_playlists WHERE id=? AND write_id=?`).bind(kind, nodeId, action, sha, name, previous, author, now, libraryId, writeId);
+export function nodeLog(db, { libraryId, writeId, nodeId, name, sha, kind = 'node', action, author, device = null, now, previous = null }) {
+  return db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,name,previous,author,device_id,at) SELECT ?,id||':'||?,?,current_version,?,?,?,?,?,? FROM yebaeon_playlists WHERE id=? AND write_id=?`).bind(kind, nodeId, action, sha, name, previous, author, device, now, libraryId, writeId);
 }
 const head = async db => (await db.prepare('SELECT COALESCE(MAX(seq),0) AS seq FROM yebaeon_sync_log').first()).seq;
 
@@ -92,15 +108,26 @@ async function devicesRoute(request, env, user, id, sub) {
   await env.DB.prepare('INSERT INTO yebaeon_sync_devices(id,name,token_hash,created_at,created_by) VALUES (?,?,?,?,?)').bind(deviceId, name, await sha256(secret), now, user.author).run();
   return json({ device: { id: deviceId, name, createdAt: now }, token: `ybd_${deviceId}_${secret}` }, 201);
 }
-// 커서가 앞으로 간 만큼 다른 사람이 서버에 쓴 것을 받은 것으로 보고 Sync 기록 한 줄을 만든다.
-// 장치 자신이 올린 것만 지나갔으면 남기지 않는다. 이름은 앞 8개만, 개수는 40개까지 센다.
+// 옛 빌드(받은 내용 보고가 없음): 커서가 앞으로 간 만큼 다른 사람·장치가 서버에 쓴 것을 받은 것으로 보고 Sync 기록 한 줄을 만든다.
+// 장치 자신이 쓴 줄(device_id)은 세지 않는다. 종류별 수는 COUNT로, 이름은 문서·예배 앞 8개만.
 async function appliedEvent(db, id, device, seq, now) {
-  const rows = (await db.prepare('SELECT kind,path,name FROM yebaeon_sync_log WHERE seq>? AND seq<=? AND author<>? ORDER BY seq LIMIT 41').bind(device.applied_seq, seq, device.name).all()).results;
-  if (!rows.length) return null;
-  const label = r => r.kind === 'doc' ? (r.path || '').split('/').pop().replace(/\.pro6$/i, '') : r.kind === 'media' ? null : r.name;
-  const names = [...new Set(rows.map(label).filter(Boolean))];
-  const summary = { count: Math.min(rows.length, 40), more: rows.length > 40, images: rows.filter(r => r.kind === 'media').length, names: names.slice(0, 8) };
-  return db.prepare('INSERT INTO yebaeon_sync_events(device_id,kind,summary,at) VALUES (?,?,?,?)').bind(id, 'applied', JSON.stringify(summary), now);
+  const range = 'seq>? AND seq<=? AND (device_id IS NULL OR device_id<>?)', args = [device.applied_seq, seq, id];
+  const counted = (await db.prepare(`SELECT kind,COUNT(*) AS n FROM yebaeon_sync_log WHERE ${range} GROUP BY kind`).bind(...args).all()).results;
+  if (!counted.length) return null;
+  const counts = { documents: 0, nodes: 0, images: 0 };
+  for (const r of counted) counts[r.kind === 'doc' ? 'documents' : r.kind === 'media' ? 'images' : 'nodes'] += r.n;
+  const rows = (await db.prepare(`SELECT kind,path,name FROM yebaeon_sync_log WHERE ${range} AND kind<>'media' ORDER BY seq LIMIT 8`).bind(...args).all()).results;
+  const names = [...new Set(rows.map(r => r.kind === 'doc' ? (r.path || '').split('/').pop().replace(/\.pro6$/i, '') : r.name).filter(Boolean))];
+  return db.prepare('INSERT INTO yebaeon_sync_events(device_id,kind,summary,at) VALUES (?,?,?,?)').bind(id, 'applied', JSON.stringify({ counts, names }), now);
+}
+// 새 빌드: [적용]이 끝난 뒤 Sync가 받은 예배·문서·그림·보류·보관본 수를 보고한다. 요약은 4KB 안으로 자른다.
+const text = (v, n) => typeof v === 'string' ? v.slice(0, n) : '';
+const count = v => Number.isSafeInteger(v) && v >= 0 ? v : 0;
+function receivedSummary(r) {
+  const list = (v, max, n) => Array.isArray(v) ? v.map(x => text(x, n)).filter(Boolean).slice(0, max) : [];
+  const summary = { nodes: list(r.nodes, 20, 200), documents: count(r.documents), documentNames: list(r.documentNames, 50, 200), images: count(r.images), held: count(r.held), revisions: count(r.revisions), applyID: text(r.applyID, 64) };
+  while (JSON.stringify(summary).length > 4096 && (summary.documentNames.length || summary.nodes.length)) (summary.documentNames.length ? summary.documentNames : summary.nodes).pop();
+  return JSON.stringify(summary);
 }
 // 장치가 "어디까지 적용했나 + 보류 목록"을 한 줄로 보고한다. Studio는 이것과 일지 번호로 적용 상태를 계산한다.
 async function appliedRoute(request, env, user, id) {
@@ -112,7 +139,10 @@ async function appliedRoute(request, env, user, id) {
   // 커서는 뒤로 가지 않는다(늦게 도착한 옛 보고가 덮지 않게).
   const update = db.prepare('UPDATE yebaeon_sync_devices SET applied_seq=MAX(applied_seq,?),applied_at=?,pending=? WHERE id=?').bind(seq, now, JSON.stringify(pending.map(({ kind, entity, reason }) => ({ kind, entity, ...(reason ? { reason } : {}) }))), id);
   const device = await db.prepare('SELECT name,applied_seq FROM yebaeon_sync_devices WHERE id=?').bind(id).first();
-  const event = device && seq > device.applied_seq ? await appliedEvent(db, id, device, seq, now) : null;
+  // received가 있으면 그 보고로 '받기' 줄을 만든다. receivedReports(새 빌드)면 받은 게 없을 때 줄을 만들지 않는다. 둘 다 없으면 옛 빌드: 커서 기준.
+  const received = body.received && typeof body.received === 'object' && !Array.isArray(body.received) ? body.received : null;
+  const event = received ? db.prepare('INSERT INTO yebaeon_sync_events(device_id,kind,summary,at) VALUES (?,?,?,?)').bind(id, 'received', receivedSummary(received), now)
+    : !body.receivedReports && device && seq > device.applied_seq ? await appliedEvent(db, id, device, seq, now) : null;
   if (event) await db.batch([update, event]); else await update.run();
   return json({ ok: true, appliedAt: now });
 }
@@ -190,11 +220,12 @@ async function revisionsRoute(request, env, user, id, sub) {
   method(request, ['GET', 'POST']);
   const url = new URL(request.url);
   if (request.method === 'GET') {
-    // 열린 것만, 기술적 차이 보관본은 기본으로 숨긴다.
+    // 열린 것만, 기술적 차이 보관본은 기본으로 숨긴다. 정리 끝난 수(지우기 전 남은 것)도 함께 준다.
     const entity = url.searchParams.get('entity'), technical = url.searchParams.get('technical') === '1';
     if (entity && entity.length > 200) throw new HttpError(400, 'invalid_query', '대상을 확인해 주세요.');
     const rows = (await db.prepare(`SELECT * FROM yebaeon_sync_revisions WHERE resolved_at IS NULL ${entity ? 'AND entity=?' : ''} ${technical ? '' : "AND reason<>'technical'"} ORDER BY created_at DESC LIMIT 100`).bind(...(entity ? [entity] : [])).all()).results;
-    return json({ revisions: rows.map(revisionView) });
+    const resolved = (await db.prepare('SELECT COUNT(*) AS n FROM yebaeon_sync_revisions WHERE resolved_at IS NOT NULL').first()).n;
+    return json({ revisions: rows.map(revisionView), resolved });
   }
   sameOrigin(request);
   const kind = url.searchParams.get('kind'), reason = url.searchParams.get('reason') || 'both-changed';
@@ -233,6 +264,8 @@ function revisionView(r) {
 export async function sync2Route(request, env, user, resource, id, sub) {
   if (resource === 'devices') return devicesRoute(request, env, user, id, sub);
   if (resource === 'revisions' && id && sub === 'resolve') return resolveRevisionRoute(request, env, user, id);
+  if (resource === 'revisions' && id === 'purge' && !sub) return purgeRevisionsRoute(request, env, user);
+  if (resource === 'revisions' && id && !sub && request.method === 'DELETE') return deleteRevisionRoute(request, env, user, id);
   if (resource === 'revisions') return revisionsRoute(request, env, user, id, sub);
   if (resource === 'ledger' && !id && !sub) return ledgerRoute(request, env);
   if (id || sub) throw new HttpError(404, 'not_found', '없는 요청입니다.');

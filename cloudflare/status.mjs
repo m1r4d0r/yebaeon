@@ -22,15 +22,18 @@ export async function statusRoute(request, env) {
   const recent = await query('recent',`SELECT id, path, current_version AS version, updated_by AS author,
     updated_at AS updatedAt, size FROM yebaeon_documents ORDER BY updated_at DESC, path LIMIT 20`);
   const images = await query('media-summary','SELECT COUNT(*) AS count, COALESCE(SUM(size),0) AS bytes FROM yebaeon_media_assets',true);
-  const devices = await query('devices',"SELECT id,name,status_at AS statusAt,json_extract(status,'$.build') AS build FROM yebaeon_sync_devices WHERE revoked_at IS NULL");
+  const devices = await query('devices',"SELECT id,name,status_at AS statusAt,last_seen_at AS lastSeenAt,json_extract(status,'$.build') AS build FROM yebaeon_sync_devices WHERE revoked_at IS NULL");
   const deviceNames = new Set(devices.map(d => d.name));
-  // 최근 서버 쓰기 300줄만 읽어 Studio 작업(사람)과 Mac 올리기(장치 이름)로 나눈다.
-  const log = await query('sync-log',`SELECT seq,kind,action,path,name,author,at FROM yebaeon_sync_log ORDER BY seq DESC LIMIT 300`);
+  // 최근 서버 쓰기 300줄만 읽어 Studio 작업(device_id 없음)과 Mac 올리기(장치 열쇠로 쓴 줄)로 나눈다. 이름이 같아도 섞이지 않는다.
+  const log = await query('sync-log',`SELECT seq,kind,entity,action,path,name,author,device_id AS deviceId,at FROM yebaeon_sync_log ORDER BY seq DESC LIMIT 300`);
   const applied = await query('sync-events',`SELECT device_id AS deviceId,kind,summary,at FROM yebaeon_sync_events ORDER BY seq DESC LIMIT 30`);
   const commands = await query('sync-commands',`SELECT device_id AS deviceId,action,args,author,created_at AS at,state FROM yebaeon_sync_commands ORDER BY created_at DESC LIMIT 20`);
-  const studio = studioWork(log.filter(r => !deviceNames.has(r.author)));
-  const syncEvents = deviceEvents(log.filter(r => deviceNames.has(r.author)), applied, commands, devices);
-  for (const r of recent) r.device = deviceNames.has(r.author);
+  const studio = studioWork(log.filter(r => !r.deviceId));
+  const syncEvents = deviceEvents(log.filter(r => r.deviceId), applied, commands, devices);
+  // 최근 문서의 Mac/Studio 표시도 그 문서의 마지막 일지 줄로 정한다. 300줄 밖이면 이름으로 짐작한다.
+  const lastWriter = new Map();
+  for (const r of log) if (r.kind === 'doc' && !lastWriter.has(r.entity)) lastWriter.set(r.entity, !!r.deviceId);
+  for (const r of recent) r.device = lastWriter.has(r.id) ? lastWriter.get(r.id) : deviceNames.has(r.author);
   let storage;
   if(detailed){
     const documentHistory=await query('document-history',`SELECT COUNT(*) AS count, COALESCE(SUM(v.size),0) AS bytes FROM yebaeon_versions v JOIN yebaeon_documents d ON d.id=v.document_id WHERE v.version<>d.current_version`,true);
@@ -40,7 +43,7 @@ export async function statusRoute(request, env) {
     storage={currentDocuments:{count:totals.documents,bytes:totals.bytes},currentPlaylists:playlists,documentHistory,playlistHistory,images,imageFolders:folders,trackedBytes:totals.bytes+playlists.bytes+documentHistory.bytes+playlistHistory.bytes+images.bytes};
   }
   console.log(JSON.stringify({event:'d1-read-cost',route:detailed?'status-details':'status',queries:costs}));
-  return json({ ...totals,...catalog,playlists:playlists.count,images,...(storage?{storage}:{}),recent,studio,syncEvents,devices:devices.map(({name,statusAt,build})=>({name,statusAt,build:Number.isSafeInteger(build)?build:null})),syncApp:await latestBuild(env),observedAt:new Date().toISOString() });
+  return json({ ...totals,...catalog,playlists:playlists.count,images,...(storage?{storage}:{}),recent,studio,syncEvents,devices:devices.map(({id,name,statusAt,lastSeenAt,build})=>({name,code:String(id||'').slice(0,6),statusAt,lastSeenAt,build:Number.isSafeInteger(build)?build:null})),syncApp:await latestBuild(env),observedAt:new Date().toISOString() });
 }
 
 // 서버에 게시된 최신 Sync 2 빌드(R2 latest.json, D1 읽기 없음). 없거나 읽지 못하면 null.
@@ -64,15 +67,30 @@ function studioWork(rows) {
   return [...people.values()].slice(0, 10).map(p => ({ author: p.author, at: p.at, docs: p.docs.slice(0, 3), docCount: p.docs.length, nodes: p.nodes.slice(0, 3), nodeCount: p.nodes.length, images: p.images }));
 }
 const COMMAND = { check: '다시 비교', fullCheck: '전체 확인', undo: '마지막 적용 되돌리기', apply: '적용', organizer: '정리', force: '강제 동작', message: '안내' };
-// Mac이 올린 것(같은 분은 한 줄), 받아 적용한 것, 원격 명령을 시각순 한 목록으로.
+const label = r => r.kind === 'doc' ? docName(r.path) : r.kind === 'media' ? null : r.name;
+const countKey = kind => kind === 'doc' ? 'documents' : kind === 'media' ? 'images' : 'nodes';
+// 받기 요약(sync_events.summary)을 화면 모양으로. 'received'는 Sync가 [적용]마다 보낸 보고, 'applied'는 옛 빌드의 커서 기준 줄이다.
+function receivedView(kind, s) {
+  if (kind === 'received') {
+    const nodes = Array.isArray(s.nodes) ? s.nodes : [];
+    return { counts: { documents: s.documents || 0, nodes: nodes.length, images: s.images || 0 }, names: (nodes.length ? nodes : s.documentNames || []).slice(0, 8), all: [...nodes, ...(s.documentNames || [])].slice(0, 100), held: s.held || 0, revisions: s.revisions || 0 };
+  }
+  // 종류별 수가 있는 줄(counts)과, 그 전 모양(count 안에 그림 수 포함)
+  const counts = s.counts || { documents: Math.max(0, (s.count || 0) - (s.images || 0)), nodes: 0, images: s.images || 0, ...(s.more ? { more: true } : {}) };
+  return { counts, names: (s.names || []).slice(0, 8), all: s.names || [] };
+}
+// Mac이 올린 것(같은 장치·같은 분은 한 줄), 받아 적용한 것, 원격 명령을 시각순 한 목록으로.
+// 올리기 줄은 문서·예배·그림 수를 따로 세고, 문서·예배 이름 전체(최대 100)를 펼쳐 볼 수 있게 준다.
 function deviceEvents(uploads, applied, commands, devices) {
   const names = new Map(devices.map(d => [d.id, d.name])), out = [];
   for (const r of uploads) {
-    const minute = (r.at || '').slice(0, 16), last = out[out.length - 1], label = r.kind === 'doc' ? docName(r.path) : r.kind === 'media' ? null : r.name;
-    if (last && last.kind === 'uploaded' && last.device === r.author && last.minute === minute) { if (label && !last.names.includes(label)) last.names.push(label); last.count++; continue; }
-    out.push({ kind: 'uploaded', device: r.author, at: r.at, minute, names: label ? [label] : [], count: 1 });
+    const minute = (r.at || '').slice(0, 16), last = out[out.length - 1], name = label(r);
+    let line = last && last.kind === 'uploaded' && last.deviceId === r.deviceId && last.minute === minute ? last : null;
+    if (!line) out.push(line = { kind: 'uploaded', deviceId: r.deviceId, device: names.get(r.deviceId) || r.author, at: r.at, minute, counts: { documents: 0, nodes: 0, images: 0 }, all: [] });
+    line.counts[countKey(r.kind)]++;
+    if (name && !line.all.includes(name) && line.all.length < 100) line.all.push(name);
   }
-  for (const e of applied) { let s = {}; try { s = JSON.parse(e.summary); } catch (_) {} out.push({ kind: e.kind, device: names.get(e.deviceId) || '', at: e.at, names: s.names || [], count: s.count || 0, more: !!s.more, images: s.images || 0 }); }
-  for (const c of commands) { let a = {}; try { a = JSON.parse(c.args); } catch (_) {} out.push({ kind: 'remote', device: names.get(c.deviceId) || '', at: c.at, action: COMMAND[c.action] || c.action, target: a.path ? docName(a.path) : (a.nodes || []).join(', ') || a.text || '', author: c.author, state: c.state }); }
-  return out.sort((a, b) => (b.at || '').localeCompare(a.at || '')).slice(0, 30).map(({ minute, ...e }) => ({ ...e, names: e.names?.slice(0, 8) }));
+  for (const e of applied) { let s = {}; try { s = JSON.parse(e.summary); } catch (_) {} out.push({ kind: e.kind, deviceId: e.deviceId, device: names.get(e.deviceId) || '', at: e.at, ...receivedView(e.kind, s) }); }
+  for (const c of commands) { let a = {}; try { a = JSON.parse(c.args); } catch (_) {} out.push({ kind: 'remote', deviceId: c.deviceId, device: names.get(c.deviceId) || '', at: c.at, action: COMMAND[c.action] || c.action, target: a.path ? docName(a.path) : (a.nodes || []).join(', ') || a.text || '', author: c.author, state: c.state }); }
+  return out.sort((a, b) => (b.at || '').localeCompare(a.at || '')).slice(0, 30).map(({ minute, deviceId, ...e }) => ({ ...e, code: String(deviceId || '').slice(0, 6), ...(e.all ? { names: e.names || e.all.slice(0, 8) } : {}) }));
 }

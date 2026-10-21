@@ -30,10 +30,11 @@ tbody tr:last-child td{border-bottom:0}
 td.path{font-weight:600;max-width:320px}td.dim{color:var(--muted)}td.empty{color:var(--muted);text-align:center;padding:18px}
 .src{display:inline-block;padding:1px 6px;border-radius:9px;font-size:10.5px;font-weight:700;margin-right:4px;background:#e9edf8;color:#3a4296}.src.mac{background:#fff1e3;color:#8a3c0d}
 .tag{font-weight:600;margin-right:3px}.tag.order{color:#2b6a46}.tag.doc{color:#3a4296}.tag.img{color:#8a3c0d}
-.kind{font-weight:700}.kind.applied{color:#1a59bf}.kind.uploaded{color:#2b6a46}.kind.remote{color:#553a96}
+.kind{font-weight:700}.kind.applied,.kind.received{color:#1a59bf}.kind.uploaded{color:#2b6a46}.kind.remote{color:#553a96}
 .row-line{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid #edf0f5}.row-line>span:first-child{flex:none;font-size:12.5px}.row-line>span.muted{flex:1}
 .help{margin:8px 0 0;font-size:12px;line-height:1.6;color:var(--muted)}.help.pad{margin:0;padding:0 16px 14px}
 .facts{margin:10px 0 0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:12.5px}.facts dt{color:var(--muted)}.facts dd{margin:0}
 .login{padding:20px;display:grid;gap:12px;max-width:420px}.login label{display:grid;gap:5px;font-size:12px;color:var(--muted)}
 .login input{font:inherit;padding:8px;border:1px solid #d5ddeb;border-radius:5px}
 @media(max-width:700px){.wrap{padding-inline:12px}.bar #observed{flex-basis:100%;order:9}.kpis strong{font-size:22px}.w-who{width:84px}.w-when{width:96px}}
+.event-names summary{cursor:pointer}.event-names>div{margin-top:4px;white-space:normal}

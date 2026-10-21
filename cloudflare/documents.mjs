@@ -103,7 +103,7 @@ export async function documentsRoute(request, env, user, id, action) {
         ...(p.search_enabled?[searchStatement(db,newId,1,content.search)]:[]),
         ...importMediaStatements(db,importRefs,newId,1,writeId,now),
         ...documentMediaStatements(db,newId,1,documentMediaPaths(content.data),writeId),
-        documentLog(db,{id:newId,writeId,action:'created',author:user.author,now})
+        documentLog(db,{id:newId,writeId,action:'created',author:user.author,device:user.device||null,now})
       ]);
     } catch (error) {
       const winner = await db.prepare('SELECT * FROM yebaeon_documents WHERE path = ?').bind(path).first();
@@ -176,7 +176,7 @@ export async function documentsRoute(request, env, user, id, action) {
     db.prepare(`DELETE FROM yebaeon_versions WHERE document_id=? AND version>=? AND version<? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=? AND history_enabled=0)`).bind(id,p.history_start||next,next,id,writeId),
     ...importMediaStatements(db,importRefs,id,next,writeId,now),
     ...documentMediaStatements(db,id,next,documentMediaPaths(content.data),writeId),
-    documentLog(db,{id,writeId,action:'updated',author:user.author,now})
+    documentLog(db,{id,writeId,action:'updated',author:user.author,device:user.device||null,now})
   ]);
   if (results[0].meta.changes !== 1) { await env.FILES.delete(key); throw conflict(); }
   // Superseded originals created while history was disabled are no longer backups.

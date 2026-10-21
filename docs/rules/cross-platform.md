@@ -68,7 +68,8 @@
 
 - 지원하지 않는 요소는 바이트를 보존한다. 원본 XML에 임의 속성을 넣지 않는다.
 - 요소의 XML 위치만으로 용도를 판단하지 않는다. 배경 cue에도 특송·엔딩 영상이 있고 `RVVideoElement`에 정지 이미지가 있을 수 있다. 알려진 확장자를 먼저 분류하고 불명확한 것은 미완료로 남긴다.
-- 배경 없음은 배경 cue뿐 아니라 `drawingBackgroundColor`도 `false`로 저장한다. 아니면 투명 PNG 뒤에 흰 바탕이 남는다.
+- 배경 없음일 때만 배경 cue뿐 아니라 `drawingBackgroundColor`도 `false`로 저장한다. 아니면 투명 PNG 뒤에 흰 바탕이 남는다. 배경 cue가 있으면 흰 바탕 그리기를 켜도 PP6는 배경을 보여 준다(교회 실기).
+- 첫 장에만 둘 배경 cue는 `behavior="1"`(Background)로 쓴다. `behavior="2"`(Foreground, PP6가 장마다 저장하는 기본값)를 첫 장에만 두면 2장으로 넘어갈 때 배경이 사라진다(10-18 교회 실기).
 - `drawingStroke=false`만으로 글자 아웃라인 없음이라 판단하지 않는다. Cocoa RTF의 `strokewidth`/`strokec`와 XML 도형 stroke는 별개다. 지원하는 효과는 RTF 작성기에도 넣어 편집 후 유실을 막는다.
 - 원본 PostScript 이름이 Medium이어도 b trait가 있으면 실제 Bold face를 먼저 찾고, 가짜 Bold나 중복 강조를 피한다. 원본 폰트 내부의 weight를 존중하며(아리따부리 HairLine300/Light400처럼 이름별 예상과 다른 원본이 있다) 동명 CDN 글꼴로 바꾸지 않는다.
 - `lineSpacing` 음수를 CSS `line-height`처럼 빼면 PP6 출력과 달라진다. 원본 값은 보존하되 PP6 기본 line-fragment 하한을 유지하고, 원본 글꼴의 `hhea` 메트릭으로 OS별 Canvas 차이를 줄인다. 마지막 줄 뒤의 leading도 높이에 포함한다.

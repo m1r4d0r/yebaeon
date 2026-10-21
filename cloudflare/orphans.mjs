@@ -80,7 +80,7 @@ export async function orphansRoute(request, env, user) {
     if (chosen.length) {
       const list = JSON.stringify(chosen);
       await db.batch([
-        db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) SELECT 'media',path,'trashed',sha256,size,path,?,? FROM yebaeon_media_paths WHERE state='active' AND path IN (SELECT value FROM json_each(?))`).bind(user.author, now, list),
+        db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,device_id,at) SELECT 'media',path,'trashed',sha256,size,path,?,?,? FROM yebaeon_media_paths WHERE state='active' AND path IN (SELECT value FROM json_each(?))`).bind(user.author, user.device || null, now, list),
         db.prepare(`UPDATE yebaeon_media_paths SET state='trashed',updated_at=?,updated_by=? WHERE state='active' AND path IN (SELECT value FROM json_each(?))`).bind(now, user.author, list)
       ]);
     }
@@ -98,7 +98,7 @@ export async function orphansRoute(request, env, user) {
 async function untrash(env, user, paths) {
   const db = env.DB, list = JSON.stringify(paths), now = new Date().toISOString();
   const results = await db.batch([
-    db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) SELECT 'media',path,'untrashed',sha256,size,path,?,? FROM yebaeon_media_paths WHERE state='trashed' AND path IN (SELECT value FROM json_each(?))`).bind(user.author, now, list),
+    db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,device_id,at) SELECT 'media',path,'untrashed',sha256,size,path,?,?,? FROM yebaeon_media_paths WHERE state='trashed' AND path IN (SELECT value FROM json_each(?))`).bind(user.author, user.device || null, now, list),
     db.prepare(`UPDATE yebaeon_media_paths SET state='active',updated_at=?,updated_by=? WHERE state='trashed' AND path IN (SELECT value FROM json_each(?))`).bind(now, user.author, list)
   ]);
   return { untrashed: results[1].meta.changes || 0 };
@@ -111,7 +111,7 @@ async function purge(env, user, paths) {
   if (!rows.length) return { purged: 0, deleted: 0, skipped: paths };
   const chosen = JSON.stringify(rows.map(r => r.path));
   await db.batch([
-    db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) SELECT 'media',path,'purged',sha256,size,path,?,? FROM yebaeon_media_paths WHERE state='trashed' AND path IN (SELECT value FROM json_each(?))`).bind(user.author, now, chosen),
+    db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,device_id,at) SELECT 'media',path,'purged',sha256,size,path,?,?,? FROM yebaeon_media_paths WHERE state='trashed' AND path IN (SELECT value FROM json_each(?))`).bind(user.author, user.device || null, now, chosen),
     db.prepare(`DELETE FROM yebaeon_media_paths WHERE state='trashed' AND path IN (SELECT value FROM json_each(?))`).bind(chosen)
   ]);
   let favorites = new Set();

@@ -128,17 +128,25 @@
    purgeAll.disabled=true;try{const n=await send('purge',list.map(r=>r.path));await render();say(`그림 ${n}개를 비웠습니다.`);}catch(error){say(error.message);purgeAll.disabled=false;}};
  }
  // ── 교회 Mac 보관본 ──
- const REASON={'both-changed':'양쪽 수정(서버 것 받음)'};
+ // [정리 끝]은 목록에서만 뺀다. 정리 끝난 것은 [정리 끝난 보관본 지우기]로, 한 줄은 [지우기]로 영구 삭제한다(R2 원본·행).
+ const REASON={'both-changed':'양쪽 수정(서버 것 받음)',technical:'이력 없는 문서'};
+ let withTechnical=false;
  async function revisions(){
-  const {el,when,kind}=P(),s=section('교회 Mac 보관본','양쪽에서 고쳐 서버 것을 받을 때 남긴 Mac 쪽 내용입니다. 확인했으면 [정리 끝]으로 목록에서 뺍니다(원본은 남습니다).');
-  const list=(await(await C().api('/sync/revisions')).json()).revisions;s.count(list.length);
+  const {el,when,kind}=P(),purgeAll=el('button',{type:'button',class:'line-btn text-danger',disabled:true},'정리 끝난 보관본 지우기');
+  const technical=el('input',{type:'checkbox',checked:withTechnical,onchange:()=>{withTechnical=technical.checked;render();}});
+  const s=section('교회 Mac 보관본','양쪽에서 고쳐 서버 것을 받을 때 남긴 Mac 쪽 내용입니다. 확인했으면 [정리 끝]으로 목록에서 빼고, 정리 끝난 것은 지워서 서버에서 없앨 수 있습니다.',el('label',{class:'admin-toggle'},technical,'이력 없는 문서 것도 보기'),purgeAll);
+  const data=await(await C().api('/sync/revisions'+(withTechnical?'?technical=1':''))).json(),list=data.revisions;
+  s.count(list.length+(data.resolved?` · 정리 끝난 것 ${data.resolved}개`:''));purgeAll.disabled=!data.resolved;
+  purgeAll.onclick=async()=>{if(!confirm(`정리 끝난 보관본 ${data.resolved}개를 지울까요? 지운 보관본은 되살릴 수 없습니다.\n문서 원본·버전·재생목록은 그대로입니다.`))return;
+   purgeAll.disabled=true;try{let total=0,result;do{result=await(await C().api('/sync/revisions/purge',json('POST',{}))).json();total+=result.purged;say(`보관본 ${total}개 지움 · 남은 ${result.remaining}개`);}while(result.remaining>0&&result.purged>0);await render();say(`정리 끝난 보관본 ${total}개를 지웠습니다.`);}catch(error){say(error.message);purgeAll.disabled=false;}};
   if(!list.length)empty(s.list,'열린 보관본이 없습니다.');
   for(const r of list){
-   const done=el('button',{type:'button',class:'line-btn'},'정리 끝');
+   const done=el('button',{type:'button',class:'line-btn'},'정리 끝'),remove=el('button',{type:'button',class:'line-btn text-danger'},'지우기');
    done.onclick=async()=>{done.disabled=true;try{await C().api(`/sync/revisions/${r.id}/resolve`,json('POST',{resolution:'dismissed'}));await render();say(`‘${stem(r.path)}’ 보관본을 정리했습니다.`);}catch(error){say(error.message);done.disabled=false;}};
+   remove.onclick=async()=>{if(!confirm(`‘${stem(r.path||r.entity)}’ 보관본을 지울까요? 지운 보관본은 되살릴 수 없습니다.`))return;remove.disabled=true;try{await C().api(`/sync/revisions/${r.id}`,{method:'DELETE'});await render();say(`‘${stem(r.path||r.entity)}’ 보관본을 지웠습니다.`);}catch(error){say(error.message);remove.disabled=false;}};
    const download=el('a',{class:'line-icon',href:`/api/sync/revisions/${r.id}/content`,download:stem(r.path||'보관본')+'-Mac.pro6',title:'Mac 쪽 내용 받기','aria-label':'Mac 쪽 내용 받기'});
    download.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>';
-   s.list.append(el('div',{class:'line-row'},kind(r.kind==='node'?'playlist':'document'),el('span',{class:'line-title',title:r.path||''},stem(r.path||r.entity)),el('span',{class:'line-meta'},[REASON[r.reason]||r.reason,r.author,when(r.createdAt)].filter(Boolean).join(' · ')),download,done));
+   s.list.append(el('div',{class:'line-row'},kind(r.kind==='node'?'playlist':'document'),el('span',{class:'line-title',title:r.path||''},stem(r.path||r.entity)),el('span',{class:'line-meta'},[REASON[r.reason]||r.reason,r.author,when(r.createdAt)].filter(Boolean).join(' · ')),download,done,remove));
   }
  }
  // ── 검색 자료 ──

@@ -69,3 +69,33 @@ test('playlist create, archive snapshot, restoration and stale Sync protection',
  const controls=(await db.prepare('SELECT node_id FROM yebaeon_playlist_controls WHERE library_id=?').bind(lib.id).all()).results;
  assert.equal(controls.filter(c=>candidates.includes(c.node_id)).length,1);
 });
+test('playlist trash keeps only the order and document list', {timeout:120000},async t=>{
+ const bundled=await build({entryPoints:['cloudflare/worker.mjs'],bundle:true,write:false,format:'esm',platform:'browser'});
+ const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:bundled.outputFiles[0].text,compatibilityDate:'2026-09-28',bindings:{SITE_PASSWORD:'trash-only'},d1Databases:['DB'],r2Buckets:['FILES'],cf:false}));t.after(()=>mf.dispose());
+ const origin='https://example.test';let cookie='';
+ const call=(path,method='GET',body,extra={})=>mf.dispatchFetch(origin+'/api'+path,{method,body,headers:{Cookie:cookie,...method==='GET'?{}:{Origin:origin},'Content-Type':'application/json',...extra}});
+ const ok=async(response,status=200)=>{assert.equal(response.status,status,await response.clone().text());return response.json();};
+ const login=await call('/session','POST',JSON.stringify({name:'시험',password:'trash-only'}));await ok(login);cookie=login.headers.get('Set-Cookie').split(';')[0];
+ const names=Array.from({length:100},(_,i)=>'곡 '+String(i).padStart(3,'0'));
+ const ids=[];for(const name of names)ids.push((await ok(await call('/documents?path='+encodeURIComponent(name+'.pro6'),'POST',`<RVPresentationDocument category="가사찬양"><text>${name}</text></RVPresentationDocument>`),201)).document.id);
+ const cues=names.map((name,i)=>`<RVDocumentCue UUID="cue${i}" displayName="${name}" filePath="~/Documents/ProPresenter6/${name}.pro6"/>`).join('');
+ const xml=`<RVPlaylistDocument><RVPlaylistNode UUID="ROOT"><array rvXMLIvarName="children"><RVPlaylistNode UUID="C" displayName="큰 예배"><array rvXMLIvarName="children">${cues}</array></RVPlaylistNode><RVPlaylistNode UUID="D" displayName="보관할 예배"><array rvXMLIvarName="children">${cues.slice(0,cues.indexOf('<RVDocumentCue',10))}</array></RVPlaylistNode></array></RVPlaylistNode></RVPlaylistDocument>`;
+ let lib=(await ok(await call('/playlists?path=trash.pro6pl','POST',xml),201)).library;
+ const path='/playlists/'+lib.id,tag=()=>({'If-Match':`"${lib.version}"`,'X-YebaeOn-Sync':'2'}),bucket=await mf.getR2Bucket('FILES');
+ const objects=async()=>(await bucket.list({prefix:'playlist-archives/'+lib.id+'/'})).objects.map(o=>o.key);
+ const trashed=await ok(await call(path+'/nodes?node=C','DELETE',undefined,tag()));lib=trashed.library;
+ assert.equal(trashed.trashed,true);
+ const keys=await objects();assert.equal(keys.length,1,'trash writes only the manifest');assert.match(keys[0],/manifest\.json$/);
+ const manifest=await(await bucket.get(keys[0])).json();
+ assert.equal(manifest.documents.length,100);assert.equal(manifest.documentCopies,false);
+ assert.deepEqual(Object.keys(manifest.documents[0]).sort(),['id','path','sha256','size','version']);
+ const listed=await ok(await call(path+'/trash?node=C'));assert.equal(listed.documents.length,100);
+ const download=await call(path+'/trash?node=C&document='+ids[0]);assert.equal(download.status,404);assert.match((await download.json()).message,/휴지통 예배는 문서 사본을 두지 않습니다/);
+ lib=(await ok(await call(path+'/untrash?node=C','POST','{}',tag()))).library;
+ assert.ok(lib.playlists.some(p=>p.id==='C'),'untrash reconnects the current documents');
+ assert.equal((await ok(await call(path+'/plan?node=C'))).documents.length,100);
+ // 보관은 지금처럼 문서 원본을 복사하고 보관 당시 원본을 내려받는다.
+ lib=(await ok(await call(path+'/archive?node=D','POST','{}',tag()))).library;
+ assert.equal((await objects()).length,1+1+1,'archive copies its one document beside its manifest');
+ assert.equal(await(await call(path+'/archive?node=D&document='+ids[0])).text(),`<RVPresentationDocument category="가사찬양"><text>${names[0]}</text></RVPresentationDocument>`);
+});

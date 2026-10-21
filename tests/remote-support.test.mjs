@@ -98,3 +98,37 @@ test('remote support: Mac opens the window, admin leaves commands, Mac takes the
  await read(await owner.call('/sync/devices/'+id,'DELETE'));
  assert.equal((await device(`/sync/devices/${id}/commands`)).status,401);
 });
+
+test('review report: the review list with server facts as text, from the last status or from Sync',{timeout:90000},async t=>{
+ const {read,person,owner,device,id,db}=await fixture(t);
+ const docXML=t=>`<RVPresentationDocument category="가사찬양"><text>${t}</text></RVPresentationDocument>`;
+ const song=(await read(await owner.call('/documents?path='+encodeURIComponent('찬양/은혜.pro6'),'POST',docXML('서버')),201)).document;
+ await read(await owner.call('/documents/'+song.id,'PUT',docXML('서버 2'),{'If-Match':'"1"'}));
+ await read(await owner.call('/playlists?path=기본.pro6pl','POST','<RVPlaylistDocument><RVPlaylistNode UUID="ROOT"><array rvXMLIvarName="children"><RVPlaylistNode UUID="A" displayName="주일 1부"><array rvXMLIvarName="children"><RVDocumentCue UUID="c" displayName="은혜" filePath="~/Documents/ProPresenter6/찬양/은혜.pro6"/></array></RVPlaylistNode></array></RVPlaylistNode></RVPlaylistDocument>'),201);
+ await db.prepare("INSERT INTO yebaeon_media_paths(path,sha256,size,state,updated_at,updated_by) VALUES ('/Users/Shared/Renewed Vision Media/Images/a.png','"+'a'.repeat(64)+"',2048,'active','2026-10-18T12:00:00Z','지은')").run();
+ const review=[{list:'같은 이름, 다른 내용',title:'찬양/은혜.pro6',path:'찬양/은혜.pro6',detail:'Mac과 서버의 내용이 다르고 같은 이력이 없음',actions:['server','mac','number']},
+  {list:'이미지 보충',title:'a.png',path:'/Users/Shared/Renewed Vision Media/Images/a.png',detail:'서버에 있고 이 Mac에 없음',actions:['image']},
+  {list:'서버에만 있는 문서',title:'없는/문서.pro6',path:'없는/문서.pro6',detail:'Mac에 없음',actions:['server']}];
+ await read(await device(`/sync/devices/${id}/status`,'POST',JSON.stringify({status:{build:152,summary:'확인 필요 3',review,rows:[{node:'L:A',name:'주일 1부',status:'hold',text:'보류 · 이력 없음 1'},{node:'L:B',name:'같은 예배',status:'same'}]}})));
+ const visitor=await person('방문');
+ const report=await read(await visitor.call(`/sync/devices/${id}/review`,'POST','{}'));
+ assert.equal(report.source,'status');assert.equal(report.items,3);
+ const text=report.text;
+ assert.match(text,/^# 예배온 Sync 점검 목록/);assert.match(text,/docs\/guides\/sync-review\.md/);
+ assert.match(text,/### 같은 이름, 다른 내용 \(1\)/);
+ assert.match(text,/서버: 문서 v2 · 사용 중 · .* 관리자 저장 .*카테고리 가사찬양 · 이력 끔/);
+ assert.match(text,/서버 예배: 주일 1부/);assert.match(text,/최근 일지: .*저장 관리자\(Studio\)/);
+ assert.match(text,/그림: \/Users\/Shared\/Renewed Vision Media\/Images\/a\.png → 서버 사용 중 · 2KB · sha aaaaaaaa · .* 지은 · 원본 그림 없음/);
+ assert.match(text,/서버: 같은 경로의 문서 없음/);
+ assert.match(text,/정리 창 버튼: 서버 것 받기, Mac 것 올리기, 둘 다 두기/);
+ assert.match(text,/## 예배 비교에서 같지 않은 줄 1개\n- 주일 1부 · 보류 · 보류 · 이력 없음 1/);
+ assert.match(text,/Sync 빌드 152/);
+ // Sync가 Mac 쪽 사실과 함께 보내면 그것으로 만든다.
+ const sent=await read(await device(`/sync/devices/${id}/review`,'POST',JSON.stringify({items:[{...review[0],mac:{exists:true,size:4096,modifiedAt:'2026-10-20T01:00:00Z',sha256:'b'.repeat(64),ledger:{version:1,sha256:'c'.repeat(64)}}}],rows:[]})));
+ assert.equal(sent.source,'sync');assert.equal(sent.items,1);
+ assert.match(sent.text,/Mac: Mac 파일 있음 · 4KB · 수정 2026-10-20 10:00 · sha bbbbbbbb · 영수증 기준 v1 sha cccccccc/);
+ // 사람은 어느 장치 것이든 만들 수 있고, 다른 사이트에서는 막는다.
+ const other=await read(await owner.call('/sync/devices','POST',JSON.stringify({name:'다른 Mac'})),201);
+ assert.equal((await visitor.call(`/sync/devices/${other.device.id}/review`,'POST','{}')).status,200,'a person can build any device report');
+ assert.equal((await visitor.call(`/sync/devices/${id}/review`,'POST','{}',{Origin:'https://other.test'})).status,403);
+});

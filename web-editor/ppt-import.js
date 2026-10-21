@@ -141,9 +141,14 @@
   return `${s.index+1}${unit}${info}: ${reason}`+(notes.length?' · '+notes.join(' '):'');}
  const imageElement=(src,w,h)=>P.imageElementXML({source:src,rect:{x:0,y:0,w,h},scale:'0'});
  function documentName(value){const name=value.trim().normalize('NFC').replace(/\.pro6$/i,'');if(!name||/[\\/\x00-\x1f\x7f]/.test(name)||name.length>145)throw Error('문서 이름을 확인해 주세요. 폴더 구분 문자는 사용할 수 없습니다.');return name;}
- const slideXML=(o,src,label)=>P.slideXML({label:String(label),drawingBackgroundColor:!o.separated,backgroundColor:o.separated?'1 1 1 1':'0 0 0 1',background:o.separated&&background.get()?P.backgroundCueXML({source:background.get().source,name:background.get().name}):'',elements:imageElement(src,size.width,size.height)});
+ // 악보 용도에서 배경을 골랐으면 배경 cue는 첫 장에만 Background(behavior 1)로 두고 모든 장을 흰 바탕으로 그린다. 배경을 바꿀 때 첫 장만 바꾸면 된다.
+ // 그 밖(다른 용도·배경 없음)은 나눈 장마다 Foreground cue, 배경 없는 나눈 장은 투명.
+ function slideLook(o,n,{score,chosen}){if(score&&chosen)return {drawingBackgroundColor:true,backgroundColor:o.separated?'1 1 1 1':'0 0 0 1',cue:n===0?'1':null};
+  return {drawingBackgroundColor:!o.separated,backgroundColor:o.separated?'1 1 1 1':'0 0 0 1',cue:o.separated&&chosen?'2':null};}
+ const scoreBackground=()=>purpose==='score'&&!!background.get()&&outputs.some(o=>o.separated);
+ const slideXML=(o,src,label,n)=>{const look=slideLook(o,n,{score:scoreBackground(),chosen:!!background.get()});return P.slideXML({label:String(label),drawingBackgroundColor:look.drawingBackgroundColor,backgroundColor:look.backgroundColor,background:look.cue?P.backgroundCueXML({source:background.get().source,name:background.get().name,behavior:look.cue}):'',elements:imageElement(src,size.width,size.height)});};
  async function prepare(){const name=documentName($('pptName').value),category=$('pptCategory').value;if(!category)throw Error('카테고리를 골라 주세요.');const assets=new Map();let slides='';
-  const names={};for(const o of outputs){const sha256=await hash(o.image);assets.set(sha256,{sha256,blob:o.image});names[sha256]??=slideName(o);slides+=slideXML(o,'file:///YebaeOn-Media/'+sha256+'.png',o.index+1);}
+  const names={};for(const [n,o] of outputs.entries()){const sha256=await hash(o.image);assets.set(sha256,{sha256,blob:o.image});names[sha256]??=slideName(o);slides+=slideXML(o,'file:///YebaeOn-Media/'+sha256+'.png',o.index+1,n);}
   const xml=P.documentXML({width:size.width,height:size.height,category,groups:[{name:'기본',slides}]});
   return {path:name+'.pro6',xml,names,assets:[...assets.values()],backgrounds:[...backdrops.values()],owner:C.worker(),appendTarget:$('pptAppend').checked?L.selectedPlaylist()?.key:null};}
  // 장 그림의 교회 Mac 경로는 서버가 `ImportedImages/<문서이름>/Slide<원본 장 번호>.png`로 정한다(같은 그림은 재사용, 다른 그림이면 -2…). 미디어 서랍에는 나오지 않는다.
@@ -160,7 +165,7 @@
   const ivar=name=>[...root.children].find(c=>c.tagName==='array'&&c.getAttribute('rvXMLIvarName')===name);
   let groups=ivar('groups');if(!groups){groups=parsed.createElement('array');groups.setAttribute('rvXMLIvarName','groups');root.append(groups);}
   groups.replaceChildren();ivar('arrangements')?.replaceChildren();
-  const slides=outputs.map((o,n)=>slideXML(o,found.get(o.sha256),n+1)).join('');
+  const slides=outputs.map((o,n)=>slideXML(o,found.get(o.sha256),n+1,n)).join('');
   const group=new DOMParser().parseFromString(`<RVSlideGrouping UUID="${P.uuid()}" name="${source.kind==='pdf'?'말씀':'기본'}"><array rvXMLIvarName="slides">${slides}</array></RVSlideGrouping>`,'application/xml').documentElement;
   groups.append(parsed.importNode(group,true));return '<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(root);}
  async function replace(){const opened=E.ready()&&E.state().key===target.id;if(opened&&E.state().dirty){message('편집기에 이 문서의 저장하지 않은 변경이 있습니다. 먼저 저장하거나 되돌려 주세요.');return;}
@@ -187,5 +192,5 @@
  $('pptSave').onclick=()=>save();$('pptResume').onclick=()=>save(true);$('pptDiscard').onclick=async()=>{if(busy||!confirm('이 브라우저의 PPT 준비본을 버릴까요? 이미 서버에 저장된 이미지나 문서는 삭제하지 않습니다.'))return;try{await recovery('delete');prepared=null;invalidate();showRecovery();lock(false);message('준비본을 버렸습니다. 새 파일을 선택할 수 있습니다.');}catch(e){message(e.message);}};
  window.addEventListener('yebaeonsession',e=>{if(!e.detail.authenticated&&!busy){dialog.close();source?.data.dispose?.();source=null;target=null;invalidate();prepared=null;cards();options();}});
  options();
- window.YebaeonPPTImport={read,preview,save,open:openDialog,state:()=>({source,deck:source?.kind==='ppt'?source.data:null,outputs,prepared,target,busy}),imageElement,hash,mediaPaths,slidePaths,dialog};
+ window.YebaeonPPTImport={read,preview,save,open:openDialog,state:()=>({source,deck:source?.kind==='ppt'?source.data:null,outputs,prepared,target,busy}),imageElement,hash,mediaPaths,slidePaths,dialog,slideLook};
 })();

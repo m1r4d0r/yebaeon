@@ -13,6 +13,7 @@ async function read(request) {
   try { xml = new TextDecoder('utf-8', { fatal: true }).decode(data); } catch { throw new HttpError(400, 'invalid_playlist', 'UTF-8 재생목록을 선택해 주세요.'); }
   return { data, xml, parsed: parsePlaylist(xml), hash: await sha256(data) };
 }
+export async function loadPlaylist(env, r) { return load(env, r); }
 async function load(env, r) {
   const v = await env.DB.prepare('SELECT * FROM yebaeon_playlist_versions WHERE library_id = ? AND version = ?').bind(r.id, r.current_version).first();
   const object = v && await env.FILES.get(v.object_key); if (!object) throw new HttpError(503, 'file_unavailable', '재생목록 원본을 읽지 못했습니다.');
@@ -45,9 +46,9 @@ async function save(env, user, r, content,extra=()=>[],{removedAction='removed',
     env.DB.prepare('INSERT INTO yebaeon_playlist_versions(library_id,version,object_key,sha256,size,author,created_at) SELECT id,?,?,?,?,?,? FROM yebaeon_playlists WHERE id=? AND write_id=?').bind(next,key,content.hash,content.data.length,user.author,now,r.id,writeId),
     ...changes.map(n=>nodeInsert(env.DB,{...r,write_id:writeId},n,next,user.author,now,true)),
     // 변경 일지: 바뀐·새 예배와 빠진 예배만. 같은 batch라 저장이 실패하면 남지 않는다.
-    ...changes.map(n=>nodeLog(env.DB,{libraryId:r.id,writeId,nodeId:n.id,name:n.name,sha:n.sha256,action:previous.some(p=>p.id===n.id)?'updated':'created',author:user.author,now})),
-    ...removed.map(n=>nodeLog(env.DB,{libraryId:r.id,writeId,nodeId:n.id,name:n.name,sha:null,kind:'node-state',action:removedAction,author:user.author,now})),
-    ...(createdAction?changes.filter(n=>!previous.some(p=>p.id===n.id)).map(n=>nodeLog(env.DB,{libraryId:r.id,writeId,nodeId:n.id,name:n.name,sha:n.sha256,kind:'node-state',action:createdAction,author:user.author,now})):[]),
+    ...changes.map(n=>nodeLog(env.DB,{libraryId:r.id,writeId,nodeId:n.id,name:n.name,sha:n.sha256,action:previous.some(p=>p.id===n.id)?'updated':'created',author:user.author,device:user.device||null,now})),
+    ...removed.map(n=>nodeLog(env.DB,{libraryId:r.id,writeId,nodeId:n.id,name:n.name,sha:null,kind:'node-state',action:removedAction,author:user.author,device:user.device||null,now})),
+    ...(createdAction?changes.filter(n=>!previous.some(p=>p.id===n.id)).map(n=>nodeLog(env.DB,{libraryId:r.id,writeId,nodeId:n.id,name:n.name,sha:n.sha256,kind:'node-state',action:createdAction,author:user.author,device:user.device||null,now})):[]),
     ...extra(writeId,now)
   ]);
   if (results[0].meta.changes !== 1) throw conflict();
@@ -74,7 +75,7 @@ export async function playlistsRoute(request, env, user, id, action) {
       await db.batch([
         db.prepare('INSERT INTO yebaeon_playlists(id,path,source_root,current_version,updated_at,updated_by,sha256,size,write_id,catalog) VALUES (?,?,?,1,?,?,?,?,?,?)').bind(libraryId,path,root,now,user.author,content.hash,content.data.length,writeId,summary),
         db.prepare('INSERT INTO yebaeon_playlist_versions(library_id,version,object_key,sha256,size,author,created_at) VALUES (?,1,?,?,?,?,?)').bind(libraryId,key,content.hash,content.data.length,user.author,now),
-        ...(await nodeSnapshots(content.parsed)).map(n=>db.prepare("INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,name,author,at) VALUES ('node',?,'created',1,?,?,?,?)").bind(libraryId+':'+n.id,n.sha256,n.name,user.author,now))
+        ...(await nodeSnapshots(content.parsed)).map(n=>db.prepare("INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,name,author,device_id,at) VALUES ('node',?,'created',1,?,?,?,?,?)").bind(libraryId+':'+n.id,n.sha256,n.name,user.author,user.device||null,now))
       ]);
     } catch (error) {
       const winner = await db.prepare('SELECT * FROM yebaeon_playlists WHERE path=?').bind(path).first();
@@ -269,7 +270,7 @@ async function renameNode(request,env,user,id){
     if(parsed.playlists.some(p=>p.id!==node&&p.name.normalize('NFC')===body.name.trim().normalize('NFC')))throw new HttpError(409,'playlist_name_exists','같은 이름의 재생목록이 있습니다.');
     if(selected.name===body.name.trim().normalize('NFC'))return null;
     return renamePlaylistNode(parsed,node,body.name);
-  },(current,writeId,now)=>[nodeLog(env.DB,{libraryId:current.id,writeId,nodeId:node,name:body.name.trim().normalize('NFC'),sha:null,action:'renamed',previous,author:user.author,now})]);
+  },(current,writeId,now)=>[nodeLog(env.DB,{libraryId:current.id,writeId,nodeId:node,name:body.name.trim().normalize('NFC'),sha:null,action:'renamed',previous,author:user.author,device:user.device||null,now})]);
   return json({...out,playlist:{id:node,name:body.name.trim().normalize('NFC'),previousName:previous}});
 }
 async function saveWithRetryHashed(env,user,id,node,baseHash,edit,extra){

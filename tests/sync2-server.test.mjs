@@ -23,7 +23,7 @@ test('Sync 2 change log follows document and node writes; node GET/PUT; manifest
  const changes=(since,limit=200)=>call(`/sync/changes?since=${since}&limit=${limit}`).then(r=>read(r));
  assert.deepEqual(await changes(0),{changes:[],next:0,head:0,more:false});
  // 요청 경로의 스키마 확인은 표시 행 하나다.
- assert.ok(await db.prepare("SELECT name FROM yebaeon_schema_migrations WHERE name='schema-ready-orphans-v1'").first());
+ assert.ok(await db.prepare("SELECT name FROM yebaeon_schema_migrations WHERE name='schema-ready-sync-log-device-v1'").first());
 
  // 문서 생성·수정 → 'doc' 두 줄. 같은 내용 재저장·버전 충돌은 남지 않는다.
  let d=(await read(await call('/documents?path=찬양/주님.pro6','POST',doc('하나')),201)).document;
@@ -192,7 +192,7 @@ test('server status: Studio work by person, Mac uploads, applied events and imag
  assert.deepEqual(status.images,{count:0,bytes:0});
  assert.deepEqual(status.studio.map(s=>[s.author,s.docs.sort(),s.docCount]),[['시험',['은혜','이번주'],2]]);
  assert.deepEqual(status.syncEvents.map(e=>[e.kind,e.device]).sort(),[['applied','본당 Mac'],['uploaded','본당 Mac']]);
- const applied=status.syncEvents.find(e=>e.kind==='applied');assert.deepEqual(applied.names.sort(),['은혜','이번주']);assert.equal(applied.count,2);
+ const applied=status.syncEvents.find(e=>e.kind==='applied');assert.deepEqual(applied.names.sort(),['은혜','이번주']);assert.deepEqual(applied.counts,{documents:2,nodes:0,images:0});
  assert.deepEqual(status.syncEvents.find(e=>e.kind==='uploaded').names,['요한']);
  assert.deepEqual(status.recent.map(r=>[r.path,r.device]).sort(),[['광고/이번주.pro6',false],['말씀/요한.pro6',true],['찬양/은혜.pro6',false]]);
  assert.deepEqual(status.devices.map(d=>[d.name,d.build]),[['본당 Mac',null]]);assert.equal(status.syncApp,null);
@@ -201,4 +201,49 @@ test('server status: Studio work by person, Mac uploads, applied events and imag
  await (await mf.getR2Bucket('FILES')).put('apps/sync2/latest.json',JSON.stringify({build:81,sha256:'a'.repeat(64),size:10,key:'apps/sync2/YebaeOn-Sync-81.zip',createdAt:'2026-10-07T21:34:00Z'}));
  const later=await read(await call('/status'));
  assert.deepEqual(later.devices.map(d=>[d.name,d.build]),[['본당 Mac',80]]);assert.deepEqual(later.syncApp,{build:81,createdAt:'2026-10-07T21:34:00Z'});
+});
+
+test('Sync log: same-name Studio and device writes stay apart, kind counts, received reports',{timeout:90000},async t=>{
+ const {mf,call,read}=await fixture(t);
+ // 교회 장치 이름과 Studio 작업자 이름이 같다(fixture의 사람은 '시험').
+ const issued=await read(await call('/sync/devices','POST',JSON.stringify({name:'시험'})),201);
+ const asDevice=(path,method='GET',body,headers={})=>mf.dispatchFetch(origin+'/api'+path,{method,body,headers:{'Content-Type':'application/json',Origin:origin,Authorization:'Bearer '+issued.token,...headers}});
+ const db=await mf.getD1Database('DB');
+ const report=body=>asDevice(`/sync/devices/${issued.device.id}/applied`,'POST',JSON.stringify(body));
+ const head=async()=>(await read(await call('/sync/changes?since=0&limit=0'))).head;
+ await read(await report({seq:await head(),pending:[]}));
+ // Studio 쪽: 문서 1개, 예배 1개
+ await read(await call('/documents?path=스튜디오.pro6','POST',doc('스튜디오')),201);
+ const library=(await read(await call('/playlists?path=기본.pro6pl','POST',playlist),201)).library;
+ // 장치 쪽: 문서 3개 + 그림 19개(같은 분 안)
+ for(const name of ['맥1','맥2','맥3'])await read(await asDevice('/documents?path='+encodeURIComponent(name+'.pro6'),'POST',doc(name)),201);
+ const now=new Date().toISOString();
+ await db.batch(Array.from({length:19},(_,i)=>db.prepare("INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,device_id,at) VALUES ('media',?,'created','x',1,?,'시험',?,?)").bind('/m/'+i+'.png','/m/'+i+'.png',issued.device.id,now)));
+ let status=await read(await call('/status'));
+ assert.deepEqual(status.studio.map(s=>[s.author,s.docs,s.nodeCount]),[['시험',['스튜디오'],library.playlists.length]],'Studio work excludes device writes under the same name');
+ const uploads=status.syncEvents.filter(e=>e.kind==='uploaded');
+ assert.equal(uploads.length,1,'one upload line per device and minute');
+ assert.deepEqual(uploads[0].counts,{documents:3,nodes:0,images:19});assert.deepEqual([...uploads[0].all].sort(),['맥1','맥2','맥3']);
+ assert.equal(uploads[0].code,issued.device.id.slice(0,6));assert.equal(status.devices[0].code,issued.device.id.slice(0,6));
+ assert.deepEqual(status.recent.filter(r=>r.path.startsWith('맥')).map(r=>r.device),[true,true,true]);assert.equal(status.recent.find(r=>r.path==='스튜디오.pro6').device,false);
+ // 옛 빌드: 커서가 그림 100개·문서 10개를 지나가면 종류별 수로 남긴다. 장치 자신이 쓴 줄은 빼고 같은 이름의 Studio 쓰기는 센다.
+ await db.batch([...Array.from({length:100},(_,i)=>db.prepare("INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) VALUES ('media',?,'created','x',1,?,'시험',?)").bind('/s/'+i+'.png','/s/'+i+'.png',now)),
+  ...Array.from({length:9},(_,i)=>db.prepare("INSERT INTO yebaeon_sync_log(kind,entity,action,version,sha256,size,path,author,at) VALUES ('doc',?,'updated',1,'x',1,?,'시험',?)").bind('d'+i,'곡'+i+'.pro6',now))]);
+ await read(await report({seq:await head(),pending:[]}));
+ status=await read(await call('/status'));
+ const applied=status.syncEvents.find(e=>e.kind==='applied');
+ assert.deepEqual(applied.counts,{documents:10,nodes:library.playlists.length,images:100});assert.ok(applied.names.length<=8);
+ // 새 빌드: [적용] 보고(received)로 받기 줄. receivedReports만 있고 받은 게 없으면 줄을 만들지 않는다.
+ await read(await call('/documents?path=나중.pro6','POST',doc('나중')),201);
+ const before=(await db.prepare("SELECT COUNT(*) AS n FROM yebaeon_sync_events").first()).n;
+ await read(await report({seq:await head(),pending:[],receivedReports:true}));
+ assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM yebaeon_sync_events").first()).n,before,'no line without a received report');
+ await read(await report({seq:await head(),pending:[],receivedReports:true,received:{nodes:['주일 1부'],documents:2,documentNames:['곡A','곡B'],images:3,held:1,revisions:0,applyID:'a1',extra:'x'.repeat(5000)}}));
+ const row=await db.prepare("SELECT summary FROM yebaeon_sync_events WHERE kind='received'").first();assert.ok(row.summary.length<=4096);assert.equal(JSON.parse(row.summary).extra,undefined);
+ status=await read(await call('/status'));
+ const got=status.syncEvents.find(e=>e.kind==='received');
+ assert.deepEqual(got.names,['주일 1부']);assert.deepEqual(got.counts,{documents:2,nodes:1,images:3});assert.equal(got.held,1);assert.deepEqual(got.all,['주일 1부','곡A','곡B']);
+ // 긴 이름 목록은 4KB 안으로 자른다.
+ await read(await report({seq:await head(),pending:[],received:{nodes:Array.from({length:30},(_,i)=>'예배'.repeat(40)+i),documents:50,documentNames:Array.from({length:60},(_,i)=>'문서'.repeat(60)+i),images:0}}));
+ for(const r of (await db.prepare("SELECT summary FROM yebaeon_sync_events WHERE kind='received'").all()).results){assert.ok(r.summary.length<=4096);const v=JSON.parse(r.summary);assert.ok(v.nodes.length<=20&&v.documentNames.length<=50);}
 });

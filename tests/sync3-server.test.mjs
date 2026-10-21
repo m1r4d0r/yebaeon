@@ -250,3 +250,29 @@ test('orphan images: per-document image index, backfill, admin trash writes a me
  assert.deepEqual((await changes(call,read,before)).map(c=>[c.action,c.path]),[['untrashed',R+'YebaeOn/광고-1.png'],['purged',R+'Images/배경.jpg']]);
  assert.deepEqual((await read(await call('/admin/orphans?trashed=1'))).trashed,[]);
 });
+
+test('church Mac revisions: list toggle, purge resolved and delete one',{timeout:90000},async t=>{
+ const {mf,read,person,db}=await fixture(t,{ADMIN_PASSWORD:'admin-secret-1'});
+ const user=await person('지은'),other=await person('은혜'),bucket=await mf.getR2Bucket('FILES');
+ const d=(await read(await user.call('/documents?path=보관본.pro6','POST',doc('서버')),201)).document;
+ const post=(reason,text)=>user.call(`/sync/revisions?kind=doc&id=${d.id}&baseVersion=1&reason=${reason}`,'POST',doc(text),{'Content-Type':'application/xml'});
+ const [a,b,c]=[(await read(await post('both-changed','Mac 1'),201)).revision,(await read(await post('both-changed','Mac 2'),201)).revision,(await read(await post('technical','Mac 3'),201)).revision];
+ let list=await read(await user.call('/sync/revisions'));assert.deepEqual(list.revisions.map(r=>r.id).sort(),[a.id,b.id].sort());assert.equal(list.resolved,0);
+ list=await read(await user.call('/sync/revisions?technical=1'));assert.equal(list.revisions.length,3);
+ assert.equal((await user.call('/sync/revisions/purge','POST','{}')).status,403,'purge needs the admin check');
+ assert.equal((await user.call(`/sync/revisions/${c.id}`,'DELETE')).status,403);
+ const granted=await user.call('/admin','POST',JSON.stringify({password:'admin-secret-1'}));await read(granted);user.addCookie(granted.headers.get('Set-Cookie'));
+ await read(await user.call(`/sync/revisions/${a.id}/resolve`,'POST',JSON.stringify({resolution:'dismissed'})));
+ list=await read(await user.call('/sync/revisions?technical=1'));assert.equal(list.revisions.length,2);assert.equal(list.resolved,1);
+ const key=id=>`revisions/${id}.xml`;assert.ok(await bucket.head(key(a.id)));
+ assert.deepEqual(await read(await user.call('/sync/revisions/purge','POST','{}')),{purged:1,remaining:0});
+ assert.equal(await bucket.head(key(a.id)),null,'R2 object removed');
+ assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM yebaeon_sync_revisions WHERE id=?').bind(a.id).first()).n,0,'row removed');
+ assert.ok(await bucket.head(key(b.id)),'open revisions stay');
+ assert.equal((await read(await user.call('/sync/revisions?technical=1'))).resolved,0);
+ await read(await user.call(`/sync/revisions/${c.id}`,'DELETE'));
+ assert.equal(await bucket.head(key(c.id)),null);assert.equal((await user.call(`/sync/revisions/${c.id}`)).status,404);
+ assert.deepEqual((await read(await user.call('/sync/revisions?technical=1'))).revisions.map(r=>r.id),[b.id]);
+ assert.equal((await user.call(`/documents/${d.id}`)).status,200,'the document itself is untouched');
+ assert.equal((await other.call('/sync/revisions/purge','POST','{}')).status,403);
+});

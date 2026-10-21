@@ -17,4 +17,4 @@
 
 - [작업 규칙](docs/rules/working-rules.md) · [D1 비용](docs/rules/d1-cost.md) · [경로·한글·High Sierra·PP6](docs/rules/cross-platform.md)
 - [Sync 규약](docs/design/sync.md) · [서버 저장](docs/design/server-storage.md) · [이미지](docs/design/media.md) · [문서 정리 정책](docs/design/library-policy.md) · [Studio 렌더](docs/design/studio-render.md) · [구성·코드 위치](docs/design/architecture.md)
-- [교회 전환](docs/guides/church-migration.md) · [주보·Dropbox](docs/guides/bulletin-dropbox.md) · [PPT 가져오기](docs/guides/ppt-import.md)
+- [교회 전환](docs/guides/church-migration.md) · [주보·Dropbox](docs/guides/bulletin-dropbox.md) · [PPT 가져오기](docs/guides/ppt-import.md) · [Sync 점검 목록 처리](docs/guides/sync-review.md)

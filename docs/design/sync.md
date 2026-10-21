@@ -347,7 +347,7 @@ PP6는 재생목록을 메모리에 들고 있다가 종료할 때 파일에 다
 | `PUT /api/playlists/:lib/nodes/:node` | 노드 XML 교체. 노드 하나만 검증하고, 노드 sha·버전으로 CAS | 수 문장 |
 | `POST /api/documents` | 기존 API(새 문서) | 지금과 같음 |
 | `POST /api/sync/usage` | `[{id, lastDateUsed, usedCount}]`를 `UPDATE … FROM json_each` 한 문장으로 반영. `last_used`는 기존 값과 비교해 큰 쪽(MAX)을 남기고 `usage_version`도 맞춤. 버전은 만들지 않음 | 1문장 |
-| `POST /api/sync/devices/:id/applied` | 장치 한 줄과 보류 목록 갱신 | 1~2행 |
+| `POST /api/sync/devices/:id/applied` | 장치 한 줄과 보류 목록 갱신. `received`가 있으면 Sync 기록 '받기' 1행 | 1~3문장 |
 | `POST /api/sync/manifest` | 처음 등록용. 50개씩 `json_each` 한 문장으로 없음·같음·다름을 판별 | 1문장 |
 | `PUT /api/media/paths` | 이미지 경로표 등록. body `{paths:[{path, sha256, size}]}` 최대 200개, `json_each` 한 문장으로 INSERT OR REPLACE. path는 NFC 절대경로, 허용 접두(`/Users/Shared/Renewed Vision Media/` 아래 `Images/`·`ImportedImages/`·`YebaeOn/`) 밖이면 그 항목만 `rejected`로 돌려줌. sha가 R2에 없으면 `unknown` | 1문장 |
 | `GET /api/media/paths?path=…` (여러 개) | 경로 키로 sha·크기 조회. Sync 2가 적용할 문서의 이미지 경로를 50개씩 물음 | 1문장 |
@@ -651,7 +651,7 @@ PP6가 꺼져 있습니다.                    [되돌리기]   [적용]
 원격 데스크톱 대신 앱 단위로 한다. 화면을 보내지 않으므로 구형 Mac에 부담이 거의 없고 Mac 전체 권한을 넘기지 않는다.
 
 - **현황(누구나 봄).** 상주 Sync가 비교·작업이 끝날 때와 PP6를 켜고 끌 때 현황 한 줄(요약, 예배별 상태·서버 저장 작업자·시각, 정리 창 목록, PP6 켜짐, 빌드, 마지막 오류, 최근 기록 30줄)을 `POST /api/sync/devices/:id/status`로 덮어쓴다. 내용이 같으면 한 시간에 한 번만 보낸다. Studio 작업자 메뉴 › 교회 Mac 줄에 요약이 보이고, 지난 동기화 기록(받기·올리기·원격 명령)은 서버 현황(`/status`)의 Sync 기록에서 본다.
-- **Sync 기록.** Mac이 적용 보고에서 커서를 앞으로 옮기면, 그 사이 다른 사람이 서버에 쓴 것(문서·예배 이름 앞 8개, 개수 40개까지)을 `yebaeon_sync_events`에 한 줄 남긴다(적용 보고당 최대 1행 쓰기·`sync_log` 41행 읽기). 장치 자신이 올린 것만 지나갔으면 남기지 않는다. 올리기는 `sync_log`의 장치 이름 줄, 원격은 명령 표에서 읽는다.
+- **Sync 기록.** 일지(`sync_log`)의 각 줄은 장치 열쇠로 쓴 것이면 `device_id`(그 장치 번호), 사람(Studio)이 쓴 것이면 NULL을 남긴다(`sync-log-device-v1`, 기존 행은 NULL). 현황은 최근 300줄을 이 값으로 나눠 Studio 작업(device_id 없음)과 Mac 올리기(device_id 있음)로 보여 준다. 장치 이름과 Studio 작업자 이름이 같아도 섞이지 않는다. 올리기는 장치·분마다 한 줄이고 문서·예배·그림 수를 따로 세며, 줄을 누르면 문서·예배 이름 전체(최대 100)를 펼친다. **받기**: 새 빌드는 [적용]이 끝나면 적용 보고에 `received`({nodes 최대 20, documents, documentNames 최대 50, images, held, revisions, applyID})와 `receivedReports:true`를 넣고, 서버는 `yebaeon_sync_events`에 kind `received` 한 줄(요약 4KB 이하)을 남긴다. 받은 게 없으면 줄이 없다. 옛 빌드(`receivedReports` 없음)는 커서가 앞으로 간 만큼, 장치 자신(device_id)이 아닌 쓰기를 종류별 COUNT 1문장 + 이름 앞 8개 1문장으로 kind `applied` 줄에 남긴다. 원격은 명령 표에서 읽는다. 장치 줄에는 장치 번호 앞 6자리와 마지막 접속 시각을 같이 보여 같은 이름 장치를 구분한다.
 - **원격 지원 시간.** Mac 앞에서 도구 메뉴 › [원격 지원 시작…]을 눌러야 열린다(평소 화면·메뉴 막대에는 버튼을 두지 않는다)(60분, 서버 최대 60분). Studio에서는 열 수 없고, 열리기 전 Studio 교회 Mac 창은 대기 안내만 보인다. 서버의 `support_until`이 지난 장치에는 명령을 남길 수 없다. 끝: Mac [끝내기], Studio [지원 끝내기](관리자), 시간 만료, Sync 종료·로그아웃. 끝나면 가져가지 않은 명령은 만료된다.
 - **명령(관리자만).** 관리자 쿠키(하루 유지)가 있는 사람 세션만 남길 수 있다. Mac 쪽 [원격 지원 시작…]은 관리자 확인을 묻지 않는다. 종류는 정해 둔 것뿐이다: `check`(다시 비교), `fullCheck`, `undo`(마지막 적용 되돌리기), `apply {nodes}`, `organizer {path, do}`(정리 창 버튼), `force {path, do}`(오른쪽 클릭 강제 동작), `message {text}`(Mac 화면 안내). 경로·셸 명령은 받지 않는다. 명령은 10분(또는 지원 끝) 뒤 만료되고, 기다리는 명령은 장치당 20개까지다.
 - **Mac 실행.** 지원 중에만 10초마다 `GET …/commands`로 가져간다(가져가면 `taken`). 대상은 지금 비교 결과·정리 창 목록에 있는 것만 받고, Mac 파일을 바꾸는 명령은 PP6가 켜져 있으면 `rejected`로 돌려준다. 확인 창 없이 실행하고 `done`·`failed`·`rejected`와 결과 글을 보고한다. Mac 창 위 주황 줄에 남은 시간·실행 중인 명령·관리자 안내가 보인다.

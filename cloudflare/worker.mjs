@@ -44,8 +44,8 @@ export default {
       const questions = /^\/api\/questions(?:\/([^/]+))?$/.exec(pathname);
       const userTemplates = /^\/api\/templates(?:\/([0-9a-f-]{36}))?$/.exec(pathname);
       const appUpdate = /^\/api\/sync\/app(\/download)?$/.exec(pathname);
-      const remote = /^\/api\/sync\/devices\/([0-9a-f]{32})\/(status|support|commands)(?:\/([^/]+))?$/.exec(pathname);
-      const sync2 = /^\/api\/sync\/(devices|changes|manifest|usage|revisions|ledger)(?:\/([0-9a-f-]{32,36})(?:\/(applied|content|resolve))?)?$/.exec(pathname);
+      const remote = /^\/api\/sync\/devices\/([0-9a-f]{32})\/(status|support|commands|review)(?:\/([^/]+))?$/.exec(pathname);
+      const sync2 = /^\/api\/sync\/(devices|changes|manifest|usage|revisions|ledger)(?:\/([0-9a-f-]{32,36}|purge)(?:\/(applied|content|resolve))?)?$/.exec(pathname);
       if (pathname !== '/api/session' && pathname !== '/api/status' && pathname !== '/api/activity' && pathname !== '/api/playlist-bootstrap' && pathname !== '/api/search-index' && pathname !== '/api/sync-observations' && pathname !== '/api/inventory' && !resource && !route && !playlist && !media && !mediaReferences && !mediaPaths && !admin && !categories && !editing && !userTemplates && pathname !== '/api/favorites' && !dropbox && !sync2 && !remote && !appUpdate && !questions && pathname !== '/api/discord/interactions') throw new HttpError(404, 'not_found', '없는 요청입니다.');
       // Discord가 보내는 상호작용은 세션이 아니라 Discord 서명으로 확인한다.
       if (pathname === '/api/discord/interactions') { await ensureSchema(env.DB); return await discordInteractionsRoute(request, env); }

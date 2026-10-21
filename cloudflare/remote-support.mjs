@@ -1,5 +1,6 @@
 import { HttpError, bytes, json, method, sameOrigin } from './http.mjs';
 import { requireAdmin } from './admin.mjs';
+import { reviewRoute } from './sync-review.mjs';
 
 // 교회 Mac 현황과 원격 지원(sync.md 13.6).
 // - 현황: 상주 Sync가 비교 결과·PP6 상태·마지막 오류를 장치 한 줄에 덮어쓴다. 바뀌었을 때와 한 시간에 한 번만 보낸다.
@@ -147,6 +148,7 @@ async function commandsRoute(request, env, user, id, commandId) {
 
 export async function remoteSupportRoute(request, env, user, deviceId, resource, commandId) {
   if (resource === 'status' && !commandId) return statusRoute(request, env, user, deviceId);
+  if (resource === 'review' && !commandId) return reviewRoute(request, env, user, deviceId);
   if (resource === 'support' && !commandId) return supportRoute(request, env, user, deviceId);
   if (resource === 'commands') return commandsRoute(request, env, user, deviceId, commandId);
   throw new HttpError(404, 'not_found', '없는 요청입니다.');

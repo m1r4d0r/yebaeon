@@ -2,7 +2,19 @@
 
 이 파일은 세션마다 **덮어써서** 갱신한다. 새 인계 파일을 만들지 않는다. 끝난 일은 [CHANGELOG](CHANGELOG.md), 남은 일은 [BACKLOG](BACKLOG.md)에 둔다.
 
-갱신: 2026-10-21 · Sync 2 [적용] 새 문서·강제 동작 예약(빌드 151 게시), 사이트 템플릿 1단계, PPT 변환 실패 문구, 주보 찬양 칸 검색.
+갱신: 2026-10-21 · 10-18 수정 목록 6건(웹·서버 1·2·3·5·6서버) + 점검 목록 복사 경로, Sync 2 [적용] 새 문서·강제 동작 예약(빌드 151 게시).
+
+## 10-21 10-18 수정 목록(웹·서버)과 점검 목록 복사 — 사용자 지시
+
+- 1 PPT 악보 용도 배경: 배경을 고르면 cue를 첫 장에만 `behavior="1"`(Background), 모든 장 `drawingBackgroundColor="true"`(나눈 장 흰색). 다른 용도는 나눈 장마다 `behavior="2"`, 배경 없음은 투명 그대로(`ppt-import.js` slideLook, `pp6.js` backgroundCueXML behavior 인자). 사용자가 교회 실기에서 일괄 변환본을 확인한 뒤 진행(10-21).
+- 2 재생목록 휴지통: `snapshot(…,{copy})` — 휴지통은 manifest(노드 XML·문서 id·경로·버전·sha·크기)만, 원본 읽기·확인·복사와 `archive_too_large` 없음. 휴지통 예배 `GET ?document=`는 404 "휴지통 예배는 문서 사본을 두지 않습니다". 보관함은 그대로. 휴지통 비우기(admin playlists)는 prefix 삭제라 그대로 동작.
+- 3 교회 Mac 보관본: 목록 응답에 정리 끝난 수(`resolved`), 설정·관리에 `이력 없는 문서 것도 보기`·[정리 끝난 보관본 지우기](`POST /api/sync/revisions/purge`, 20개씩, 남은 수)·줄마다 [지우기](`DELETE /api/sync/revisions/<id>`), 모두 관리자.
+- 5 Sync 기록: `yebaeon_sync_log.device_id` 추가(이전 `sync-log-device-v1`, 스키마 표시 `schema-ready-sync-log-device-v1`, 기존 행 NULL). 일지를 쓰는 모든 곳이 `user.device`를 적는다. 현황은 device_id로 Studio 작업·Mac 올리기를 나누고(최근 문서의 Mac/Studio 표시도 일지 기준), 올리기 줄에 문서·예배·그림 수와 펼치는 이름 전체(최대 100), 장치 줄에 번호 앞 6자리·마지막 접속. 옛 빌드 받기 줄은 `author<>장치 이름 LIMIT 41` 대신 `device_id` 거르기 + 종류별 COUNT 1문장 + 이름 8개 1문장.
+- 6(서버): 적용 보고 `received`가 있으면 `yebaeon_sync_events` kind `received` 한 줄(요약 4KB 이하), `receivedReports:true`(새 빌드)면 커서 기준 줄을 만들지 않음. Mac 쪽은 아래 Mac 세션.
+- 점검 목록 복사(사용자 지시): `cloudflare/sync-review.mjs` `POST /api/sync/devices/<id>/review` — 마지막 현황의 정리 창 목록(또는 Sync가 보낸 목록·Mac 쪽 사실)에 서버 상태(문서 버전·상태·저장자·크기·sha·카테고리·이력·열린 보관본·든 사용 중 예배·최근 일지 3줄, 그림 경로표·원본 유무)와 장치·일지 번호를 붙인 글. 교회 Mac 창 [점검 목록 복사](클립보드, 막히면 글 상자). 처리 기준은 `docs/guides/sync-review.md`(글 첫머리가 Claude에게 이 문서를 가리킴). 이 세션에서 운영 서버 읽기는 자동 모드가 막아(Production Reads) 글 안에 서버 상태를 넣는 방식으로 함.
+- D1: 1·2 변화 없음/감소(휴지통 R2 읽기 N·쓰기 N+1 → 쓰기 1). 3 목록 조회에 COUNT 1문장(정리 끝난 행 수만큼 읽기), 지우기는 누를 때만 20개당 행 삭제 20·R2 삭제 1회. 5 일지 쓰기 행 수 그대로(열 하나), 현황 읽기 300행·30행 그대로. 옛 빌드 받기 COUNT는 커서가 지나간 범위만큼 읽음(큰 업로드 직후 한 번 수천 행 가능, 전에는 41행). 새 빌드 보고는 [적용]마다 INSERT 1행. 점검 목록은 누를 때만: 장치 1행 + 문서·버전 수·보관본 수·경로표·그림 원본 각 1문장 + 문서마다 일지 3행 + 재생목록마다 1행·R2 1회.
+- 바뀌는 동안(추정): 이 배포 전 일지 줄은 device_id가 NULL이라 최근 300줄 안의 옛 Mac 올리기가 Studio 작업(장치 이름)으로 보인다. 새 쓰기가 쌓이면 빠진다.
+- 검증: `npm test` 106개 통과(새: 휴지통 100곡 manifest만·untrash·보관 복사, 보관본 전환·정리 끝 지우기·한 줄 지우기·403, 같은 이름 Studio/장치 분리·문서 3·그림 19·커서 문서 10·그림 100·received 4KB 자름, 점검 목록 글·Mac 사실·다른 출처 403). `npm run deploy:check` 통과. 브라우저 검사 8개 통과(ppt-import 악보 배경 첫 장 behavior 1·흰 바탕, library-bins 보관본 전환·지우기·점검 목록 복사, studio 현황 종류별 수·이름 펼치기).
 
 ## 10-18 Sync 2 [적용] 새 문서·단추 이름·강제 동작 예약 — main dbbb097, Sync 빌드 151 게시(사용자 승인 10-21)
 

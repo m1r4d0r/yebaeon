@@ -63,7 +63,20 @@
  function header(d,s){
   const dot=s.presenter===undefined?'':s.busy?'busy':'ok';
   const facts=[s.presenter?'PP6 실행 중':s.presenter===false?'PP6 꺼져 있음':null,s.busy?'Sync 작업 중':null,s.build?'Sync 빌드 '+s.build:null,s.update?`새 빌드 ${s.update} 설치 대기`:null,d.statusAt?P().when(d.statusAt)+' 보고':'현황 보고 없음'].filter(Boolean);
-  return el('div',{class:'mac-line'},el('i',{class:dot}),el('span',{textContent:facts.join(' · ')}),el('a',{href:'/status',target:'_blank',rel:'noopener',textContent:'Sync 기록은 서버 현황에서'}),s.error?el('span',{class:'mac-error',textContent:'마지막 오류 · '+s.error}):null);
+  return el('div',{class:'mac-line'},el('i',{class:dot}),el('span',{textContent:facts.join(' · ')}),el('a',{href:'/status',target:'_blank',rel:'noopener',textContent:'Sync 기록은 서버 현황에서'}),
+   el('button',{type:'button',class:'line-btn',textContent:`점검 목록 복사${(s.review||[]).length?' ('+s.review.length+')':''}`,title:'정리 창의 확인 필요 목록과 그 항목들의 서버 상태를 글로 복사합니다. Claude에게 붙여 넣으면 처리 방안을 제안받을 수 있습니다.',onclick:e=>copyReview(e.currentTarget)}),
+   s.error?el('span',{class:'mac-error',textContent:'마지막 오류 · '+s.error}):null);
+ }
+ // 점검 목록 글: 서버가 마지막 현황 보고의 목록에 서버 상태를 붙여 만든다. 복사가 막힌 브라우저에서는 글 상자를 띄워 직접 고르게 한다.
+ async function copyReview(button){
+  const d=device();if(!d)return;button.disabled=true;say('점검 목록을 만드는 중…');
+  try{
+   const {text,items}=await(await C.api(`/sync/devices/${d.id}/review`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+   let copied=false;try{await navigator.clipboard.writeText(text);copied=true;}catch(_){}
+   $('macReviewText')?.remove();
+   if(!copied){const box=el('textarea',{id:'macReviewText',readOnly:true,rows:8,value:text,'aria-label':'점검 목록'});$('macBody').append(box);box.focus();box.select();}
+   say(copied?`점검 목록 ${items}개를 복사했습니다. Claude에게 붙여 넣어 보내세요.`:'복사가 막혀 있습니다. 아래 글을 모두 골라 복사해 주세요.');
+  }catch(error){say(error.message);}finally{button.disabled=false;}
  }
  function waiting(){
   const last=commands[0];

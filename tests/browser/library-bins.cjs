@@ -102,12 +102,29 @@ const assert=require('node:assert/strict');
   assert.deepEqual((await(await asMac('/commands')).json()).commands.map(c=>c.args),[{nodes:['L/N1']}]);
   await page.locator('#macBody button',{hasText:'지원 끝내기'}).click();await page.locator('#macMessage').filter({hasText:'끝냈습니다'}).waitFor();
   assert.equal((await(await asMac('/commands')).json()).supportUntil,null);
+  // 점검 목록 복사: 서버가 마지막 현황의 목록에 서버 상태를 붙인 글. 복사가 막힌 브라우저에서는 글 상자로 보인다.
+  await page.evaluate(()=>{window.copiedReview='';Object.defineProperty(navigator.clipboard,'writeText',{configurable:true,value:async text=>{window.copiedReview=text;}});});
+  await page.locator('#macBody button',{hasText:'점검 목록 복사'}).click();await page.locator('#macMessage').filter({hasText:/점검 목록 \d+개를 복사했습니다/}).waitFor();
+  assert.match(await page.evaluate(()=>window.copiedReview),/^# 예배온 Sync 점검 목록[\s\S]*docs\/guides\/sync-review\.md/);
   await page.locator('#macClose').click();
   // 설정·관리: 휴지통·카테고리·보관본·검색 자료. 관리자 확인이 있으면 바로 열린다.
+  await page.evaluate(async()=>{const r=await fetch('/api/documents?path='+encodeURIComponent('보관 문서.pro6'),{method:'POST',headers:{'Content-Type':'application/xml'},body:PP6.documentXML({})});const d=(await r.json()).document;
+   for(const [reason,text] of [['both-changed','Mac 하나'],['technical','Mac 둘']])await fetch(`/api/sync/revisions?kind=doc&id=${d.id}&baseVersion=1&reason=${reason}`,{method:'POST',headers:{'Content-Type':'application/xml'},body:PP6.documentXML({}).replace('</RVPresentationDocument>',`<!-- ${text} --></RVPresentationDocument>`)});});
   await page.evaluate(async()=>{const r=await fetch('/api/documents?path='+encodeURIComponent('버릴 문서.pro6'),{method:'POST',headers:{'Content-Type':'application/xml'},body:PP6.documentXML({})});const d=(await r.json()).document;await fetch(`/api/documents/${d.id}/state`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'trash'})});});
   await page.locator('#cloudAccount').click();await page.locator('#studioSettings').click();await page.locator('#adminPanel[open]').waitFor();
   assert.match(await page.locator('#adminPanelState').textContent(),/관리자 확인됨 · .*까지/);
   const docTrash=page.locator('#adminPanel .admin-section',{hasText:'문서 휴지통'});await docTrash.locator('.line-row',{hasText:'버릴 문서'}).waitFor();
+  // 교회 Mac 보관본: 이력 없는 문서 것도 보기, 정리 끝 → 정리 끝난 것 지우기, 줄마다 지우기
+  const revisionSection=()=>page.locator('#adminPanel .admin-section',{hasText:'교회 Mac 보관본'});
+  await revisionSection().locator('.line-row',{hasText:'보관 문서'}).waitFor();assert.equal(await revisionSection().locator('.line-row').count(),1,'technical revisions hidden by default');
+  assert.equal(await revisionSection().getByRole('button',{name:'정리 끝난 보관본 지우기'}).isDisabled(),true);
+  await revisionSection().getByLabel('이력 없는 문서 것도 보기').check();await page.waitForFunction(()=>[...document.querySelectorAll('#adminPanel .admin-section')].find(s=>s.textContent.includes('교회 Mac 보관본'))?.querySelectorAll('.line-row').length===2);
+  await revisionSection().locator('.line-row',{hasText:'양쪽 수정'}).getByRole('button',{name:'정리 끝'}).click();await page.locator('#adminPanelMessage').filter({hasText:'보관본을 정리했습니다'}).waitFor();
+  await revisionSection().locator('.admin-count',{hasText:'정리 끝난 것 1개'}).waitFor();
+  await revisionSection().getByRole('button',{name:'정리 끝난 보관본 지우기'}).click();await page.locator('#adminPanelMessage').filter({hasText:'정리 끝난 보관본 1개를 지웠습니다'}).waitFor();
+  await revisionSection().locator('.line-row',{hasText:'이력 없는 문서'}).getByRole('button',{name:'지우기'}).click();await page.locator('#adminPanelMessage').filter({hasText:'보관본을 지웠습니다'}).waitFor();
+  await revisionSection().locator('.line-empty',{hasText:'열린 보관본이 없습니다'}).waitFor();
+  assert.deepEqual(await page.evaluate(async()=>{const v=await(await fetch('/api/sync/revisions?technical=1')).json();return [v.revisions.length,v.resolved];}),[0,0]);
   await page.screenshot({path:'artifacts/admin-panel.png'});assert.equal(await page.locator('#adminPanel .admin-section',{hasText:'검색·이력 설정'}).count(),1);assert.equal(await page.locator('#adminPanel #indexMaintenance').count(),1);
   const orphanSection=page.locator('#adminPanel .admin-section',{hasText:'고아 이미지'});await orphanSection.locator('.line-row',{hasText:'ImportedImages/시험/Slide1.png'}).waitFor();
   await orphanSection.getByRole('button',{name:'고른 1개 휴지통으로'}).click();await page.locator('#adminPanelMessage').filter({hasText:'그림 1개를 휴지통에'}).waitFor();

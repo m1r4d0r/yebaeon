@@ -19,17 +19,25 @@ function details(storage,observedAt){
 const studioLine=x=>el('span','',x.nodeCount?[el('span','tag order','순서'),names(x.nodes,x.nodeCount),x.docCount||x.images?' · ':'']:'',x.docCount?[el('span','tag doc','문서'),names(x.docs,x.docCount),x.images?' · ':'']:'',x.images?[el('span','tag img','이미지'),fmt(x.images)]:'');
 // 그 Mac의 Sync 2 빌드(현황 보고 기준)와 서버에 게시된 최신 빌드 비교.
 const syncBuild=(build,app)=>!build?'Sync 빌드 모름':app?.build>build?`Sync 빌드 ${build} (최신 ${app.build} 설치 전)`:`Sync 빌드 ${build}${app?.build===build?' (최신)':''}`;
-const KIND={applied:'받기',uploaded:'올리기',remote:'원격'},STATE={pending:'기다림',taken:'Mac 실행 중',done:'완료',failed:'실패',rejected:'하지 않음',expired:'만료'};
+const KIND={applied:'받기',received:'받기',uploaded:'올리기',remote:'원격'},STATE={pending:'기다림',taken:'Mac 실행 중',done:'완료',failed:'실패',rejected:'하지 않음',expired:'만료'};
+// 한 줄 요약: 이름(문서·예배 앞 몇 개) · 문서 n · 예배 n · 그림 n. 이름이 더 있으면 눌러서 전체(최대 100)를 펼친다.
+const counted=c=>[c?.documents?`문서 ${fmt(c.documents)}${c.more?'+':''}`:'',c?.nodes?`예배 ${fmt(c.nodes)}`:'',c?.images?`그림 ${fmt(c.images)}`:''].filter(Boolean).join(' · ');
 function eventText(e){
  if(e.kind==='remote')return `${e.action}${e.target?' · '+e.target:''} · ${e.author} 요청 · ${STATE[e.state]||e.state}`;
- const list=names(e.names||[],e.count-(e.images||0));return [list,e.images?`이미지 ${fmt(e.images)}`:''].filter(Boolean).join(' · ')||(e.kind==='applied'?'서버 변경 적용':'올림');
+ const shown=(e.names||[]).slice(0,3),all=e.all||e.names||[];
+ const extra=[e.held?`보류 ${fmt(e.held)}`:'',e.revisions?`서버 보관본 ${fmt(e.revisions)}`:''].filter(Boolean).join(' · ');
+ const line=[shown.join(', ')+(all.length>shown.length?` 외 ${all.length-shown.length}`:''),counted(e.counts),extra].filter(Boolean).join(' · ')||(e.kind==='uploaded'?'올림':'서버 변경 적용');
+ if(all.length<=shown.length)return line;
+ return el('details','event-names',el('summary','',line),el('div','muted',all.join(', ')));
 }
+// 같은 이름 장치가 여럿이면 장치 번호 앞 6자리로 구분한다.
+const deviceLabel=(e,devices)=>devices?.length>1&&e.device?e.device+(e.code&&devices.filter(d=>d.name===e.device).length>1?` (${e.code})`:'')+' · ':'';
 async function refresh(){if(busy||document.hidden)return;busy=true;try{const s=await request('/api/status');$('login').hidden=true;$('dashboard').hidden=false;
  $('count').textContent=fmt(s.documents);$('bytes').textContent=size(s.bytes);$('imageCount').textContent=fmt(s.images?.count);$('imageBytes').textContent=size(s.images?.bytes);
  $('imageSummary').textContent=`원본 ${fmt(s.images?.count)}개 · ${size(s.images?.bytes)}`;$('observed').textContent='마지막 확인 '+time(s.observedAt);
  rows('studio',s.studio||[],x=>[x.author,time(x.at),studioLine(x)],['','dim','']);
- rows('syncEvents',s.syncEvents||[],e=>[time(e.at),el('span','kind '+e.kind,KIND[e.kind]||e.kind),(s.devices?.length>1&&e.device?e.device+' · ':'')+eventText(e)],['dim','','']);
- $('devices').textContent=(s.devices||[]).map(d=>[d.name,syncBuild(d.build,s.syncApp),d.statusAt?time(d.statusAt)+' 보고':'현황 보고 없음'].filter(Boolean).join(' · ')).join(' / ');
+ rows('syncEvents',s.syncEvents||[],e=>[time(e.at),el('span','kind '+e.kind,KIND[e.kind]||e.kind),el('span','',deviceLabel(e,s.devices),eventText(e))],['dim','','']);
+ $('devices').textContent=(s.devices||[]).map(d=>[d.name+(d.code?` (${d.code})`:''),syncBuild(d.build,s.syncApp),d.statusAt?time(d.statusAt)+' 보고':'현황 보고 없음',d.lastSeenAt?'마지막 접속 '+time(d.lastSeenAt):''].filter(Boolean).join(' · ')).join(' / ');
  rows('recent',s.recent,x=>[x.path,String(x.version),el('span','',el('span','src'+(x.device?' mac':''),x.device?'Mac':'Studio'),x.author),time(x.updatedAt),'확인 중…'],['path','','','dim','dim']);
  Array.from($('recent').children).forEach((row,i)=>{if(s.recent[i])window.YebaeonUsage.show(row.lastChild,s.recent[i],false);});
  if(s.storage)details(s.storage,s.observedAt);

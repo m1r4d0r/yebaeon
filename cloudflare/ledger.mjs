@@ -42,7 +42,7 @@ async function allocateImportPaths(body, db, user) {
     const now = new Date().toISOString(), rows = JSON.stringify(items);
     const newOnly = `FROM (SELECT json_extract(j.value,'$.path') AS path, json_extract(j.value,'$.sha256') AS sha256, json_extract(j.value,'$.size') AS size FROM json_each(?) j) i WHERE NOT EXISTS (SELECT 1 FROM yebaeon_media_paths m WHERE m.path=i.path)`;
     const [, written] = await db.batch([
-      db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) SELECT 'media',i.path,'created',i.sha256,i.size,i.path,?,? ${newOnly}`).bind(user.author, now, rows),
+      db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,device_id,at) SELECT 'media',i.path,'created',i.sha256,i.size,i.path,?,?,? ${newOnly}`).bind(user.author, user.device || null, now, rows),
       db.prepare(`INSERT INTO yebaeon_media_paths(path,sha256,size,state,updated_at,updated_by) SELECT i.path,i.sha256,i.size,'active',?,? ${newOnly}`).bind(now, user.author, rows)
     ]);
     // 같은 이름으로 동시에 가져오면 번호가 겹칠 수 있다. 그때는 아무것도 덮지 않고 다시 시도하게 한다.
@@ -95,7 +95,7 @@ async function placeImagePaths(body, db, user) {
       const now = new Date().toISOString(), input = JSON.stringify(fresh);
       const newOnly = `FROM (SELECT json_extract(j.value,'$.path') AS path, json_extract(j.value,'$.sha256') AS sha256, json_extract(j.value,'$.size') AS size FROM json_each(?) j) i WHERE NOT EXISTS (SELECT 1 FROM yebaeon_media_paths m WHERE m.path=i.path)`;
       const [, written] = await db.batch([
-        db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) SELECT 'media',i.path,'created',i.sha256,i.size,i.path,?,? ${newOnly}`).bind(user.author, now, input),
+        db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,device_id,at) SELECT 'media',i.path,'created',i.sha256,i.size,i.path,?,?,? ${newOnly}`).bind(user.author, user.device || null, now, input),
         db.prepare(`INSERT INTO yebaeon_media_paths(path,sha256,size,state,updated_at,updated_by) SELECT i.path,i.sha256,i.size,'active',?,? ${newOnly}`).bind(now, user.author, input)
       ]);
       if ((written.meta.changes || 0) !== fresh.length) continue;
@@ -167,7 +167,7 @@ export async function mediaPathsRoute(request, env, user) {
   const incoming = `SELECT json_extract(j.value,'$.path') AS path, json_extract(j.value,'$.sha256') AS sha256, json_extract(j.value,'$.size') AS size FROM json_each(?) j`;
   const changedOnly = `FROM (${incoming}) i LEFT JOIN yebaeon_media_paths m ON m.path=i.path WHERE m.path IS NULL OR m.sha256<>i.sha256 OR m.state<>'active'`;
   const [, written] = await db.batch([
-    db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,at) SELECT 'media',i.path,CASE WHEN m.path IS NULL THEN 'created' ELSE 'updated' END,i.sha256,i.size,i.path,?,? ${changedOnly}`).bind(user.author, now, input),
+    db.prepare(`INSERT INTO yebaeon_sync_log(kind,entity,action,sha256,size,path,author,device_id,at) SELECT 'media',i.path,CASE WHEN m.path IS NULL THEN 'created' ELSE 'updated' END,i.sha256,i.size,i.path,?,?,? ${changedOnly}`).bind(user.author, user.device || null, now, input),
     db.prepare(`INSERT OR REPLACE INTO yebaeon_media_paths(path,sha256,size,state,updated_at,updated_by) SELECT i.path,i.sha256,i.size,'active',?,? ${changedOnly}`).bind(now, user.author, input)
   ]);
   return json({ registered: ready.length, changed: written.meta.changes || 0, missing, outside });
