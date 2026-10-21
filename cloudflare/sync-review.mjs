@@ -23,7 +23,7 @@ function cleanItem(item) {
     list: str(item.list, 40), title: str(item.title), path: str(item.path), detail: str(item.detail, 600),
     actions: Array.isArray(item.actions) ? item.actions.filter(a => typeof a === 'string').slice(0, 8) : [],
     references: Array.isArray(item.references) ? item.references.map(r => str(r)).filter(Boolean).slice(0, 20) : null,
-    mac: mac && { exists: mac.exists === true, size: Number.isSafeInteger(mac.size) ? mac.size : null, modifiedAt: str(mac.modifiedAt, 40), sha256: str(mac.sha256, 64),
+    mac: mac && { exists: mac.exists === true || mac.exists === 1, size: Number.isSafeInteger(mac.size) ? mac.size : null, modifiedAt: str(mac.modifiedAt, 40), sha256: str(mac.sha256, 64),
       ledger: mac.ledger && typeof mac.ledger === 'object' ? { version: Number.isSafeInteger(mac.ledger.version) ? mac.ledger.version : null, sha256: str(mac.ledger.sha256, 64), state: str(mac.ledger.state, 20) } : null }
   };
 }

@@ -1896,7 +1896,7 @@ static unsigned long long FolderBytes(NSString *path) {
     if (![path isKindOfClass:NSString.class] || ![path.pathExtension.lowercaseString isEqual:@"pro6"]) return nil;
     NSMutableDictionary *facts = [NSMutableDictionary dictionary];
     NSString *absolute = [self diskPath:path];
-    facts[@"exists"] = @(absolute != nil);
+    facts[@"exists"] = absolute ? @YES : @NO;
     if (absolute) {
         NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:absolute error:NULL];
         facts[@"size"] = @([attributes fileSize]);

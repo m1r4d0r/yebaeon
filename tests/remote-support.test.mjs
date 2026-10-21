@@ -124,7 +124,7 @@ test('review report: the review list with server facts as text, from the last st
  assert.match(text,/## 예배 비교에서 같지 않은 줄 1개\n- 주일 1부 · 보류 · 보류 · 이력 없음 1/);
  assert.match(text,/Sync 빌드 152/);
  // Sync가 Mac 쪽 사실과 함께 보내면 그것으로 만든다.
- const sent=await read(await device(`/sync/devices/${id}/review`,'POST',JSON.stringify({items:[{...review[0],mac:{exists:true,size:4096,modifiedAt:'2026-10-20T01:00:00Z',sha256:'b'.repeat(64),ledger:{version:1,sha256:'c'.repeat(64)}}}],rows:[]})));
+ const sent=await read(await device(`/sync/devices/${id}/review`,'POST',JSON.stringify({items:[{...review[0],mac:{exists:1,size:4096,modifiedAt:'2026-10-20T01:00:00Z',sha256:'b'.repeat(64),ledger:{version:1,sha256:'c'.repeat(64)}}}],rows:[]})));
  assert.equal(sent.source,'sync');assert.equal(sent.items,1);
  assert.match(sent.text,/Mac: Mac 파일 있음 · 4KB · 수정 2026-10-20 10:00 · sha bbbbbbbb · 영수증 기준 v1 sha cccccccc/);
  // 사람은 어느 장치 것이든 만들 수 있고, 다른 사이트에서는 막는다.
