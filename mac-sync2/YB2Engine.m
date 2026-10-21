@@ -312,6 +312,12 @@ static NSString *ImageDiskPath(NSString *path) {
         [self.receipt setValue:@"1" forKey:@"repairNumbered1"];
     }];
 }
+// 서버에 올린 적 없는 Mac 새 문서인가. 장부 사본이 있어야 가린다. 서버에 있었던 경로(휴지통·이름 바뀜 포함)는 새 문서가 아니다.
+- (BOOL)isMacNewDocument:(NSString *)path {
+    if (![path isKindOfClass:NSString.class] || ![path.pathExtension.lowercaseString isEqual:@"pro6"] || ![self.receipt value:@"ledgerSeq"].length) return NO;
+    NSString *name = path.precomposedStringWithCanonicalMapping;
+    return ![self.receipt ledger:name] && ![self.receipt document:name] && [self diskPath:name] != nil;
+}
 - (NSArray *)compare {
     [self repairUndoneNumbering];
     [self report:@"서버 재생목록 확인 중"];
@@ -431,13 +437,22 @@ static NSString *ImageDiskPath(NSString *path) {
             row[@"macRenamed"] = @(macRenamed); row[@"macDeletedDocuments"] = macDeletedDocs;
             row[@"orderChanged"] = @(orderChanged); row[@"macOrderChanged"] = @(macOrderChanged); row[@"macOnlyOrder"] = @(macOnlyOrder); row[@"macOnlyDocuments"] = macOnly;
             row[@"usageOnly"] = usageOnly; row[@"revertedDocuments"] = reverted; row[@"revertedOrder"] = @(revertedOrder && orderChanged); row[@"macChangedReasons"] = reasons;
-            NSMutableArray *missingLocal = [NSMutableArray array]; NSUInteger missingServer = 0;
+            // 서버에 원본 없는 참조 중 Mac에만 있는 새 문서는 이 줄의 [적용]으로 올린다. missingServer는 올릴 수 없는 것만 센다.
+            NSMutableArray *missingLocal = [NSMutableArray array], *macNew = [NSMutableArray array]; NSUInteger missingServer = 0;
             for (NSDictionary *item in plan[@"items"]) {
                 if (![item[@"issue"] isEqual:@"missing"]) continue;
-                missingServer++;
                 NSString *path = item[@"path"];
+                if ([self isMacNewDocument:path]) { NSString *name = path.precomposedStringWithCanonicalMapping; if (![macNew containsObject:name]) [macNew addObject:name]; continue; }
+                missingServer++;
                 if ([path isKindOfClass:NSString.class] && ![self statPath:path size:NULL mtime:NULL]) [missingLocal addObject:path];
             }
+            // Mac에서 이 예배에 새로 끼운 문서도 같다. 순서를 올리기 전에 문서부터 올라가야 서버에 원본 없는 참조로 남지 않는다.
+            for (NSDictionary *cue in localNode[@"items"]) {
+                NSString *reference = YBPlaylistReference(cue[@"attrs"][@"filePath"], sourceRoot) ?: YBPlaylistReference(cue[@"attrs"][@"filePath"], self.root);
+                if (![self isMacNewDocument:reference]) continue;
+                NSString *name = reference.precomposedStringWithCanonicalMapping; if (![macNew containsObject:name]) [macNew addObject:name];
+            }
+            row[@"macNewDocuments"] = macNew;
             row[@"explicitlyDeletedDocuments"] = explicitlyDeleted;
             row[@"documents"] = documents; row[@"macChangedDocuments"] = macChanged;
             row[@"serviceDocuments"] = [plan[@"documents"] valueForKey:@"path"] ?: @[];   // 이 예배의 모든 문서(오른쪽 클릭 강제 동작용)
@@ -446,6 +461,7 @@ static NSString *ImageDiskPath(NSString *path) {
             else if (images.count) { row[@"status"] = @"receive"; row[@"imagesOnly"] = @YES; }
             else if (macOnlyOrder || macOnly.count || usageOnly.count) row[@"status"] = @"mac";
             else if (explicitlyDeleted.count) { row[@"status"] = @"hold"; row[@"reason"] = @"Mac에서 지운 문서 · 다시 받지 않음(정리 창에서 복구 가능)"; }
+            else if (macNew.count) row[@"status"] = @"mac";
             else {
                 row[@"status"] = @"same";
                 [self.receipt rememberNode:key serverSha:plan[@"playlist"][@"sha256"] fingerprint:localFP name:name];
@@ -489,7 +505,17 @@ static NSString *ImageDiskPath(NSString *path) {
         else if ([state isEqual:@"archived"]) { row[@"status"] = @"archived"; row[@"reason"] = @"서버에서 보관됨"; }
         else if (state) { row[@"status"] = @"archived"; row[@"reason"] = @"서버 휴지통을 비움 · Mac에만 남음"; }
         else if (known) { row[@"status"] = @"archived"; row[@"reason"] = @"서버에 없음"; }
-        else row[@"status"] = @"macNew";
+        else {
+            row[@"status"] = @"macNew";
+            // 이 예배가 가리키는 Mac 새 문서도 같은 [적용]으로 올린다.
+            NSMutableArray *macNew = [NSMutableArray array];
+            for (NSDictionary *cue in node[@"items"]) {
+                NSString *reference = YBPlaylistReference(cue[@"attrs"][@"filePath"], sourceRoot) ?: YBPlaylistReference(cue[@"attrs"][@"filePath"], self.root);
+                if (![self isMacNewDocument:reference]) continue;
+                NSString *name = reference.precomposedStringWithCanonicalMapping; if (![macNew containsObject:name]) [macNew addObject:name];
+            }
+            row[@"macNewDocuments"] = macNew;
+        }
         [rows addObject:row];
     }
     // 서버 일지의 문서 이름 바꾸기·휴지통. 서버가 알던 내용 그대로인 파일만 대상이다. 다르면 두고 정리 창으로.
@@ -1484,15 +1510,20 @@ static NSArray *MediaPaths(NSData *document) {
     saved[@"collisions"] = list;
     [self.receipt setValue:[[NSString alloc] initWithData:JSONData(saved) encoding:NSUTF8StringEncoding] forKey:@"fullCheck"];
 }
-- (NSDictionary *)uploadNew {
+- (NSDictionary *)uploadNew { return [self uploadNewDocuments:nil]; }
+- (NSDictionary *)uploadNewDocuments:(NSArray *)paths {
     NSMutableArray *created = [NSMutableArray array], *collisions = [NSMutableArray array]; NSMutableDictionary *failed = [NSMutableDictionary dictionary];
     if (![self.receipt value:@"ledgerSeq"].length) return @{@"created": created, @"collisions": collisions, @"media": @0, @"failed": failed};   // 장부 사본이 없으면 새 문서를 가릴 수 없다
-    // 1. Mac 안에서 올릴 문서를 먼저 모은다. Mac 문서 폴더는 평평하다. 맨 위의 .pro6만 본다.
+    // 1. Mac 안에서 올릴 문서를 먼저 모은다. 경로를 받지 않으면 문서 폴더 맨 위의 .pro6 전체를 본다(Mac 문서 폴더는 평평하다).
+    //    올리기 직전에 장부·영수증을 다시 본다: 그 사이 다른 올리기가 올린 문서는 건너뛴다.
     [self report:@"새 문서 찾는 중"];
-    NSMutableArray *candidates = [NSMutableArray array];
-    for (NSString *name in [[NSFileManager.defaultManager contentsOfDirectoryAtPath:self.root error:NULL] sortedArrayUsingSelector:@selector(compare:)]) {
-        if ([name hasPrefix:@"."] || ![name.pathExtension.lowercaseString isEqual:@"pro6"]) continue;
+    NSMutableArray *candidates = [NSMutableArray array]; NSMutableSet *seen = [NSMutableSet set];
+    NSArray *names = paths ?: [[NSFileManager.defaultManager contentsOfDirectoryAtPath:self.root error:NULL] sortedArrayUsingSelector:@selector(compare:)];
+    for (NSString *name in names) {
+        if (![name isKindOfClass:NSString.class] || [name hasPrefix:@"."] || ![name.pathExtension.lowercaseString isEqual:@"pro6"]) continue;
         NSString *path = name.precomposedStringWithCanonicalMapping;
+        if ([seen containsObject:path]) continue;
+        [seen addObject:path];
         if ([self.receipt ledger:path] || [self.receipt document:path]) continue;   // 서버에 있었던 경로(휴지통·이름 바뀜 포함)는 새 문서가 아니다
         NSData *bytes = YBReadSafeFile(self.root, path, NULL);
         if (bytes) [candidates addObject:@{@"path": path, @"bytes": bytes}];
@@ -1500,7 +1531,7 @@ static NSArray *MediaPaths(NSData *document) {
     // 1-1. Mac에서 이름만 바꾼 문서: 영수증·장부에 있던 활성 경로가 사라지고, 바이트가 완전히 같은 새 경로가 생겼으면 새 문서가 아니라 서버 이름 바꾸기다.
     // 같은 sha의 사라진 경로·새 경로가 각각 하나일 때만 짝짓는다. 그 밖(내용도 고침, 여럿이 겹침)은 새 문서로 올리고 정리는 사람에게 맡긴다.
     NSMutableArray *renamed = [NSMutableArray array];
-    NSDictionary *pairs = [self macRenamesFor:candidates];
+    NSDictionary *pairs = paths ? @{} : [self macRenamesFor:candidates];
     if (pairs.count) {
         NSMutableArray *rest = [NSMutableArray array];
         for (NSDictionary *item in candidates) {
@@ -1573,6 +1604,10 @@ static NSArray *MediaPaths(NSData *document) {
 #pragma mark - 올리기 (2차)
 
 - (NSDictionary *)overwriteOrder:(NSDictionary *)row fromServer:(BOOL)fromServer {
+    NSDictionary *order = [self forcedOrderRow:row fromServer:fromServer];
+    return fromServer ? [self apply:@[order]] : [self upload:@[order]];
+}
+- (NSDictionary *)forcedOrderRow:(NSDictionary *)row fromServer:(BOOL)fromServer {
     YBRequire(self.library != nil && self.comparedPlaylistHash != nil, @"먼저 비교해 주세요.");
     YBRequire([@[@"same", @"receive", @"mac"] containsObject:row[@"status"] ?: @""] && [row[@"plan"][@"applicable"] boolValue], @"이 재생목록은 순서를 덮어쓸 수 없습니다. 다시 비교해 주세요.");
     YBRequire([row[@"key"] isEqual:[NSString stringWithFormat:@"%@/%@", self.library[@"id"], row[@"nodeID"]]], @"비교한 재생목록이 지금 연결과 다릅니다.");
@@ -1585,16 +1620,74 @@ static NSArray *MediaPaths(NSData *document) {
     NSDictionary *node = YBPlaylistNode(local, row[@"nodeID"]);
     if (!fromServer) YBRequire([node[@"raw"] length] > 0 && [node[@"raw"] isEqual:row[@"localXML"]], @"올릴 Mac 재생목록이 없거나 바뀌었습니다. 다시 비교해 주세요.");
     NSMutableDictionary *order = [row mutableCopy];
-    for (NSString *key in @[@"documents", @"images", @"macChangedDocuments", @"macOnlyDocuments", @"usageOnly"]) order[key] = @[];
+    for (NSString *key in @[@"documents", @"images", @"macChangedDocuments", @"macOnlyDocuments", @"usageOnly", @"macNewDocuments"]) order[key] = @[];
     if (fromServer) {
         order[@"status"] = @"receive"; order[@"orderChanged"] = @YES;
         order[@"macOrderChanged"] = @([node[@"raw"] length] > 0);
         order[@"revertedOrder"] = @NO;
-        return [self apply:@[order]];
+        return order;
     }
-    order[@"macOnlyOrder"] = @YES;
+    order[@"status"] = @"mac"; order[@"macOnlyOrder"] = @YES;
     order[@"localName"] = node[@"name"] ?: row[@"name"];
-    return [self upload:@[order]];
+    return order;
+}
+
+// 한 줄이 가리키는 문서 경로 전부. 강제 동작과 겹치는 줄을 가릴 때 쓴다.
+static NSSet *RowPaths(NSDictionary *row) {
+    NSMutableSet *paths = [NSMutableSet set];
+    for (NSString *key in @[@"serviceDocuments", @"macOnlyDocuments", @"macChangedDocuments", @"macNewDocuments", @"macDeletedDocuments", @"explicitlyDeletedDocuments", @"missingLocal"]) for (id path in row[key]) if ([path isKindOfClass:NSString.class]) [paths addObject:path];
+    for (NSString *key in @[@"documents", @"usageOnly", @"trashes"]) for (NSDictionary *item in row[key]) if ([item[@"path"] isKindOfClass:NSString.class]) [paths addObject:item[@"path"]];
+    for (NSDictionary *item in row[@"renames"]) for (NSString *key in @[@"from", @"to"]) if ([item[key] isKindOfClass:NSString.class]) [paths addObject:item[key]];
+    return paths;
+}
+static BOOL RowChangesMac(NSDictionary *row) { return [@[@"receive", @"trash", @"actions"] containsObject:row[@"status"] ?: @""] || [row[@"images"] count]; }
+- (NSDictionary *)syncRows:(NSArray *)rows forced:(NSArray *)forced automatic:(BOOL)automatic {
+    BOOL presenter = self.presenterRunning ? self.presenterRunning() : NO;
+    NSMutableDictionary *result = [NSMutableDictionary dictionary];
+    if (automatic && presenter) return result;
+    // 1. 예약한 강제 동작. 문서 동작은 바로 하고, 순서 덮어쓰기는 아래 올리기·받기에 한 줄로 넣는다(재생목록 파일은 적용 한 번에만 쓴다).
+    //    강제 동작이 건드린 문서·예배의 보통 줄은 이번에 하지 않는다. 그 줄의 비교 결과는 이미 낡았다.
+    NSMutableArray *done = [NSMutableArray array], *uploadRows = [NSMutableArray array], *applyRows = [NSMutableArray array], *deferred = [NSMutableArray array];
+    NSMutableDictionary *failed = [NSMutableDictionary dictionary];
+    NSMutableSet *touchedPaths = [NSMutableSet set], *touchedKeys = [NSMutableSet set];
+    for (NSDictionary *item in automatic ? @[] : forced ?: @[]) {
+        NSString *label = item[@"label"] ?: item[@"path"] ?: @"강제 동작";
+        @try {
+            if ([item[@"kind"] isEqual:@"order"]) {
+                NSDictionary *row = item[@"row"]; BOOL fromServer = [item[@"fromServer"] boolValue];
+                if (row[@"key"]) [touchedKeys addObject:row[@"key"]];
+                YBRequire(!fromServer || !presenter, @"ProPresenter를 종료한 뒤 적용해 주세요.");
+                [fromServer ? applyRows : uploadRows addObject:[self forcedOrderRow:row fromServer:fromServer]];
+                [done addObject:label];
+                continue;
+            }
+            NSString *action = item[@"action"], *path = item[@"path"];
+            if (path) [touchedPaths addObject:path];
+            if ([action isEqual:@"server"]) [self takeServer:path];
+            else if ([action isEqual:@"mac"]) [self takeMac:path];
+            else if ([action isEqual:@"trashServer"]) [self trashOnServer:path];
+            else if ([action isEqual:@"trashMac"]) [self trashOnMac:path];
+            else YBRequire(NO, @"모르는 강제 동작입니다.");
+            [done addObject:label];
+        } @catch (NSException *e) { failed[label] = e.reason ?: @"강제 동작 실패"; }
+    }
+    // 2. 고른 줄. 자동(PP6 종료 뒤)은 올리기만 한다.
+    for (NSDictionary *row in rows) {
+        if ((row[@"key"] && [touchedKeys containsObject:row[@"key"]]) || [touchedPaths intersectsSet:RowPaths(row)]) { [deferred addObject:row[@"name"] ?: @""]; continue; }
+        if ([row[@"status"] isEqual:@"mac"] || [row[@"status"] isEqual:@"macNew"] || [row[@"macOnlyDocuments"] count] || [row[@"usageOnly"] count] || [row[@"macNewDocuments"] count]) [uploadRows addObject:row];
+        if (!automatic && RowChangesMac(row)) [applyRows addObject:row];
+    }
+    // 올리기를 받기보다 먼저 한다. 받기가 Mac 것을 덮어도 서버에 남게 한다.
+    if (automatic) result[@"created"] = [self uploadNew];
+    if (uploadRows.count) {
+        NSDictionary *upload = [self upload:uploadRows];
+        result[@"upload"] = upload;
+        if (!result[@"created"] && [upload[@"created"] count]) result[@"created"] = upload[@"created"];
+    }
+    if (applyRows.count && !presenter) result[@"apply"] = [self apply:applyRows];
+    if (done.count || failed.count) result[@"forced"] = @{@"done": done, @"failed": failed};
+    if (deferred.count) result[@"deferred"] = deferred;
+    return result;
 }
 
 - (NSDictionary *)upload:(NSArray *)rows {
@@ -1602,8 +1695,13 @@ static NSArray *MediaPaths(NSData *document) {
     NSMutableArray *uploaded = [NSMutableArray array]; NSMutableDictionary *failed = [NSMutableDictionary dictionary];
     NSMutableDictionary *usage = [NSMutableDictionary dictionary];   // 경로 → 항목. 여러 예배가 같은 문서를 써도 한 번만
     NSMutableSet *sent = [NSMutableSet set]; NSMutableArray *sentBytes = [NSMutableArray array];
+    // 예배가 가리키는 Mac 새 문서는 예배 순서보다 먼저 올린다. 여러 예배가 같은 문서를 써도 한 번만. 서버는 경로로 예배 항목과 잇는다.
+    NSMutableOrderedSet *fresh = [NSMutableOrderedSet orderedSet];
+    for (NSDictionary *row in rows) for (id path in row[@"macNewDocuments"]) if ([path isKindOfClass:NSString.class]) [fresh addObject:path];
+    NSDictionary *created = fresh.count ? [self uploadNewDocuments:fresh.array] : @{};
     for (NSDictionary *row in rows) {
         NSString *name = row[@"name"]; NSDictionary *plan = row[@"plan"]; BOOL any = NO;
+        for (id path in row[@"macNewDocuments"]) if ([created[@"created"] containsObject:path]) any = YES;
         for (NSDictionary *entry in row[@"usageOnly"]) usage[entry[@"path"]] = entry;
         @try {
             // Mac에서만 고친 문서: 서버 새 버전으로 저장한다. If-Match는 영수증과 같은 서버 버전이라 그 사이 웹 저장이 있으면 409로 멈춘다.
@@ -1665,7 +1763,7 @@ static NSArray *MediaPaths(NSData *document) {
             reported += chunk.count;
         } @catch (NSException *e) { failed[@"사용일"] = e.reason ?: @"사용일 보고 실패"; }
     }
-    return @{@"uploaded": uploaded, @"usage": @(reported), @"failed": failed};
+    return @{@"uploaded": uploaded, @"usage": @(reported), @"failed": failed, @"created": created};
 }
 
 #pragma mark - 변경 일지 (상주 확인)

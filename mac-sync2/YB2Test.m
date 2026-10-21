@@ -605,6 +605,86 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         [engine trashOnMac:@"강제 지움.pro6"];
         Check(![NSFileManager.defaultManager fileExistsAtPath:Local(@"강제 지움")] && [NSFileManager.defaultManager fileExistsAtPath:[trashBin stringByAppendingPathComponent:@"강제 지움.pro6"]], @"forced mac trash moves the file to the trash");
 
+        // 31. [적용]이 예배에 든 Mac 새 문서도 올린다. 서버는 경로로 예배 항목과 잇는다.
+        NSString *(^ServiceXML)(NSString *, NSString *, NSArray *) = ^NSString *(NSString *uuid, NSString *name, NSArray *cues) {
+            NSMutableString *xml = [NSMutableString stringWithFormat:@"<RVPlaylistNode UUID=\"%@\" displayName=\"%@\">\n", uuid, name];
+            for (NSArray *cue in cues) [xml appendString:Cue(cue[0], cue[1], docs)];
+            [xml appendString:@"    </RVPlaylistNode>"];
+            return xml;
+        };
+        BOOL (^Missing)(NSDictionary *) = ^BOOL (NSDictionary *row) { return [[row[@"plan"][@"items"] valueForKey:@"issue"] containsObject:@"missing"]; };
+        //   a. 서버 예배가 Mac에만 있는 문서(이미지 포함)를 가리킨다: 줄은 mac(올리기 대기), [적용]으로 문서·이미지가 서버에 생긴다.
+        Post([NSString stringWithFormat:@"/api/playlists/%@/nodes?node=N4", libraryID], @{@"xml": ServiceXML(@"N4", @"블레싱데이", @[@[@"C-B1", @"블레싱 새 곡"]])}, @{@"X-YebaeOn-Sync": @"2"});
+        rows = Sync(); NSDictionary *n4 = RowNamed(rows, @"블레싱데이");
+        Check([n4[@"status"] isEqual:@"receive"] && [n4[@"serverNew"] boolValue] && [n4[@"macNewDocuments"] count] == 0, [NSString stringWithFormat:@"server service whose document is on neither side: %@ %@", n4[@"status"], n4[@"macNewDocuments"]]);
+        [engine apply:@[n4]];
+        Check(YBPlaylistNode(YBReadPlaylist(playlistURL), @"N4") != nil, @"service received before the Mac document exists");
+        NSString *blessImage = withImage ? [mediaDir stringByAppendingPathComponent:[NSString stringWithFormat:@"sync2-bless-%@.png", NSUUID.UUID.UUIDString]] : nil;
+        if (blessImage) { NSMutableData *pngBytes = [NSMutableData dataWithBytes:png length:sizeof png]; [pngBytes appendData:[blessImage dataUsingEncoding:NSUTF8StringEncoding]]; Check([pngBytes writeToFile:blessImage atomically:YES], @"image for the new Mac document"); }
+        NSString *blessXML = blessImage ? [NSString stringWithFormat:@"블레싱 <RVImageElement source=\"file:///Users/Shared/Renewed%%20Vision%%20Media/YebaeOn/%@\"/>", blessImage.lastPathComponent] : @"블레싱";
+        Check([Doc(blessXML) writeToFile:Local(@"블레싱 새 곡") atomically:YES], @"new document made on the Mac");
+        rows = Sync(); n4 = RowNamed(rows, @"블레싱데이");
+        Check([n4[@"status"] isEqual:@"mac"] && [n4[@"macNewDocuments"] isEqual:@[@"블레싱 새 곡.pro6"]] && [n4[@"missingServer"] integerValue] == 0, [NSString stringWithFormat:@"new Mac document waits for apply: %@ %@ %@", n4[@"status"], n4[@"macNewDocuments"], n4[@"missingServer"]]);
+        NSDictionary *synced = [engine syncRows:@[n4] forced:nil automatic:NO];
+        Check([synced[@"created"][@"created"] isEqual:@[@"블레싱 새 곡.pro6"]] && [synced[@"upload"][@"failed"] count] == 0, [NSString stringWithFormat:@"apply uploads the new document: %@", synced]);
+        Check([ServerDoc(@"블레싱 새 곡.pro6")[@"version"] isEqual:@1], @"server has the new document");
+        if (blessImage) Check([[[web request:@"/api/media/paths" method:@"GET" body:nil headers:nil][@"paths"] valueForKey:@"path"] containsObject:blessImage], @"its image uploaded and registered");
+        rows = Sync(); n4 = RowNamed(rows, @"블레싱데이");
+        Check([n4[@"status"] isEqual:@"same"] && !Missing(n4), [NSString stringWithFormat:@"same after the upload, nothing missing: %@", n4[@"status"]]);
+        synced = [engine syncRows:@[n4] forced:nil automatic:NO];
+        Check(synced[@"created"] == nil && synced[@"upload"] == nil && synced[@"apply"] == nil, [NSString stringWithFormat:@"applying again uploads nothing: %@", synced]);
+
+        //   b. Mac에서 만든 예배 + 새 문서: [적용] 한 번에 예배와 문서가 둘 다 올라간다.
+        Check([Doc(@"블레싱 셋째") writeToFile:Local(@"블레싱 셋째") atomically:YES], @"second new Mac document");
+        Check([YBPlaylistReplacing(YBReadPlaylist(playlistURL), @"N5", ServiceXML(@"N5", @"2026 블레싱데이", @[@[@"C-B5", @"블레싱 셋째"]])) writeToFile:playlistURL.path atomically:YES], @"mac creates a service with a new document");
+        rows = Sync(); NSDictionary *n5 = RowNamed(rows, @"2026 블레싱데이");
+        Check([n5[@"status"] isEqual:@"macNew"] && [n5[@"macNewDocuments"] isEqual:@[@"블레싱 셋째.pro6"]], [NSString stringWithFormat:@"mac service lists its new document: %@ %@", n5[@"status"], n5[@"macNewDocuments"]]);
+        synced = [engine syncRows:@[n5] forced:nil automatic:NO];
+        Check([synced[@"upload"][@"uploaded"] containsObject:@"2026 블레싱데이"] && [synced[@"created"][@"created"] isEqual:@[@"블레싱 셋째.pro6"]], [NSString stringWithFormat:@"service and document uploaded together: %@", synced]);
+        rows = Sync(); n5 = RowNamed(rows, @"2026 블레싱데이");
+        Check([n5[@"status"] isEqual:@"same"] && !Missing(n5), [NSString stringWithFormat:@"mac service same with nothing missing: %@", n5[@"status"]]);
+
+        //   c. 서버 휴지통에 있는 경로(장부 trashed)는 Mac에 파일이 있어도 새 문서가 아니다.
+        Check([Doc(@"찬양 2") writeToFile:Local(@"새 찬양") atomically:YES], @"mac file for a server-trashed path");
+        Check([YBPlaylistReplacing(YBReadPlaylist(playlistURL), @"N6", ServiceXML(@"N6", @"휴지통 곡 예배", @[@[@"C-T1", @"새 찬양"]])) writeToFile:playlistURL.path atomically:YES], @"mac service pointing at a trashed path");
+        rows = Sync();
+        Check([RowNamed(rows, @"휴지통 곡 예배")[@"macNewDocuments"] count] == 0, @"a server-trashed path is not uploaded");
+        Check([YBPlaylistRemoving(YBReadPlaylist(playlistURL), @"N6") writeToFile:playlistURL.path atomically:YES] && [NSFileManager.defaultManager removeItemAtPath:Local(@"새 찬양") error:NULL], @"cleanup");
+
+        //   d. Mac에서 서버 예배에 새 문서를 끼우고 PP6 종료 뒤 자동 올리기: 문서는 한 번만 생긴다(버전 1).
+        Check([Doc(@"블레싱 둘째") writeToFile:Local(@"블레싱 둘째") atomically:YES], @"new document added on the Mac");
+        Check([YBPlaylistReplacing(YBReadPlaylist(playlistURL), @"N4", ServiceXML(@"N4", @"블레싱데이", @[@[@"C-B1", @"블레싱 새 곡"], @[@"C-B2", @"블레싱 둘째"]])) writeToFile:playlistURL.path atomically:YES], @"mac adds it to the server service");
+        rows = Sync(); n4 = RowNamed(rows, @"블레싱데이");
+        Check([n4[@"status"] isEqual:@"mac"] && [n4[@"macOnlyOrder"] boolValue] && [n4[@"macNewDocuments"] isEqual:@[@"블레싱 둘째.pro6"]], [NSString stringWithFormat:@"a document added on the Mac goes up with the order: %@ %@", n4[@"status"], n4[@"macNewDocuments"]]);
+        synced = [engine syncRows:@[n4] forced:nil automatic:YES];
+        Check([synced[@"created"][@"created"] containsObject:@"블레싱 둘째.pro6"] && [synced[@"upload"][@"created"][@"created"] count] == 0 && [synced[@"upload"][@"uploaded"] containsObject:@"블레싱데이"], [NSString stringWithFormat:@"automatic upload sends the document once: %@", synced]);
+        Check([ServerDoc(@"블레싱 둘째.pro6")[@"version"] isEqual:@1], @"version not bumped twice");
+        rows = Sync(); n4 = RowNamed(rows, @"블레싱데이");
+        Check([n4[@"status"] isEqual:@"same"] && !Missing(n4), [NSString stringWithFormat:@"same after the automatic upload: %@", n4[@"status"]]);
+
+        //   e. 비교한 뒤 서버에 같은 이름의 문서가 생겼다: 409 → 정리 창, 덮어쓰지 않는다.
+        Check([Doc(@"블레싱 넷째 Mac") writeToFile:Local(@"블레싱 넷째") atomically:YES], @"another new Mac document");
+        Check([YBPlaylistReplacing(YBReadPlaylist(playlistURL), @"N5", ServiceXML(@"N5", @"2026 블레싱데이", @[@[@"C-B5", @"블레싱 셋째"], @[@"C-B6", @"블레싱 넷째"]])) writeToFile:playlistURL.path atomically:YES], @"mac adds it to its service");
+        rows = Sync(); n5 = RowNamed(rows, @"2026 블레싱데이");
+        Check([n5[@"macNewDocuments"] isEqual:@[@"블레싱 넷째.pro6"]], @"new document listed before the collision");
+        [web upload:Doc(@"블레싱 넷째 웹") path:@"블레싱 넷째.pro6" previous:nil];
+        synced = [engine syncRows:@[n5] forced:nil automatic:NO];
+        Check([synced[@"created"][@"collisions"] isEqual:@[@"블레싱 넷째.pro6"]] && [synced[@"created"][@"created"] count] == 0, [NSString stringWithFormat:@"same name on the server is a collision: %@", synced]);
+        Check([ServerDoc(@"블레싱 넷째.pro6")[@"version"] isEqual:@1] && [[NSData dataWithContentsOfFile:Local(@"블레싱 넷째")] isEqual:Doc(@"블레싱 넷째 Mac")], @"neither side overwritten");
+        Check([[[engine lastFullCheck][@"collisions"] valueForKey:@"path"] containsObject:@"블레싱 넷째.pro6"], @"collision listed for the organizer");
+
+        // 32. 오른쪽 클릭 강제 동작 예약: [적용] 한 번에 강제 동작과 고른 줄을 함께 하고, 강제 동작과 겹치는 줄은 미룬다.
+        Check([Doc(@"블레싱 Mac 고침") writeToFile:Local(@"블레싱 새 곡") atomically:YES], @"mac edits a document");
+        rows = Sync(); n4 = RowNamed(rows, @"블레싱데이"); n5 = RowNamed(rows, @"2026 블레싱데이");
+        Check([n4[@"macOnlyDocuments"] isEqual:@[@"블레싱 새 곡.pro6"]], @"mac edit waits for upload");
+        NSArray *forced = @[@{@"kind": @"document", @"action": @"mac", @"path": @"블레싱 새 곡.pro6", @"label": @"블레싱 새 곡 · Mac 것 올리기"},
+                            @{@"kind": @"order", @"fromServer": @YES, @"row": n5, @"label": @"2026 블레싱데이 · 서버 순서로 덮어쓰기"}];
+        synced = [engine syncRows:@[n4, n5] forced:forced automatic:NO];
+        Check([synced[@"forced"][@"done"] count] == 2 && [synced[@"forced"][@"failed"] count] == 0 && [synced[@"deferred"] isEqual:@[@"블레싱데이", @"2026 블레싱데이"]], [NSString stringWithFormat:@"forced actions run once, overlapping rows deferred: %@", synced]);
+        Check([ServerDoc(@"블레싱 새 곡.pro6")[@"version"] isEqual:@2] && [synced[@"apply"][@"applied"] isEqual:@[@"2026 블레싱데이"]], [NSString stringWithFormat:@"document uploaded once, order applied from the server: %@", synced]);
+        rows = Sync();
+        Check([RowNamed(rows, @"블레싱데이")[@"status"] isEqual:@"same"], [NSString stringWithFormat:@"one compare after the batch shows the result: %@", RowNamed(rows, @"블레싱데이")[@"status"]]);
+
         // 7. PP6가 켜져 있으면 적용하지 않는다.
         engine.presenterRunning = ^BOOL { return YES; };
         BOOL refused = NO; @try { [engine apply:@[n1]]; } @catch (NSException *e) { refused = [e.reason containsString:@"ProPresenter"]; }

@@ -35,6 +35,7 @@
 //   serverNew(서버에 새로 생긴 예배 · 기본 체크), macDeleted(Mac에서 지운 예배 · 기본 체크 꺼짐, 되살리지 않음),
 //   macDeletedDocuments(받을 문서 중 Mac에서 지운 것), macRenamed(Mac에서 바꾼 예배 이름 → 올리기), renamedFrom(서버 이름으로 바뀔 Mac 이름)
 //   actions 줄: renames[{id, from, to}], trashes[{id, path}], actionHolds[{path, reason}]
+//   macNewDocuments: 이 예배가 가리키는데 서버에 없는 Mac 새 문서 경로(장부 사본이 있을 때만). 같음이 될 줄은 mac(올리기 대기)이 된다.
 - (NSArray *)compare;
 @property(nonatomic, readonly) NSString *comparedPlaylistHash;
 
@@ -50,8 +51,17 @@
 // 3차: Mac에만 있는 새 예배(macNew)는 서버에 "없을 때만 추가"한다.
 // 반환: {uploaded:[name…], usage:보고한 문서 수, failed:{name:reason…}}. PP6가 켜져 있어도 된다(Mac 파일을 바꾸지 않는다).
 - (NSDictionary *)upload:(NSArray *)rows;
+// 3차: 줄의 macNewDocuments를 예배 순서보다 먼저 올린다. 반환에 created(uploadNewDocuments 결과)가 더해진다.
 // 선택한 예배의 구성·순서·이름만 명시적으로 덮어쓴다. 문서·이미지는 제외, 비교 이후 변경은 거절한다.
 - (NSDictionary *)overwriteOrder:(NSDictionary *)row fromServer:(BOOL)fromServer;
+// overwriteOrder가 쓰는 줄만 만든다(검사·거절은 같음). fromServer면 apply, 아니면 upload에 넣는다.
+- (NSDictionary *)forcedOrderRow:(NSDictionary *)row fromServer:(BOOL)fromServer;
+// [적용] 한 번: 예약한 강제 동작 → 올리기(Mac 새 문서 포함) → 받기. 다시 비교는 부르는 쪽이 끝에 한 번 한다.
+// forced: [{kind:"document", action:"server"|"mac"|"trashServer"|"trashMac", path, label} | {kind:"order", fromServer:BOOL, row, label}]
+// 강제 동작이 건드린 문서·예배의 줄은 이번에 하지 않고 deferred에 이름을 돌려준다.
+// automatic(PP6 종료 뒤)은 forced를 무시하고 올리기만 한다(문서 폴더의 새 문서 전체 포함). PP6가 켜져 있으면 아무것도 하지 않는다.
+// 반환: {forced:{done:[label…], failed:{label:reason}}, deferred:[name…], created, upload, apply}
+- (NSDictionary *)syncRows:(NSArray *)rows forced:(NSArray *)forced automatic:(BOOL)automatic;
 // 변경 일지 확인(요청 1번). 반환: {relevant:BOOL, head:번호}. relevant면 compare를 돌린다.
 - (NSDictionary *)checkChanges;
 - (void)markSeen:(NSNumber *)head;
@@ -64,6 +74,8 @@
 // PP6를 닫을 때: 서버 장부에 없는 Mac 새 문서와, 올린 문서가 가리키는 허용 폴더 안의 새 이미지를 올린다. Mac 파일은 바꾸지 않는다.
 // 반환: {created:[경로…], collisions:[경로…](서버에 같은 이름이 있음 → 정리 창), media:올린 이미지 수, failed:{경로:이유}}
 - (NSDictionary *)uploadNew;
+// 정한 경로만 새 문서로 올린다(이름 바꾸기 짝짓기 없음). 올리기 직전에 장부·영수증에 있는 경로는 건너뛴다. nil이면 uploadNew와 같다.
+- (NSDictionary *)uploadNewDocuments:(NSArray *)paths;
 // 문서 바이트가 가리키는 이미지 중 허용 폴더 안의 것을 서버에 올리고 경로표에 등록한다. 반환: 올리거나 등록한 수
 - (NSUInteger)uploadMediaFor:(NSData *)document;
 // 여러 문서의 이미지를 한꺼번에(서버 확인 100개씩, 올리기 4개씩, 경로 등록 200개씩). 반환: {uploaded, registered, skipped}
