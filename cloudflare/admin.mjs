@@ -99,18 +99,19 @@ export async function resolveRevisionRoute(request, env, user, id) {
   return json({ resolved: true, resolution: body.resolution });
 }
 
-// 교회 Mac 보관본 영구 삭제. 정리 끝난 것을 20개씩 지우고 남은 수를 돌려준다(화면이 0이 될 때까지 다시 부른다).
+// 교회 Mac 보관본 영구 삭제. 20개씩 지우고 남은 수를 돌려준다(화면이 0이 될 때까지 다시 부른다).
+// body {all:true}면 열린 것·이력 없는 문서 것까지 모두, 아니면 정리 끝난 것만.
 // R2 원본과 행만 지운다. 문서 원본·버전·재생목록에는 손대지 않는다.
 const REVISION_BATCH = 20;
 export async function purgeRevisionsRoute(request, env, user) {
   method(request, ['POST']); sameOrigin(request); await requireAdmin(request, env, user);
-  const db = env.DB;
-  const rows = (await db.prepare('SELECT id,object_key FROM yebaeon_sync_revisions WHERE resolved_at IS NOT NULL ORDER BY resolved_at LIMIT ?').bind(REVISION_BATCH).all()).results;
+  const db = env.DB, body = await bodyJSON(request), scope = body?.all === true ? '' : 'WHERE resolved_at IS NOT NULL';
+  const rows = (await db.prepare(`SELECT id,object_key FROM yebaeon_sync_revisions ${scope} ORDER BY created_at LIMIT ?`).bind(REVISION_BATCH).all()).results;
   if (rows.length) {
     await env.FILES.delete(rows.map(r => r.object_key));
-    await db.batch(rows.map(r => db.prepare('DELETE FROM yebaeon_sync_revisions WHERE id=? AND resolved_at IS NOT NULL').bind(r.id)));
+    await db.batch(rows.map(r => db.prepare('DELETE FROM yebaeon_sync_revisions WHERE id=?').bind(r.id)));
   }
-  const remaining = (await db.prepare('SELECT COUNT(*) AS n FROM yebaeon_sync_revisions WHERE resolved_at IS NOT NULL').first()).n;
+  const remaining = (await db.prepare(`SELECT COUNT(*) AS n FROM yebaeon_sync_revisions ${scope}`).first()).n;
   return json({ purged: rows.length, remaining });
 }
 // 보관본 하나를 바로 영구 삭제(열린 것도).

@@ -220,12 +220,12 @@ async function revisionsRoute(request, env, user, id, sub) {
   method(request, ['GET', 'POST']);
   const url = new URL(request.url);
   if (request.method === 'GET') {
-    // 열린 것만, 기술적 차이 보관본은 기본으로 숨긴다. 정리 끝난 수(지우기 전 남은 것)도 함께 준다.
+    // 열린 것만, 기술적 차이 보관본은 기본으로 숨긴다. 전체 수(열린 것·그중 이력 없는 문서·정리 끝난 것)도 함께 준다.
     const entity = url.searchParams.get('entity'), technical = url.searchParams.get('technical') === '1';
     if (entity && entity.length > 200) throw new HttpError(400, 'invalid_query', '대상을 확인해 주세요.');
     const rows = (await db.prepare(`SELECT * FROM yebaeon_sync_revisions WHERE resolved_at IS NULL ${entity ? 'AND entity=?' : ''} ${technical ? '' : "AND reason<>'technical'"} ORDER BY created_at DESC LIMIT 100`).bind(...(entity ? [entity] : [])).all()).results;
-    const resolved = (await db.prepare('SELECT COUNT(*) AS n FROM yebaeon_sync_revisions WHERE resolved_at IS NOT NULL').first()).n;
-    return json({ revisions: rows.map(revisionView), resolved });
+    const counts = await db.prepare("SELECT COUNT(*) AS total,COALESCE(SUM(resolved_at IS NOT NULL),0) AS resolved,COALESCE(SUM(resolved_at IS NULL AND reason='technical'),0) AS technical FROM yebaeon_sync_revisions").first();
+    return json({ revisions: rows.map(revisionView), resolved: counts.resolved, technical: counts.technical, total: counts.total });
   }
   sameOrigin(request);
   const kind = url.searchParams.get('kind'), reason = url.searchParams.get('reason') || 'both-changed';

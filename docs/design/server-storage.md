@@ -22,7 +22,7 @@
 | 이미지 | `media/sha256/<앞 2자>/<sha256>` | `yebaeon_media_assets` | sha256이 식별자라 버전이 없다. [media.md](media.md) |
 | 목록 보관본 | `playlist-archives/<재생목록id>/<uuid>/`. 보관함: 보관 시점의 노드 XML·문서 원본 복사·`manifest.json`. 휴지통: `manifest.json`(노드 XML·문서 목록 id·경로·버전·sha256·크기)만, 원본 복사 없음 | `yebaeon_playlist_controls.snapshot_key` | 일반 문서 이력 정리와 독립이다. 휴지통에서 꺼내면 지금 문서를 다시 연결한다. 휴지통 예배의 문서 내려받기는 404 |
 | 사이트 템플릿 | 없음 | `yebaeon_templates`(그룹 이름·이름·순서·크기·서식 지문·슬라이드 XML·저장자) | 버전 없음. 마지막 저장이 남는다. 슬라이드 XML은 만든 뒤 바뀌지 않고 이름·그룹 이름만 바뀐다 |
-| 교회 Mac 수정본 | `revisions/<id>.xml` | `yebaeon_sync_revisions`(대상·기준 버전·이유·해결 상태) | 현재본이 아닌 별도 보관본이다. 이력 끔 정리에 걸리지 않는다. 지우기는 관리자만: 설정·관리 [정리 끝난 보관본 지우기](`POST /api/sync/revisions/purge`, 정리 끝난 것 20개씩 R2 객체·행 삭제, 남은 수 반환)와 줄마다 [지우기](`DELETE /api/sync/revisions/<id>`) |
+| 교회 Mac 수정본 | `revisions/<id>.xml` | `yebaeon_sync_revisions`(대상·기준 버전·이유·해결 상태) | 현재본이 아닌 별도 보관본이다. 이력 끔 정리에 걸리지 않는다. 지우기는 관리자만: 설정·관리 [모두 지우기](`POST /api/sync/revisions/purge` body `{all:true}`, 열린 것·정리 끝난 것 가리지 않고 20개씩 R2 객체·행 삭제, 남은 수 반환. body 없이 부르면 정리 끝난 것만)와 줄마다 [지우기](`DELETE /api/sync/revisions/<id>`) |
 
 변경 일지(`yebaeon_sync_log`)와 장치(`yebaeon_sync_devices`)는 Sync 2가 쓰는 표다. 일지·영수증·판정 규칙은 [sync.md](sync.md)가 정한다.
 

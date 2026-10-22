@@ -163,6 +163,17 @@ dialog.panel-dialog[open]{display:flex}
 .admin-note{margin:0;padding:8px 16px;font-size:12px;line-height:1.55;color:var(--muted);border-bottom:1px solid var(--row-line)}
 .admin-section .line-list{max-height:260px;overflow:auto}.admin-section .line-row{padding-left:16px}.admin-section .line-row:last-child{border-bottom:0}
 .admin-toggle{display:inline-flex;align-items:center;gap:4px;font-size:12px;flex:none}
-.admin-section .line-btn.text-danger{border:1px solid #f0c7c2}
+.admin-tabs{display:flex;gap:2px;padding:0 16px;border-bottom:1px solid var(--line);flex:none;overflow-x:auto}
+.admin-tabs button{flex:none;display:inline-flex;align-items:center;gap:6px;padding:10px 12px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;color:var(--muted);font-size:13px;font-weight:600}
+.admin-tabs button[aria-selected="true"]{color:var(--admin-ink);border-bottom-color:var(--admin-ink)}.admin-tabs button:hover{background:var(--hover)}
+.admin-tab-count{min-width:18px;padding:0 6px;border-radius:9px;background:#eef1f6;color:#4a5568;font-size:11px;line-height:18px;text-align:center}.admin-tab-count:empty{display:none}
+.admin-pane[hidden]{display:none}
+.admin-actions{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.admin-section .line-list{min-height:46px}
+.admin-section.loading .line-list,.admin-section.loading .admin-actions{opacity:.55;pointer-events:none}
+.admin-section.loading .admin-count::after{content:' · 불러오는 중…'}
+.admin-more{display:block;margin:8px auto}
 .admin-preview{padding:8px 16px 12px;border-bottom:1px solid var(--row-line);background:#fff}.admin-preview img{display:block;max-width:100%;max-height:220px;border:1px solid var(--line);border-radius:6px;background:repeating-conic-gradient(#eef1f5 0 25%,#fff 0 50%) 0 0/16px 16px}
 #macReviewText{width:100%;box-sizing:border-box;margin-top:8px;font:12px/1.5 ui-monospace,Menlo,monospace}
+/* 되돌릴 수 없는 일(영구 삭제·비우기)의 단추: 빨간 채움 */
+.danger-fill{border:1px solid var(--danger);background:var(--danger);color:#fff;font-weight:600}.danger-fill:hover:not(:disabled){background:#912018;border-color:#912018}.danger-fill:disabled{background:#fff;border-color:#ebc3be;color:#c58c85;opacity:1}

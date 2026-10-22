@@ -45,9 +45,23 @@ async function candidates(db, images) {
   return rows.filter(r => !favorites.has(r.sha256));
 }
 
+// 고른 경로 중 지금도 고아인 것(그 경로만 확인한다. 후보 전체를 다시 계산하지 않는다).
+const UNUSED = 'NOT EXISTS(SELECT 1 FROM yebaeon_document_media m WHERE m.path=p.path)';
+async function stillOrphan(db, paths, images) {
+  const allowed = folders(images).map(f => MEDIA_ROOT + f);
+  let favorites = new Set();
+  try { favorites = new Set((await db.prepare("SELECT key FROM yebaeon_favorites WHERE kind='media'").all()).results.map(r => r.key)); } catch { /* 즐겨찾기 표가 아직 없다 */ }
+  const rows = (await db.prepare(`SELECT p.path,p.sha256 FROM yebaeon_media_paths p WHERE p.state='active' AND p.path IN (SELECT value FROM json_each(?)) AND ${UNUSED}`).bind(JSON.stringify(paths)).all()).results;
+  return rows.filter(r => allowed.some(prefix => r.path.startsWith(prefix)) && !favorites.has(r.sha256));
+}
+// 한 번에 보내는 경로 수와 요청 크기. 경로 하나가 한글로 수백 바이트라 500개면 수십 KB다. 비우기는 그림마다 D1·R2 요청이 여럿이라 100개씩.
+const BATCH = 500, PURGE_BATCH = 100, BODY_LIMIT = 512 * 1024;
+
 // GET  /api/admin/orphans[?images=1]   색인 진행과 후보 목록(색인이 끝났을 때만 후보를 준다). images=1이면 Images 폴더도
 // POST /api/admin/orphans {index:true}  아직 색인하지 않은 문서 40개를 R2에서 읽어 이미지 경로를 적는다
-// POST /api/admin/orphans {trash:[path…], images?}  고른 경로를 다시 확인해 휴지통에 넣는다
+// POST /api/admin/orphans {trash:[path…], images?}  고른 경로(최대 500)를 그 경로만 다시 확인해 휴지통에 넣는다
+// POST /api/admin/orphans {untrash|purge:[path…]}  그림 휴지통에서 꺼내기(최대 500)·비우기(최대 100, 그림마다 원본 확인·삭제가 있어서)
+// POST /api/admin/orphans {purgeAll:true}  그림 휴지통에서 아무 문서도 쓰지 않는 것 100개를 비우고 남은 수를 돌려준다(화면이 0이 될 때까지 다시 부른다)
 export async function orphansRoute(request, env, user) {
   method(request, ['GET', 'POST']); await requireAdmin(request, env, user);
   const db = env.DB;
@@ -62,7 +76,7 @@ export async function orphansRoute(request, env, user) {
     return json({ remaining: 0, candidates: list, bytes: list.reduce((n, r) => n + (r.size || 0), 0) });
   }
   sameOrigin(request);
-  const body = await bodyJSON(request);
+  const body = await bodyJSON(request, BODY_LIMIT);
   if (body?.index === true) {
     const rows = (await pending(db).bind(40).all()).results;
     for (const row of rows) {
@@ -74,9 +88,9 @@ export async function orphansRoute(request, env, user) {
   }
   if (Array.isArray(body?.trash)) {
     const paths = [...new Set(body.trash.map(mediaPathKey).filter(Boolean))];
-    if (!paths.length || paths.length > 200 || paths.length !== body.trash.length) throw new HttpError(400, 'invalid_paths', '정리할 이미지 경로를 확인해 주세요.');
+    if (!paths.length || paths.length > BATCH || paths.length !== body.trash.length) throw new HttpError(400, 'invalid_paths', '정리할 이미지 경로를 확인해 주세요.');
     if (await unindexed(db)) throw new HttpError(409, 'index_pending', '문서 이미지 색인이 끝나지 않았습니다. 다시 확인해 주세요.');
-    const allowed = new Set((await candidates(db, body.images === true)).map(r => r.path)), chosen = paths.filter(p => allowed.has(p)), now = new Date().toISOString();
+    const allowed = new Set((await stillOrphan(db, paths, body.images === true)).map(r => r.path)), chosen = paths.filter(p => allowed.has(p)), now = new Date().toISOString();
     if (chosen.length) {
       const list = JSON.stringify(chosen);
       await db.batch([
@@ -86,9 +100,15 @@ export async function orphansRoute(request, env, user) {
     }
     return json({ trashed: chosen.length, skipped: paths.filter(p => !allowed.has(p)) });
   }
+  if (body?.purgeAll === true) {
+    const rows = (await db.prepare(`SELECT p.path FROM yebaeon_media_paths p WHERE p.state='trashed' AND ${UNUSED} ORDER BY p.path LIMIT ?`).bind(PURGE_BATCH).all()).results;
+    const result = rows.length ? await purge(env, user, rows.map(r => r.path)) : { purged: 0, deleted: 0 };
+    const remaining = (await db.prepare(`SELECT COUNT(*) AS n FROM yebaeon_media_paths p WHERE p.state='trashed' AND ${UNUSED}`).first()).n;
+    return json({ ...result, remaining });
+  }
   for (const action of ['untrash', 'purge']) if (Array.isArray(body?.[action])) {
     const paths = [...new Set(body[action].map(mediaPathKey).filter(Boolean))];
-    if (!paths.length || paths.length > 200 || paths.length !== body[action].length) throw new HttpError(400, 'invalid_paths', '이미지 경로를 확인해 주세요.');
+    if (!paths.length || paths.length > (action === 'purge' ? PURGE_BATCH : BATCH) || paths.length !== body[action].length) throw new HttpError(400, 'invalid_paths', '이미지 경로를 확인해 주세요.');
     return json(await (action === 'untrash' ? untrash : purge)(env, user, paths));
   }
   throw new HttpError(400, 'invalid_request', '요청을 확인해 주세요.');

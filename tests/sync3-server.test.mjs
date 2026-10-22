@@ -276,3 +276,38 @@ test('church Mac revisions: list toggle, purge resolved and delete one',{timeout
  assert.equal((await user.call(`/documents/${d.id}`)).status,200,'the document itself is untouched');
  assert.equal((await other.call('/sync/revisions/purge','POST','{}')).status,403);
 });
+
+test('orphan images in thousands: 500 long Korean paths per request, empty the image trash in rounds',{timeout:120000},async t=>{
+ const {read,person,db}=await fixture(t,{ADMIN_PASSWORD:'admin-secret-1'});const user=await person('지은');const {call}=user;
+ const granted=await call('/admin','POST',JSON.stringify({password:'admin-secret-1'}));await read(granted);user.addCookie(granted.headers.get('Set-Cookie'));
+ const R='/Users/Shared/Renewed Vision Media/YebaeOn/',now=new Date().toISOString();
+ const paths=Array.from({length:620},(_,i)=>`${R}주여 십자가에서 피 흘려 구원하여 주심 감사 (잊지 않게 하소서) 배경-${i}.png`);
+ for(let i=0;i<paths.length;i+=100)await db.batch(paths.slice(i,i+100).map((p,j)=>db.prepare("INSERT INTO yebaeon_media_paths(path,sha256,size,state,updated_at,updated_by) VALUES (?,?,10,'active',?,'지은')").bind(p,String(i+j).padStart(64,'0'),now)));
+ const list=await read(await call('/admin/orphans'));assert.equal(list.candidates.length,620);
+ const body=JSON.stringify({trash:paths.slice(0,500)});assert.ok(body.length>40000,'a 500-path request is tens of KB');
+ assert.equal((await read(await call('/admin/orphans','POST',body))).trashed,500);
+ assert.equal((await call('/admin/orphans','POST',JSON.stringify({trash:paths.slice(0,501)}))).status,400,'at most 500 per request');
+ assert.equal((await read(await call('/admin/orphans','POST',JSON.stringify({trash:paths.slice(500)})))).trashed,120);
+ assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM yebaeon_media_paths WHERE state='trashed'").first()).n,620);
+ assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM yebaeon_sync_log WHERE kind='media' AND action='trashed'").first()).n,620,'Sync sees every trashed path');
+ // 그림 휴지통 비우기: 서버가 100개씩 비우고 남은 수를 돌려준다.
+ const rounds=[];let r;do{r=await read(await call('/admin/orphans','POST',JSON.stringify({purgeAll:true})));rounds.push([r.purged,r.remaining]);}while(r.remaining>0);
+ assert.deepEqual(rounds,[[100,520],[100,420],[100,320],[100,220],[100,120],[100,20],[20,0]]);
+ assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM yebaeon_media_paths').first()).n,0);
+ assert.equal((await call('/admin/orphans','POST',JSON.stringify({purge:paths.slice(0,101)}))).status,400,'explicit purge at most 100');
+});
+
+test('church Mac revisions: delete all, including open and technical ones',{timeout:90000},async t=>{
+ const {mf,read,person}=await fixture(t,{ADMIN_PASSWORD:'admin-secret-1'});
+ const user=await person('지은'),bucket=await mf.getR2Bucket('FILES');
+ const d=(await read(await user.call('/documents?path=보관본.pro6','POST',doc('서버')),201)).document;
+ const ids=[];for(let i=0;i<25;i++)ids.push((await read(await user.call(`/sync/revisions?kind=doc&id=${d.id}&baseVersion=1&reason=${i%2?'technical':'both-changed'}`,'POST',doc('Mac '+i),{'Content-Type':'application/xml'}),201)).revision.id);
+ let list=await read(await user.call('/sync/revisions'));assert.deepEqual([list.total,list.technical,list.resolved,list.revisions.length],[25,12,0,13]);
+ const granted=await user.call('/admin','POST',JSON.stringify({password:'admin-secret-1'}));await read(granted);user.addCookie(granted.headers.get('Set-Cookie'));
+ assert.deepEqual(await read(await user.call('/sync/revisions/purge','POST','{}')),{purged:0,remaining:0},'without all only resolved ones');
+ assert.deepEqual(await read(await user.call('/sync/revisions/purge','POST',JSON.stringify({all:true}))),{purged:20,remaining:5});
+ assert.deepEqual(await read(await user.call('/sync/revisions/purge','POST',JSON.stringify({all:true}))),{purged:5,remaining:0});
+ list=await read(await user.call('/sync/revisions?technical=1'));assert.deepEqual([list.total,list.revisions.length],[0,0]);
+ for(const id of ids)assert.equal(await bucket.head(`revisions/${id}.xml`),null);
+ assert.equal((await user.call(`/documents/${d.id}`)).status,200);
+});
