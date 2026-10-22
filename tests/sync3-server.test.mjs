@@ -277,8 +277,8 @@ test('church Mac revisions: list toggle, purge resolved and delete one',{timeout
  assert.equal((await other.call('/sync/revisions/purge','POST','{}')).status,403);
 });
 
-test('orphan images in thousands: 500 long Korean paths per request, empty the image trash in rounds',{timeout:120000},async t=>{
- const {read,person,db}=await fixture(t,{ADMIN_PASSWORD:'admin-secret-1'});const user=await person('지은');const {call}=user;
+test('orphan images in thousands: 500 long Korean paths per request, empty the image trash in rounds of 500',{timeout:120000},async t=>{
+ const {mf,read,person,db}=await fixture(t,{ADMIN_PASSWORD:'admin-secret-1'});const user=await person('지은');const {call}=user;
  const granted=await call('/admin','POST',JSON.stringify({password:'admin-secret-1'}));await read(granted);user.addCookie(granted.headers.get('Set-Cookie'));
  const R='/Users/Shared/Renewed Vision Media/YebaeOn/',now=new Date().toISOString();
  const paths=Array.from({length:620},(_,i)=>`${R}주여 십자가에서 피 흘려 구원하여 주심 감사 (잊지 않게 하소서) 배경-${i}.png`);
@@ -290,11 +290,16 @@ test('orphan images in thousands: 500 long Korean paths per request, empty the i
  assert.equal((await read(await call('/admin/orphans','POST',JSON.stringify({trash:paths.slice(500)})))).trashed,120);
  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM yebaeon_media_paths WHERE state='trashed'").first()).n,620);
  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM yebaeon_sync_log WHERE kind='media' AND action='trashed'").first()).n,620,'Sync sees every trashed path');
- // 그림 휴지통 비우기: 서버가 100개씩 비우고 남은 수를 돌려준다.
+ // 그림 휴지통 비우기: 서버가 500개씩 비우고 남은 수를 돌려준다. 같은 바이트를 아무도 안 쓰면 R2 원본과 자산 행도 지운다.
+ const bucket=await mf.getR2Bucket('FILES'),shaOf=i=>String(i).padStart(64,'0'),objectKey=i=>`media/sha256/00/${shaOf(i)}`;
+ for(const i of [0,1]){await bucket.put(objectKey(i),'x');await db.prepare("INSERT INTO yebaeon_media_assets(sha256,object_key,size,content_type,created_at,updated_at,updated_by) VALUES (?,?,1,'image/png',?,?,'지은')").bind(shaOf(i),objectKey(i),now,now).run();}
+ await db.prepare("INSERT INTO yebaeon_media_paths(path,sha256,size,state,updated_at,updated_by) VALUES (?,?,10,'active',?,'지은')").bind(R+'다른 곳에서 쓰는 같은 그림.png',shaOf(1),now).run();
  const rounds=[];let r;do{r=await read(await call('/admin/orphans','POST',JSON.stringify({purgeAll:true})));rounds.push([r.purged,r.remaining]);}while(r.remaining>0);
- assert.deepEqual(rounds,[[100,520],[100,420],[100,320],[100,220],[100,120],[100,20],[20,0]]);
- assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM yebaeon_media_paths').first()).n,0);
- assert.equal((await call('/admin/orphans','POST',JSON.stringify({purge:paths.slice(0,101)}))).status,400,'explicit purge at most 100');
+ assert.deepEqual(rounds,[[500,120],[120,0]]);
+ assert.deepEqual((await db.prepare('SELECT path FROM yebaeon_media_paths').all()).results.map(r=>r.path),[R+'다른 곳에서 쓰는 같은 그림.png']);
+ assert.equal(await bucket.head(objectKey(0)),null,'unused bytes leave R2');assert.equal(await db.prepare('SELECT 1 FROM yebaeon_media_assets WHERE sha256=?').bind(shaOf(0)).first(),null);
+ assert.ok(await bucket.head(objectKey(1)),'bytes still used by another path stay');assert.ok(await db.prepare('SELECT 1 FROM yebaeon_media_assets WHERE sha256=?').bind(shaOf(1)).first());
+ assert.equal((await call('/admin/orphans','POST',JSON.stringify({purge:paths.slice(0,501)}))).status,400,'explicit purge at most 500');
 });
 
 test('church Mac revisions: delete all, including open and technical ones',{timeout:90000},async t=>{

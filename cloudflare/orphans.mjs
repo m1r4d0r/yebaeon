@@ -54,14 +54,14 @@ async function stillOrphan(db, paths, images) {
   const rows = (await db.prepare(`SELECT p.path,p.sha256 FROM yebaeon_media_paths p WHERE p.state='active' AND p.path IN (SELECT value FROM json_each(?)) AND ${UNUSED}`).bind(JSON.stringify(paths)).all()).results;
   return rows.filter(r => allowed.some(prefix => r.path.startsWith(prefix)) && !favorites.has(r.sha256));
 }
-// 한 번에 보내는 경로 수와 요청 크기. 경로 하나가 한글로 수백 바이트라 500개면 수십 KB다. 비우기는 그림마다 D1·R2 요청이 여럿이라 100개씩.
-const BATCH = 500, PURGE_BATCH = 100, BODY_LIMIT = 512 * 1024;
+// 한 번에 보내는 경로 수와 요청 크기. 경로 하나가 한글로 수백 바이트라 500개면 수십 KB다. 비우기도 500개(R2 한 번에 지우는 키 1000개 = 원본+미리보기).
+const BATCH = 500, PURGE_BATCH = 500, BODY_LIMIT = 512 * 1024;
 
 // GET  /api/admin/orphans[?images=1]   색인 진행과 후보 목록(색인이 끝났을 때만 후보를 준다). images=1이면 Images 폴더도
 // POST /api/admin/orphans {index:true}  아직 색인하지 않은 문서 40개를 R2에서 읽어 이미지 경로를 적는다
 // POST /api/admin/orphans {trash:[path…], images?}  고른 경로(최대 500)를 그 경로만 다시 확인해 휴지통에 넣는다
-// POST /api/admin/orphans {untrash|purge:[path…]}  그림 휴지통에서 꺼내기(최대 500)·비우기(최대 100, 그림마다 원본 확인·삭제가 있어서)
-// POST /api/admin/orphans {purgeAll:true}  그림 휴지통에서 아무 문서도 쓰지 않는 것 100개를 비우고 남은 수를 돌려준다(화면이 0이 될 때까지 다시 부른다)
+// POST /api/admin/orphans {untrash|purge:[path…]}  그림 휴지통에서 꺼내기·비우기(최대 500)
+// POST /api/admin/orphans {purgeAll:true}  그림 휴지통에서 아무 문서도 쓰지 않는 것 500개를 비우고 남은 수를 돌려준다(화면이 0이 될 때까지 다시 부른다)
 export async function orphansRoute(request, env, user) {
   method(request, ['GET', 'POST']); await requireAdmin(request, env, user);
   const db = env.DB;
@@ -136,16 +136,13 @@ async function purge(env, user, paths) {
   ]);
   let favorites = new Set();
   try { favorites = new Set((await db.prepare("SELECT key FROM yebaeon_favorites WHERE kind='media'").all()).results.map(r => r.key)); } catch { /* 즐겨찾기 표가 아직 없다 */ }
-  let deleted = 0;
-  for (const sha of new Set(rows.map(r => r.sha256))) {
-    if (favorites.has(sha)) continue;
-    const used = await db.prepare('SELECT (SELECT COUNT(*) FROM yebaeon_media_paths WHERE sha256=?)+(SELECT COUNT(*) FROM yebaeon_media_references WHERE asset_sha256=?) AS n').bind(sha, sha).first();
-    if (used.n) continue;
-    const asset = await db.prepare('SELECT object_key AS objectKey FROM yebaeon_media_assets WHERE sha256=?').bind(sha).first();
-    await env.FILES.delete([asset?.objectKey || mediaKey(sha), thumbnailKey(sha)]);
-    await db.prepare('DELETE FROM yebaeon_media_assets WHERE sha256=?').bind(sha).run();
-    deleted++;
-  }
+  // 남은 경로·문서 버전 참조가 없는 바이트만 지운다. 그림마다 묻지 않고 한 문장으로 고르고, R2는 1000개씩 한 번에, 자산 행도 한 문장으로.
+  const shas = [...new Set(rows.map(r => r.sha256))].filter(sha => !favorites.has(sha));
+  const unused = shas.length ? (await db.prepare(`SELECT j.value AS sha256,a.object_key AS objectKey FROM json_each(?) j LEFT JOIN yebaeon_media_assets a ON a.sha256=j.value WHERE NOT EXISTS(SELECT 1 FROM yebaeon_media_paths p WHERE p.sha256=j.value) AND NOT EXISTS(SELECT 1 FROM yebaeon_media_references r WHERE r.asset_sha256=j.value)`).bind(JSON.stringify(shas)).all()).results : [];
+  const keys = unused.flatMap(u => [u.objectKey || mediaKey(u.sha256), thumbnailKey(u.sha256)]);
+  for (let i = 0; i < keys.length; i += 1000) await env.FILES.delete(keys.slice(i, i + 1000));
+  if (unused.length) await db.prepare('DELETE FROM yebaeon_media_assets WHERE sha256 IN (SELECT value FROM json_each(?))').bind(JSON.stringify(unused.map(u => u.sha256))).run();
+  const deleted = unused.length;
   const done = new Set(rows.map(r => r.path));
   return { purged: rows.length, deleted, skipped: paths.filter(p => !done.has(p)) };
 }
