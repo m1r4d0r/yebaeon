@@ -54,8 +54,6 @@
   }
   // 문서를 서버에 쓰는 모든 요청(저장·일괄 저장·사본·새 문서·PPT 가져오기·복원)은 PP6 필수 구조 중 빠진 것을 채워 보낸다(PP6.repairXML).
   const documentWrite = (path, options) => /^\/documents(?:\/[^/?]+)?(?:\?|$)/.test(path) && ['PUT', 'POST'].includes(options.method) && typeof options.body === 'string' && /xml/.test(options.headers?.['Content-Type'] || '');
-  // 검색 목록의 최근 사용일: 올해는 10.18, 다른 해는 25.3.4 (한국 날짜)
-  const shortDate = at => { const p = Object.fromEntries(new Intl.DateTimeFormat('ko-KR', { year: '2-digit', month: 'numeric', day: 'numeric', timeZone: 'Asia/Seoul' }).formatToParts(at).map(x => [x.type, x.value])), now = new Intl.DateTimeFormat('ko-KR', { year: '2-digit', timeZone: 'Asia/Seoul' }).format(new Date()).replace(/\D/g, ''); return (p.year === now ? '' : p.year + '.') + p.month + '.' + p.day; };
   async function api(path, options = {}) {
     if (documentWrite(path, options) && window.PP6?.repairXML) options = { ...options, body: window.PP6.repairXML(options.body) };
     const response = await fetch('/api' + path, { credentials: 'same-origin', cache: 'no-store', ...options });
@@ -96,8 +94,9 @@
       for (const doc of data.documents) {
         documents.push(doc);const item=document.createElement('div');item.className='document-item';select.bind(item,doc.id);
         const name=document.createElement('strong');name.textContent=doc.name.replace(/\.pro6$/i,'');const small=document.createElement('small');
-        const used=doc.lastDateUsed?new Date(doc.lastDateUsed):null,date=used?shortDate(used)+' 사용':'사용일 없음';
-        small.textContent=doc.available===false?'원본 미업로드 · 편집 불가':doc.matchedBy==='content'?'본문 일치':date;item.classList.toggle('unavailable',doc.available===false);if(doc.category){const category=document.createElement('span');category.className='doc-category';category.textContent=doc.category;small.prepend(category);}item.append(window.YebaeonSyncLights.dot('document',doc.id,''),name,small);item.title=doc.path+(doc.category?' · '+doc.category:'')+(used?' · '+used.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',timeZone:'Asia/Seoul'})+' 사용':'')+(doc.localPresent===false?' · 마지막 Mac 인덱스에서 없음 · 서버 원본과 이력은 보존됩니다.':'');
+        const used=doc.lastDateUsed?new Date(doc.lastDateUsed):null;
+        // 한 줄: 이름 · 카테고리(본문으로만 찾았으면 '본문 일치'). 최근 사용일은 보이지 않고, 검색어 일치가 같은 것끼리 정렬에만 쓴다(서버).
+        small.textContent=doc.available===false?'원본 미업로드 · 편집 불가':doc.matchedBy==='content'?'본문 일치':'';item.classList.toggle('unavailable',doc.available===false);if(doc.category&&doc.available!==false){const category=document.createElement('span');category.className='doc-category';category.textContent=doc.category;small.prepend(category);}item.append(window.YebaeonSyncLights.dot('document',doc.id,''),name,small);item.title=doc.path+(doc.category?' · '+doc.category:'')+(used?' · '+used.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',timeZone:'Asia/Seoul'})+' 사용':'')+(doc.localPresent===false?' · 마지막 Mac 인덱스에서 없음 · 서버 원본과 이력은 보존됩니다.':'');
         item.addEventListener('click',e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey)openCloud(doc.id,false,doc);});
         item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id,false,doc)},{label:'문서 복제',disabled:doc.available===false,action:()=>YebaeonLibraryActions.duplicate(doc)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()},{label:'선택 문서를 찬양용으로 설정',action:()=>applySelectedPolicy(true,false)},{label:'선택 문서를 예배순서용으로 설정',action:()=>applySelectedPolicy(true,true)},{label:'이름 바꾸기',disabled:doc.available===false,action:()=>YebaeonLibraryManage.renameDocument(doc)},{label:'휴지통으로',disabled:doc.available===false,action:()=>YebaeonLibraryManage.setDocumentState(documents.filter(d=>select.chosen.has(d.id)&&d.available!==false),'trash')}]);};$('libraryList').append(item);
       }
