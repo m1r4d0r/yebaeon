@@ -8,6 +8,19 @@ import { mediaKey, thumbnailKey } from './media-assets.mjs';
 // 휴지통에 넣으면 경로표 상태가 `trashed`가 되고 일지에 `media trashed`가 남는다. 교회 Mac은 다음 [적용] 때 그 파일을 macOS 휴지통으로 옮긴다.
 // 기본 대상 폴더는 슬라이드에서 가져온 그림(ImportedImages·YebaeOn)이다. Images(미디어 서랍)는 PP6에서 직접 쓰므로 관리자가 `images`를 켤 때만(처음 한 번 정리용) 함께 고른다.
 export const ORPHAN_FOLDERS = ['ImportedImages/', 'YebaeOn/'];
+// 휴지통 그림만 고르는 색인(경로표 전체를 훑지 않게). 그림 휴지통 목록·비우기가 쓴다.
+export const MEDIA_STATE_MIGRATION = 'media-paths-state-v1';
+export async function migrateMediaState(db) {
+  if (await db.prepare(`SELECT name FROM yebaeon_schema_migrations WHERE name='${MEDIA_STATE_MIGRATION}'`).first()) return;
+  try {
+    await db.batch([
+      db.prepare('CREATE INDEX IF NOT EXISTS yebaeon_media_paths_state ON yebaeon_media_paths(state,path)'),
+      db.prepare(`INSERT INTO yebaeon_schema_migrations(name) VALUES ('${MEDIA_STATE_MIGRATION}')`)
+    ]);
+  } catch (error) {
+    if (!await db.prepare(`SELECT name FROM yebaeon_schema_migrations WHERE name='${MEDIA_STATE_MIGRATION}'`).first()) throw error;
+  }
+}
 const folders = images => images ? [...ORPHAN_FOLDERS, 'Images/'] : ORPHAN_FOLDERS;
 const PATTERN = /(file:\/\/(?:localhost)?\/Users\/Shared\/Renewed(?:%20| )Vision(?:%20| )Media\/[^"'<>]+|\/Users\/Shared\/Renewed Vision Media\/[^"'<>]+)/g;
 const entity = value => value.replace(/&amp;/g, '&').replace(/&apos;/g, "'").replace(/&quot;/g, '"');
@@ -61,7 +74,8 @@ const BATCH = 500, PURGE_BATCH = 500, BODY_LIMIT = 512 * 1024;
 // POST /api/admin/orphans {index:true}  아직 색인하지 않은 문서 40개를 R2에서 읽어 이미지 경로를 적는다
 // POST /api/admin/orphans {trash:[path…], images?}  고른 경로(최대 500)를 그 경로만 다시 확인해 휴지통에 넣는다
 // POST /api/admin/orphans {untrash|purge:[path…]}  그림 휴지통에서 꺼내기·비우기(최대 500)
-// POST /api/admin/orphans {purgeAll:true}  그림 휴지통에서 아무 문서도 쓰지 않는 것 500개를 비우고 남은 수를 돌려준다(화면이 0이 될 때까지 다시 부른다)
+// POST /api/admin/orphans {purgeAll:true}  그림 휴지통에서 아무 문서도 쓰지 않는 것 500개를 비운다. 꽉 찬 묶음이면 more(화면이 다시 부른다).
+//   남은 수는 세지 않는다(셀 때마다 남은 휴지통 행을 모두 읽는다). 화면은 시작할 때 목록의 수에서 뺀다.
 export async function orphansRoute(request, env, user) {
   method(request, ['GET', 'POST']); await requireAdmin(request, env, user);
   const db = env.DB;
@@ -89,7 +103,8 @@ export async function orphansRoute(request, env, user) {
   if (Array.isArray(body?.trash)) {
     const paths = [...new Set(body.trash.map(mediaPathKey).filter(Boolean))];
     if (!paths.length || paths.length > BATCH || paths.length !== body.trash.length) throw new HttpError(400, 'invalid_paths', '정리할 이미지 경로를 확인해 주세요.');
-    if (await unindexed(db)) throw new HttpError(409, 'index_pending', '문서 이미지 색인이 끝나지 않았습니다. 다시 확인해 주세요.');
+    // 색인 완성 확인은 문서 전체를 읽는다. 저장마다 색인을 같이 쓰므로 한 번 완성되면 그대로라, 여러 묶음으로 나눠 보낼 때는 첫 묶음만 확인한다(checkIndex:false).
+    if (body.checkIndex !== false && await unindexed(db)) throw new HttpError(409, 'index_pending', '문서 이미지 색인이 끝나지 않았습니다. 다시 확인해 주세요.');
     const allowed = new Set((await stillOrphan(db, paths, body.images === true)).map(r => r.path)), chosen = paths.filter(p => allowed.has(p)), now = new Date().toISOString();
     if (chosen.length) {
       const list = JSON.stringify(chosen);
@@ -103,8 +118,7 @@ export async function orphansRoute(request, env, user) {
   if (body?.purgeAll === true) {
     const rows = (await db.prepare(`SELECT p.path FROM yebaeon_media_paths p WHERE p.state='trashed' AND ${UNUSED} ORDER BY p.path LIMIT ?`).bind(PURGE_BATCH).all()).results;
     const result = rows.length ? await purge(env, user, rows.map(r => r.path)) : { purged: 0, deleted: 0 };
-    const remaining = (await db.prepare(`SELECT COUNT(*) AS n FROM yebaeon_media_paths p WHERE p.state='trashed' AND ${UNUSED}`).first()).n;
-    return json({ ...result, remaining });
+    return json({ ...result, more: rows.length === PURGE_BATCH });
   }
   for (const action of ['untrash', 'purge']) if (Array.isArray(body?.[action])) {
     const paths = [...new Set(body[action].map(mediaPathKey).filter(Boolean))];

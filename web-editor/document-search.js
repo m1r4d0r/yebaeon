@@ -16,7 +16,7 @@
   const root=el('div','doc-search'),list=el('div','doc-search-list'),input=outer||el('input');
   if(!outer){const row=el('div','doc-search-row'),go=el('button',null,'검색');input.type='search';input.value=value;input.placeholder=placeholder;input.setAttribute('aria-label',label);go.type='button';go.onclick=()=>run();row.append(input,go);root.append(row);}
   root.append(list);container.replaceChildren(root);
-  const item=(doc,info={})=>{const b=el('button','doc-search-item'+(itemClass?' '+itemClass:'')+(info.on?' on':''));b.type='button';b.append(el('span','nm',stem(doc.name)),el('span','tag',info.tag??(doc.matchedBy==='content'?'본문 일치':doc.category||'')));b.onclick=()=>onPick?.(doc,info);return b;};
+  const item=(doc,info={})=>{const b=el('button','doc-search-item'+(itemClass?' '+itemClass:'')+(info.on?' on':''));b.type='button';b.append(el('span','nm',stem(doc.name)),el('span','tag',info.tag??([doc.category,doc.matchedBy==='content'?'본문 일치':''].filter(Boolean).join(' · '))));b.onclick=()=>onPick?.(doc,info);return b;};
   let generation=0;
   async function run(){const q=input.value.trim(),g=++generation;onQuery?.(q);list.replaceChildren(...extras().map(x=>item(x.doc,x)));if(!q)return;list.append(el('p','hint','찾는 중…'));
    try{const docs=(await query(q)).documents.filter(d=>d.available!==false);if(g!==generation)return;list.querySelector('.hint')?.remove();

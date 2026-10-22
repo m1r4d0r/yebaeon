@@ -138,7 +138,7 @@
   s.fill(list.length?[...rows,more]:[],'쓰지 않는 그림이 없습니다.');paged();update();
   button.onclick=async()=>{const chosen=[...picked];if(!confirm(`그림 ${chosen.length}개를 휴지통에 넣을까요?\n서버에서 받을 수 없게 되고, 교회 Mac은 다음 [적용] 때 그 파일을 macOS 휴지통으로 옮깁니다(Mac 파일이 서버와 다르면 옮기지 않고 정리 창에 남깁니다).`))return;
    button.disabled=true;let total=0;
-   try{for(let i=0;i<chosen.length;i+=SEND){const r=await(await C().api('/admin/orphans',json('POST',{trash:chosen.slice(i,i+SEND),images:withImages}))).json();total+=r.trashed;say(`그림 ${total}개 휴지통에 넣음 · ${Math.min(i+SEND,chosen.length)}/${chosen.length}`);}
+   try{for(let i=0;i<chosen.length;i+=SEND){const r=await(await C().api('/admin/orphans',json('POST',{trash:chosen.slice(i,i+SEND),images:withImages,checkIndex:i===0}))).json();total+=r.trashed;say(`그림 ${total}개 휴지통에 넣음 · ${Math.min(i+SEND,chosen.length)}/${chosen.length}`);}
     await reload('orphans','imageTrash');say(`그림 ${total}개를 휴지통에 넣었습니다. 교회 Mac은 다음 [적용] 때 옮깁니다.`);}
    catch(error){say(`${error.message}${total?` (그 전까지 ${total}개는 휴지통에 들어갔습니다)`:''}`);await reload('orphans','imageTrash');}};
  }
@@ -168,8 +168,8 @@
   purgeAll.disabled=false;
   purgeAll.onclick=async()=>{if(!confirm(`그림 휴지통을 모두 비울까요? 비운 그림은 되살릴 수 없습니다.\n그 그림을 쓰는 다른 경로·문서 버전·즐겨찾기가 없으면 서버 원본도 지웁니다.`))return;
    purgeAll.disabled=true;let total=0;
-   try{let r;do{r=await(await C().api('/admin/orphans',json('POST',{purgeAll:true}))).json();total+=r.purged;say(`그림 ${total}개 비움 · 남은 ${r.remaining}개`);}while(r.remaining>0&&r.purged>0);
-    await reload('imageTrash');say(`그림 ${total}개를 비웠습니다.${r.remaining?` 문서가 다시 쓰기 시작한 ${r.remaining}개는 남겼습니다.`:''}`);}
+   try{let r;do{r=await(await C().api('/admin/orphans',json('POST',{purgeAll:true}))).json();total+=r.purged;say(`그림 ${total}개 비움${list.length<2000?` · 남은 약 ${Math.max(0,list.length-total)}개`:''}`);}while(r.more&&r.purged>0);
+    await reload('imageTrash');say(`그림 ${total}개를 비웠습니다.`);}
    catch(error){say(`${error.message}${total?` (그 전까지 ${total}개는 비웠습니다)`:''}`);await reload('imageTrash');}};
  }
  // ── 교회 Mac 보관본 ──

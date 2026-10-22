@@ -287,15 +287,15 @@ test('orphan images in thousands: 500 long Korean paths per request, empty the i
  const body=JSON.stringify({trash:paths.slice(0,500)});assert.ok(body.length>40000,'a 500-path request is tens of KB');
  assert.equal((await read(await call('/admin/orphans','POST',body))).trashed,500);
  assert.equal((await call('/admin/orphans','POST',JSON.stringify({trash:paths.slice(0,501)}))).status,400,'at most 500 per request');
- assert.equal((await read(await call('/admin/orphans','POST',JSON.stringify({trash:paths.slice(500)})))).trashed,120);
+ assert.equal((await read(await call('/admin/orphans','POST',JSON.stringify({trash:paths.slice(500),checkIndex:false})))).trashed,120,'later batches skip the index check');
  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM yebaeon_media_paths WHERE state='trashed'").first()).n,620);
  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM yebaeon_sync_log WHERE kind='media' AND action='trashed'").first()).n,620,'Sync sees every trashed path');
- // 그림 휴지통 비우기: 서버가 500개씩 비우고 남은 수를 돌려준다. 같은 바이트를 아무도 안 쓰면 R2 원본과 자산 행도 지운다.
+ // 그림 휴지통 비우기: 서버가 500개씩 비우고 꽉 찬 묶음이면 more(남은 수는 세지 않는다). 같은 바이트를 아무도 안 쓰면 R2 원본과 자산 행도 지운다.
  const bucket=await mf.getR2Bucket('FILES'),shaOf=i=>String(i).padStart(64,'0'),objectKey=i=>`media/sha256/00/${shaOf(i)}`;
  for(const i of [0,1]){await bucket.put(objectKey(i),'x');await db.prepare("INSERT INTO yebaeon_media_assets(sha256,object_key,size,content_type,created_at,updated_at,updated_by) VALUES (?,?,1,'image/png',?,?,'지은')").bind(shaOf(i),objectKey(i),now,now).run();}
  await db.prepare("INSERT INTO yebaeon_media_paths(path,sha256,size,state,updated_at,updated_by) VALUES (?,?,10,'active',?,'지은')").bind(R+'다른 곳에서 쓰는 같은 그림.png',shaOf(1),now).run();
- const rounds=[];let r;do{r=await read(await call('/admin/orphans','POST',JSON.stringify({purgeAll:true})));rounds.push([r.purged,r.remaining]);}while(r.remaining>0);
- assert.deepEqual(rounds,[[500,120],[120,0]]);
+ const rounds=[];let r;do{r=await read(await call('/admin/orphans','POST',JSON.stringify({purgeAll:true})));rounds.push([r.purged,r.more]);}while(r.more);
+ assert.deepEqual(rounds,[[500,true],[120,false]]);
  assert.deepEqual((await db.prepare('SELECT path FROM yebaeon_media_paths').all()).results.map(r=>r.path),[R+'다른 곳에서 쓰는 같은 그림.png']);
  assert.equal(await bucket.head(objectKey(0)),null,'unused bytes leave R2');assert.equal(await db.prepare('SELECT 1 FROM yebaeon_media_assets WHERE sha256=?').bind(shaOf(0)).first(),null);
  assert.ok(await bucket.head(objectKey(1)),'bytes still used by another path stay');assert.ok(await db.prepare('SELECT 1 FROM yebaeon_media_assets WHERE sha256=?').bind(shaOf(1)).first());
