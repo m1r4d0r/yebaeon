@@ -1151,6 +1151,12 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     YBRequire([data writeToFile:path options:NSDataWritingWithoutOverwriting error:NULL], @"이미지를 쓰지 못했습니다.");
     [self dropFromFullCheck:@"imageFill" path:path];
 }
+- (NSData *)serverImage:(NSString *)sha {
+    YBRequire([sha isKindOfClass:NSString.class] && sha.length == 64, @"그림 정보가 올바르지 않습니다.");
+    NSDictionary *asset = [self.server mediaAssets:@[sha]].firstObject;
+    YBRequire([asset[@"size"] isKindOfClass:NSNumber.class], @"서버에 이미지 원본이 없습니다.");
+    return [self.server downloadMedia:sha size:[asset[@"size"] unsignedLongLongValue]];
+}
 + (NSData *)comparableBytes:(NSData *)data { return ComparableBytes(data); }
 - (NSData *)serverBytes:(NSString *)path {
     NSDictionary *entry = [self.receipt ledger:path]; YBRequire([entry[@"id"] length] > 0, @"서버 장부에 없는 문서입니다.");

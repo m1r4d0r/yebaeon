@@ -294,6 +294,12 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check([resident lastApply] != nil, @"the last apply can still be undone");
         // 점검 목록 글: Mac 쪽 사실과 함께 보내면 서버가 서버 상태를 붙인 글을 돌려준다.
         NSString *reviewText = [resident reviewReport:@[@{@"list": @"같은 이름, 다른 내용", @"title": @"1부기도.pro6", @"path": @"1부기도.pro6", @"detail": @"시험", @"actions": @[@"server"]}] rows:@[] status:@{@"build": @1}];
+        // 그림 보기: 서버 원본 바이트를 받는다(파일로 쓰지 않음).
+        const unsigned char previewPNG[] = {137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4}; NSData *previewBytes = [NSData dataWithBytes:previewPNG length:sizeof previewPNG];
+        [mac uploadMedia:previewBytes sha256:YBHash(previewBytes)];
+        Check([[resident serverImage:YBHash(previewBytes)] isEqual:previewBytes], @"server image preview bytes");
+        BOOL missingImage = NO; @try { [resident serverImage:[@"" stringByPaddingToLength:64 withString:@"0" startingAtIndex:0]]; } @catch (NSException *e) { missingImage = YES; }
+        Check(missingImage, @"preview of an image the server does not have fails with a message");
         Check([reviewText hasPrefix:@"# 예배온 Sync 점검 목록"] && [reviewText rangeOfString:@"Mac: Mac 파일 있음"].location != NSNotFound && [reviewText rangeOfString:@"서버: 문서 v"].location != NSNotFound, reviewText);
         engine = resident;
 

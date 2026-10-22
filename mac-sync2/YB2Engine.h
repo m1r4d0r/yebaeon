@@ -97,6 +97,7 @@
 - (NSString *)keepBothNumbered:(NSString *)path; // 같은 이름 다른 내용: Mac 파일에 번호를 붙여 둘 다 둔다. 반환: 새 경로
 - (NSArray *)numberedLog;                        // 번호 붙인 기록 [{path, target, at}]
 - (void)fetchImage:(NSDictionary *)item;         // 이미지 보충 {path, sha}
+- (NSData *)serverImage:(NSString *)sha;         // 정리 창 그림 보기: 서버 원본 바이트(파일로 쓰지 않음)
 - (NSDictionary *)importExternal:(NSDictionary *)item;   // 외부 참조 {path, references} → 그림 복사·경로 바꿈·올리기 {copied, missing, uploaded}
 - (void)removeNumbered:(NSDictionary *)item;     // 번호 붙임 {path, target} → Mac 휴지통·서버 휴지통·기록 정리
 - (NSString *)webLink:(NSString *)path;

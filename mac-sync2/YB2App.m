@@ -46,6 +46,12 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) NSButton *backupCleanButton, *reviewCopyButton;
 @property(nonatomic) NSDictionary *backupInfo;         // 마지막으로 센 백업 {count, bytes, keep, keepBytes}
 @property(nonatomic) BOOL copyingReview;
+// 그림 보기 창: 이미지 보충은 서버 원본, 외부 참조는 이 Mac의 파일. 열어 둔 채 다른 그림 줄을 고르면 바뀐다.
+@property(nonatomic) NSPanel *previewPanel;
+@property(nonatomic) NSImageView *previewImage;
+@property(nonatomic) NSTextField *previewLabel;
+@property(nonatomic, copy) NSString *previewKey;
+@property(nonatomic) NSCache *previewCache;
 @property(nonatomic) YB2Server *server;
 @property(nonatomic) NSStatusItem *statusItem;
 @property(nonatomic) NSDate *lastFullCompare;        // 서버에 변경 일지가 없을 때(배포 전) 1시간에 한 번만 비교하기 위해
@@ -787,7 +793,7 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     CGFloat bw = w - 32;
     self.organizerTitle = Label(@"", NSMakeRect(12, 64, bw - 24, 18), 13); self.organizerTitle.autoresizingMask = NSViewWidthSizable; [inner addSubview:self.organizerTitle];
     self.organizerHint = Label(@"", NSMakeRect(12, 6, bw - 24, 16), 11); self.organizerHint.textColor = NSColor.secondaryLabelColor; self.organizerHint.autoresizingMask = NSViewWidthSizable; [inner addSubview:self.organizerHint];
-    NSArray *actions = @[@[@"diff", @"차이 보기"], @[@"server", @"서버 것 받기"], @[@"mac", @"Mac 것 올리기"], @[@"number", @"둘 다 두기"], @[@"trash", @"서버 휴지통으로"], @[@"image", @"이미지 받기"], @[@"import", @"그림 가져오기"], @[@"removeNumbered", @"번호 사본 지우기"], @[@"web", @"웹에서 보기"]];
+    NSArray *actions = @[@[@"preview", @"그림 보기"], @[@"diff", @"차이 보기"], @[@"server", @"서버 것 받기"], @[@"mac", @"Mac 것 올리기"], @[@"number", @"둘 다 두기"], @[@"trash", @"서버 휴지통으로"], @[@"image", @"이미지 받기"], @[@"import", @"그림 가져오기"], @[@"removeNumbered", @"번호 사본 지우기"], @[@"web", @"웹에서 보기"]];
     NSMutableDictionary *buttons = [NSMutableDictionary dictionary];
     for (NSArray *spec in actions) {
         NSButton *button = Button(spec[1], NSMakeRect(12, 28, 80, 28), self, @selector(organizerAction:));
@@ -943,6 +949,7 @@ static NSString *DocumentComparisonLabel(NSDictionary *row, NSString *path) {
 static NSString *ActionHint(NSString *action, NSString *list) {
     if ([action isEqual:@"server"] && [list isEqual:kListServerOnly]) return @"문서와 연결 이미지를 받습니다. 재생목록은 바꾸지 않습니다.";
     if ([action isEqual:@"server"] && [list isEqual:kListMacDeleted]) return @"다시 받기: 서버 것을 이 Mac에 다시 받습니다.";
+    if ([action isEqual:@"preview"]) return [list isEqual:kListExternal] ? @"그림 보기: 이 문서가 가리키는 이 Mac의 그림을 작은 창에 띄웁니다." : @"그림 보기: 서버에 있는 그 그림을 받아 작은 창에 띄웁니다(파일로 저장하지 않음). 창을 열어 둔 채 다른 줄을 고르면 바뀝니다.";
     return @{@"diff": @"차이 보기: 슬라이드별로 Mac·서버 내용을 나란히 봅니다. 코드를 복사해 물어볼 수 있습니다.",
              @"server": @"서버 것 받기: Mac 파일을 서버 내용으로 바꾸고, Mac 것은 백업 폴더와 서버 보관본에 남깁니다.",
              @"mac": @"Mac 것 올리기: Mac 내용을 서버의 새 버전으로 올립니다. 그전 서버 내용은 이력에 남습니다.",
@@ -964,14 +971,14 @@ static NSString *ActionHint(NSString *action, NSString *list) {
     else if ([list isEqual:kListHold] && docs) shown = single ? (web ? @[@"diff", @"web"] : @[@"diff"]) : @[];
     else if ([list isEqual:kListServerOnly] && docs) shown = web ? @[@"server", @"web"] : @[@"server"];
     else if ([list isEqual:kListMacDeleted] && docs) shown = @[@"server", @"trash"];
-    else if ([list isEqual:kListImage]) shown = @[@"image"];
-    else if ([list isEqual:kListExternal]) shown = web ? @[@"import", @"web"] : @[@"import"];
+    else if ([list isEqual:kListImage]) shown = single ? @[@"preview", @"image"] : @[@"image"];
+    else if ([list isEqual:kListExternal]) shown = [(single ? @[@"preview", @"import"] : @[@"import"]) arrayByAddingObjectsFromArray:web ? @[@"web"] : @[]];
     else if ([list isEqual:kListNumbered]) shown = @[@"removeNumbered"];
     if (!items.count) { self.organizerTitle.stringValue = @"목록에서 항목을 고르세요."; note = @""; }
     else if (!list) { self.organizerTitle.stringValue = [NSString stringWithFormat:@"%lu개 고름", (unsigned long)items.count]; note = @"같은 구분끼리만 함께 처리할 수 있습니다."; }
     else self.organizerTitle.stringValue = single ? [NSString stringWithFormat:@"%@ · %@", item[@"title"] ?: @"", list] : [NSString stringWithFormat:@"%lu개 · %@", (unsigned long)items.count, list];
     CGFloat x = 12;
-    for (NSString *key in @[@"diff", @"server", @"mac", @"number", @"trash", @"image", @"import", @"removeNumbered", @"web"]) {
+    for (NSString *key in @[@"preview", @"diff", @"server", @"mac", @"number", @"trash", @"image", @"import", @"removeNumbered", @"web"]) {
         NSButton *button = self.organizerButtons[key]; BOOL visible = [shown containsObject:key];
         button.hidden = !visible; button.enabled = idle && visible;
         if ([key isEqual:@"server"]) button.title = [list isEqual:kListMacDeleted] ? @"다시 받기" : @"서버 것 받기";
@@ -979,7 +986,7 @@ static NSString *ActionHint(NSString *action, NSString *list) {
         if (!visible) continue;
         [button sizeToFit]; NSRect fit = button.frame; fit.size.width += 12; fit.origin = NSMakePoint(x, 28); button.frame = fit; x += fit.size.width + 6;
     }
-    self.organizerHint.stringValue = note ?: (shown.count ? ActionHint(shown[[shown.firstObject isEqual:@"diff"] && shown.count > 1 ? 1 : 0], list) : @"");
+    self.organizerHint.stringValue = note ?: (shown.count ? ActionHint(shown[([shown.firstObject isEqual:@"diff"] || [shown.firstObject isEqual:@"preview"]) && shown.count > 1 ? 1 : 0], list) : @"");
     // 백업 정리는 다른 버튼처럼 작업 중·전체 확인 중·PP6 실행 중이면 막는다. 남길 회차 말고 옮길 것이 없어도 끈다.
     NSUInteger movable = [self.backupInfo[@"count"] unsignedIntegerValue] - ([self.backupInfo[@"keep"] length] ? 1 : 0);
     self.backupCleanButton.enabled = idle && !self.checking && !YBPresenterRunning() && self.backupInfo && movable > 0;
@@ -1038,6 +1045,7 @@ static NSString *ActionHint(NSString *action, NSString *list) {
     if (!item) return;
     if ([action isEqual:@"web"]) { NSString *link = [self.engine webLink:path]; if (link) [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:link]]; return; }
     if ([action isEqual:@"diff"]) { [self showDiffForPath:path]; return; }
+    if ([action isEqual:@"preview"]) { [self showPreview:item]; return; }
     NSDictionary *words = @{@"server": @"서버 것으로 바꿀까요? Mac 것은 백업 폴더와 서버 보관본에 남습니다.", @"mac": @"Mac 것을 서버의 새 버전으로 올릴까요? 서버의 그전 내용은 이력에 남습니다.",
                             @"number": @"Mac 파일에 번호를 붙여(예: 이름 2) 둘 다 둘까요? 재생목록 참조도 고치고, 원래 이름에는 서버 것을 받습니다.", @"trash": @"서버 휴지통으로 옮길까요? 웹 휴지통에서 꺼낼 수 있습니다.", @"image": @"서버에서 이 이미지를 받아 그 자리에 둘까요?",
                             @"import": @"그림을 PP6 미디어 폴더 YebaeOn/으로 복사하고 문서 안 경로를 바꿀까요? 바꾸기 전 문서는 백업 폴더에 남고, 서버와 맞춰 본 문서는 서버에도 올립니다.",
@@ -1077,7 +1085,12 @@ static NSString *ActionHint(NSString *action, NSString *list) {
     }];
 }
 - (void)tableViewSelectionDidChange:(NSNotification *)note {
-    if (note.object == self.organizerTable) { [self refreshOrganizerButtons]; return; }
+    if (note.object == self.organizerTable) {
+        [self refreshOrganizerButtons];
+        NSDictionary *item = [self selectedReview];
+        if (self.previewPanel.visible && ([item[@"list"] isEqual:kListImage] || [item[@"list"] isEqual:kListExternal])) [self showPreview:item];
+        return;
+    }
     [self showSelectedDetail];
 }
 // 고른 줄의 설명과 그 줄에 예약한 강제 동작
@@ -1365,9 +1378,51 @@ static NSString *RemoteLabel(NSDictionary *command) {
     return [action isKindOfClass:NSString.class] ? action : @"알 수 없는 명령";
 }
 
-#pragma mark - 백업 정리·점검 목록 복사
+#pragma mark - 그림 보기
 
 static NSString *Bytes(unsigned long long bytes) { return [NSByteCountFormatter stringFromByteCount:(long long)bytes countStyle:NSByteCountFormatterCountStyleFile]; }
+- (void)buildPreview {
+    self.previewPanel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, 560, 420) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable | NSWindowStyleMaskUtilityWindow backing:NSBackingStoreBuffered defer:NO];
+    self.previewPanel.title = @"그림 보기"; self.previewPanel.releasedWhenClosed = NO; self.previewPanel.floatingPanel = YES; self.previewPanel.becomesKeyOnlyIfNeeded = YES;
+    NSView *content = self.previewPanel.contentView;
+    self.previewImage = [[NSImageView alloc] initWithFrame:NSMakeRect(12, 44, 536, 364)];
+    self.previewImage.imageScaling = NSImageScaleProportionallyDown; self.previewImage.imageFrameStyle = NSImageFrameGrayBezel; self.previewImage.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    self.previewLabel = Label(@"", NSMakeRect(12, 12, 536, 26), 11); self.previewLabel.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
+    self.previewLabel.lineBreakMode = NSLineBreakByTruncatingMiddle; self.previewLabel.selectable = YES;
+    [content addSubview:self.previewImage]; [content addSubview:self.previewLabel];
+    self.previewCache = [NSCache new]; self.previewCache.countLimit = 30;
+    if (self.organizer) { NSRect o = self.organizer.frame; [self.previewPanel setFrameTopLeftPoint:NSMakePoint(NSMaxX(o) + 8, NSMaxY(o))]; } else [self.previewPanel center];
+}
+// 이미지 보충: 서버 원본(누를 때·고를 때만 받는다, 받은 것은 30개까지 기억). 외부 참조: 이 Mac의 첫 그림 파일.
+- (void)showPreview:(NSDictionary *)item {
+    if (!self.previewPanel) [self buildPreview];
+    BOOL local = [item[@"list"] isEqual:kListExternal];
+    NSString *path = local ? [item[@"item"][@"references"] firstObject] : item[@"path"], *sha = local ? nil : item[@"item"][@"sha"];
+    NSString *key = local ? path : sha;
+    if (!key.length) { self.previewImage.image = nil; self.previewLabel.stringValue = @"그림 정보가 없습니다."; [self.previewPanel orderFront:nil]; return; }
+    self.previewKey = key; self.previewPanel.title = path.lastPathComponent ?: @"그림 보기";
+    [self.previewPanel orderFront:nil];
+    NSImage *cached = [self.previewCache objectForKey:key];
+    if (cached) { self.previewImage.image = cached; self.previewLabel.stringValue = [NSString stringWithFormat:@"%@ · %.0f×%.0f", path, cached.size.width, cached.size.height]; return; }
+    self.previewImage.image = nil; self.previewLabel.stringValue = local ? path : [@"서버에서 받는 중 · " stringByAppendingString:path];
+    YB2Engine *engine = self.engine;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSData *data = nil; NSString *failure = nil;
+        @try { data = local ? [NSData dataWithContentsOfFile:path] : [engine serverImage:sha]; if (!data) failure = @"파일을 읽지 못했습니다."; }
+        @catch (NSException *e) { failure = e.reason ?: @"받지 못했습니다."; }
+        NSImage *image = data ? [[NSImage alloc] initWithData:data] : nil;
+        if (data && !image) failure = @"이 Mac이 열 수 없는 그림 형식입니다.";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (image) [self.previewCache setObject:image forKey:key];
+            if (![self.previewKey isEqual:key]) return;   // 그사이 다른 줄을 골랐다
+            self.previewImage.image = image;
+            self.previewLabel.stringValue = image ? [NSString stringWithFormat:@"%@ · %.0f×%.0f · %@", path, image.size.width, image.size.height, Bytes(data.length)] : [NSString stringWithFormat:@"%@ · %@", path, failure];
+        });
+    });
+}
+
+#pragma mark - 백업 정리·점검 목록 복사
+
 // 백업 회차 수와 크기는 정리 창을 열 때와 적용·정리 뒤에만 센다(주기적으로 세지 않는다).
 - (void)countBackups {
     if (!self.organizer || !self.engine) return;
