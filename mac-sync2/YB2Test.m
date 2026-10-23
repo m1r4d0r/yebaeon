@@ -523,15 +523,17 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         [web request:[NSString stringWithFormat:@"/api/documents/%@/state", archivedStandalone[@"id"]] method:@"POST" body:[NSJSONSerialization dataWithJSONObject:@{@"action": @"archive"} options:0 error:NULL] headers:@{@"Content-Type": @"application/json"}];
         full = [engine fullCheck];
         Check([[full[@"serverOnly"] valueForKey:@"path"] containsObject:standalone] && ![[full[@"serverOnly"] valueForKey:@"path"] containsObject:@"웹 보관 단독.pro6"] && ![[full[@"serverOnly"] valueForKey:@"path"] containsObject:@"새 찬양.pro6"], @"whole check finds new active server documents, excludes archived and trashed");
+        // Mac에 없던 문서·그림만 새로 만들므로 PP6가 켜져 있어도 받는다. 같은 이름 Mac 파일이 생겼으면 덮지 않는다.
         engine.presenterRunning = ^BOOL { return YES; }; BOOL receiveBlocked = NO;
-        @try { [engine receiveNewServerDocument:standalone]; } @catch (NSException *e) { receiveBlocked = YES; }
-        Check(receiveBlocked && ![engine hasLocalDocument:standalone], @"standalone receive blocks while PP6 runs"); engine.presenterRunning = ^BOOL { return NO; };
-        [Doc(@"검사 후 생긴 Mac 파일") writeToFile:Local(@"웹 악보 단독") atomically:YES]; receiveBlocked = NO;
+        NSString *lastApplyBefore = [engine.receipt value:@"lastApplyID"];
+        [Doc(@"검사 후 생긴 Mac 파일") writeToFile:Local(@"웹 악보 단독") atomically:YES];
         @try { [engine receiveNewServerDocument:standalone]; } @catch (NSException *e) { receiveBlocked = YES; }
         Check(receiveBlocked && [[NSData dataWithContentsOfFile:Local(@"웹 악보 단독")] isEqual:Doc(@"검사 후 생긴 Mac 파일")], @"standalone receive never overwrites a new local collision");
         [NSFileManager.defaultManager removeItemAtPath:Local(@"웹 악보 단독") error:NULL];
         [engine receiveNewServerDocument:standalone];
-        Check([[NSData dataWithContentsOfFile:Local(@"웹 악보 단독")] isEqual:standaloneBytes] && [YBReadPlaylist(playlistURL) isEqual:orderBeforeReceive], @"standalone document received without playlist edits");
+        engine.presenterRunning = ^BOOL { return NO; };
+        Check([[NSData dataWithContentsOfFile:Local(@"웹 악보 단독")] isEqual:standaloneBytes] && [YBReadPlaylist(playlistURL) isEqual:orderBeforeReceive], @"standalone document received while PP6 runs, without playlist edits");
+        Check([[engine.receipt value:@"lastApplyID"] ?: @"" isEqual:lastApplyBefore ?: @""], @"a new-files-only receive keeps the last apply undoable");
         if (withImage) Check([[NSData dataWithContentsOfFile:imagePath] isEqual:[NSData dataWithBytes:png length:sizeof png]], @"standalone receive includes referenced image");
         Check(![[[engine lastFullCheck][@"serverOnly"] valueForKey:@"path"] containsObject:standalone], @"received standalone row disappears");
         [NSFileManager.defaultManager removeItemAtPath:Local(@"웹 악보 단독") error:NULL];
@@ -722,6 +724,38 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         Check([ServerDoc(@"블레싱 새 곡.pro6")[@"version"] isEqual:@2] && [synced[@"apply"][@"applied"] isEqual:@[@"2026 블레싱데이"]], [NSString stringWithFormat:@"document uploaded once, order applied from the server: %@", synced]);
         rows = Sync();
         Check([RowNamed(rows, @"블레싱데이")[@"status"] isEqual:@"same"], [NSString stringWithFormat:@"one compare after the batch shows the result: %@", RowNamed(rows, @"블레싱데이")[@"status"]]);
+
+        // 33. PP6가 켜져 있을 때: 예배가 받을 문서 중 Mac에 없던 것과 그 그림만 지금 넣는다. 고친 기존 문서·재생목록은 PP6를 닫은 뒤 [적용].
+        NSData *freshBytes = Doc(imageXML);
+        [web upload:freshBytes path:@"웹 새 악보.pro6" previous:nil];
+        NSDictionary *(^PlanOf)(NSString *) = ^NSDictionary *(NSString *node) { return [web request:[NSString stringWithFormat:@"/api/playlists/%@/plan?node=%@", libraryID, node] method:@"GET" body:nil headers:nil]; };
+        NSDictionary *n4Plan = PlanOf(@"N4"), *blessDoc = nil;
+        for (NSDictionary *d in n4Plan[@"documents"]) if ([d[@"path"] isEqual:@"블레싱 새 곡.pro6"]) blessDoc = d;
+        [web upload:Doc(@"블레싱 웹 고침") path:@"블레싱 새 곡.pro6" previous:blessDoc];
+        n4Plan = PlanOf(@"N4");
+        [web request:[NSString stringWithFormat:@"/api/playlists/%@/nodes?node=N4", libraryID] method:@"PUT" body:[NSJSONSerialization dataWithJSONObject:@{@"xml": ServiceXML(@"N4", @"블레싱데이", @[@[@"C-B1", @"블레싱 새 곡"], @[@"C-B2", @"블레싱 둘째"], @[@"C-B7", @"웹 새 악보"]]), @"baseNodeHash": n4Plan[@"playlist"][@"sha256"]} options:0 error:NULL] headers:@{@"Content-Type": @"application/json", @"X-YebaeOn-Sync": @"2"}];
+        rows = Sync(); n4 = RowNamed(rows, @"블레싱데이");
+        Check([n4[@"status"] isEqual:@"receive"] && [[n4[@"documents"] valueForKey:@"path"] containsObject:@"웹 새 악보.pro6"] && [[n4[@"documents"] valueForKey:@"path"] containsObject:@"블레싱 새 곡.pro6"], [NSString stringWithFormat:@"service receives a new and a changed document: %@ %@", n4[@"status"], [n4[@"documents"] valueForKey:@"path"]]);
+        NSData *playlistWhileRunning = YBReadPlaylist(playlistURL), *blessWhileRunning = [NSData dataWithContentsOfFile:Local(@"블레싱 새 곡")];
+        NSString *lastApplyRunning = [engine.receipt value:@"lastApplyID"];
+        engine.presenterRunning = ^BOOL { return YES; };
+        NSDictionary *placedNow = [engine placeNewFiles:@[n4]];
+        Check([placedNow[@"documents"] isEqual:@[@"웹 새 악보.pro6"]] && [placedNow[@"failed"] count] == 0, [NSString stringWithFormat:@"only the document missing on the Mac goes in while PP6 runs: %@", placedNow]);
+        Check([[NSData dataWithContentsOfFile:Local(@"웹 새 악보")] isEqual:freshBytes], @"new document written");
+        Check([[NSData dataWithContentsOfFile:Local(@"블레싱 새 곡")] isEqual:blessWhileRunning] && [YBReadPlaylist(playlistURL) isEqual:playlistWhileRunning], @"existing document and playlist untouched while PP6 runs");
+        if (withImage) Check([placedNow[@"images"] containsObject:imagePath] && [[NSData dataWithContentsOfFile:imagePath] isEqual:[NSData dataWithBytes:png length:sizeof png]], [NSString stringWithFormat:@"its image placed and reported for Finder: %@", placedNow[@"images"]]);
+        Check([[engine.receipt value:@"lastApplyID"] ?: @"" isEqual:lastApplyRunning ?: @""] && ![NSFileManager.defaultManager fileExistsAtPath:[profile stringByAppendingPathComponent:@"apply-journal.json"]], @"new files leave no journal and keep the last apply undoable");
+        Check([[engine placeNewFiles:@[n4]][@"documents"] count] == 0, @"placing again writes nothing");
+        BOOL stillRefused = NO; @try { [engine apply:@[n4]]; } @catch (NSException *e) { stillRefused = [e.reason containsString:@"ProPresenter"]; }
+        Check(stillRefused, @"the rest still waits for PP6 to close");
+        engine.presenterRunning = ^BOOL { return NO; };
+        rows = Sync(); n4 = RowNamed(rows, @"블레싱데이");
+        Check(![[n4[@"documents"] valueForKey:@"path"] containsObject:@"웹 새 악보.pro6"] && [[n4[@"documents"] valueForKey:@"path"] containsObject:@"블레싱 새 곡.pro6"], [NSString stringWithFormat:@"placed document is already same, the changed one still waits: %@", [n4[@"documents"] valueForKey:@"path"]]);
+        result = [engine apply:@[n4]];
+        Check([result[@"failed"] count] == 0 && [[NSData dataWithContentsOfFile:Local(@"블레싱 새 곡")] isEqual:Doc(@"블레싱 웹 고침")], [NSString stringWithFormat:@"after PP6 closes the rest is applied: %@", result]);
+        Check([[[YBPlaylistNode(YBReadPlaylist(playlistURL), @"N4")[@"items"] valueForKeyPath:@"attrs.UUID"] copy] containsObject:@"C-B7"], @"service order now includes the new document");
+        Check([RowNamed(Sync(), @"블레싱데이")[@"status"] isEqual:@"same"], @"same after both steps");
+        if (withImage) [NSFileManager.defaultManager removeItemAtPath:imagePath error:NULL];
 
         // 7. PP6가 켜져 있으면 적용하지 않는다.
         engine.presenterRunning = ^BOOL { return YES; };

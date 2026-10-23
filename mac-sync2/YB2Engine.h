@@ -42,6 +42,7 @@
 // 선택한 예배를 적용한다. 덮일 Mac 수정본은 먼저 서버 보관본으로 올린다.
 // 반환: {applied:[name…], failed:{name:reason…}, backup:폴더, revisions:올린 보관본 수, revisionFailed:[…]}
 - (NSDictionary *)apply:(NSArray *)rows;
+- (NSDictionary *)placeNewFiles:(NSArray *)rows;   // PP6가 켜져 있어도: 고른 줄의 Mac에 없던 문서·그림만 새로 만든다. {documents, images(절대경로), failed, imageFailed}
 
 // 시작할 때 호출. 중단된 적용이 있으면 끝까지 마무리한다. 마무리한 것이 있으면 설명을 돌려준다.
 - (NSString *)finishInterruptedApply;
@@ -91,7 +92,7 @@
 // 정리 창 버튼. 모두 사용자가 누를 때만 돈다.
 - (void)trashOnServer:(NSString *)path;          // Mac에서 지운 문서를 서버 휴지통으로
 - (void)trashOnMac:(NSString *)path;             // 강제 동작: Mac 파일을 macOS 휴지통으로(백업 사본)
-- (void)receiveNewServerDocument:(NSString *)path; // 서버에만 있는 문서·연결 이미지 받기, 기존 Mac 파일은 거절
+- (void)receiveNewServerDocument:(NSString *)path; // 서버에만 있는 문서·연결 이미지 받기, 기존 Mac 파일은 거절(PP6가 켜져 있어도 됨)
 - (void)takeServer:(NSString *)path;             // 같은 이름 다른 내용: 서버 것으로(Mac 것은 백업·서버 보관본)
 - (void)takeMac:(NSString *)path;                // 같은 이름 다른 내용: Mac 것을 서버 새 버전으로
 - (NSString *)keepBothNumbered:(NSString *)path; // 같은 이름 다른 내용: Mac 파일에 번호를 붙여 둘 다 둔다. 반환: 새 경로
