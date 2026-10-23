@@ -63,16 +63,27 @@ function legacyDOM(deck,slide){
   root.append(box);
  }return root;
 }
-async function full(deck,i,backgroundOnly=false){
+// 다른 장으로 넘어가는 링크(하단 네비게이터 단추 등)가 걸린 개체. 도형 자체 또는 그 안 글자에 걸린 링크를 본다.
+const JUMP=/^ppaction:\/\/hlink(?:sldjump|showjump)/i;
+const jumpLink=el=>!!el&&[...el.getElementsByTagNameNS('*','hlinkClick')].some(h=>JUMP.test(h.getAttribute('action')||''));
+// 레이아웃·마스터에 있는 링크 개체는 그리는 동안만 떼어 둔다. 되돌리는 함수와 뗀 수를 돌려준다.
+function detachJumps(deck,raw){
+ const removed=[],layout=deck.pres.layouts.get(raw.layoutIndex),master=deck.pres.masters.get(deck.pres.layoutToMaster.get(raw.layoutIndex));
+ for(const tree of [layout?.spTree?.element,master?.spTree?.element])if(tree)for(const el of [...tree.children])if(jumpLink(el)){removed.push([el,el.parentNode,el.nextSibling]);el.remove();}
+ return {count:removed.length,restore:()=>{for(const [el,parent,next] of removed.reverse())parent.insertBefore(el,next);}};
+}
+async function full(deck,i,backgroundOnly=false,{dropJumpLinks=false}={}){
  const s=deck.slides[i];
  if(deck.kind==='ppt'){
   if(backgroundOnly){const c=makeCanvas(1920,Math.round(1920*deck.height/deck.width)),ctx=c.getContext('2d');ctx.fillStyle=s.color;ctx.fillRect(0,0,c.width,c.height);if(s.background)ctx.drawImage(await image(s.background.url),0,0,c.width,c.height);return c;}
   return rasterDOM(legacyDOM(deck,s),deck.width,deck.height);
  }
  if(backgroundOnly&&s.images[s.scoreIndex]?.isBackground){const c=makeCanvas(1920,Math.round(1920*deck.height/deck.width));c.getContext('2d').fillStyle='#fff';c.getContext('2d').fillRect(0,0,c.width,c.height);return c;}
- const raw=backgroundOnly?{...s.raw,nodes:s.images.filter((p,j)=>j!==s.scoreIndex&&p.node&&!p.transparent&&p.w*p.h>=deck.width*deck.height*.75).map(p=>p.node),showMasterSp:false}:s.raw;
- const errors=[],handle=renderSlide(deck.pres,raw,{pdfjs:false,onNavigate:()=>{},onNodeError:(id,e)=>errors.push(id)});
- try{await handle.ready;
+ let raw=backgroundOnly?{...s.raw,nodes:s.images.filter((p,j)=>j!==s.scoreIndex&&p.node&&!p.transparent&&p.w*p.h>=deck.width*deck.height*.75).map(p=>p.node),showMasterSp:false}:s.raw,detached=null;
+ if(dropJumpLinks&&!backgroundOnly){const nodes=raw.nodes.filter(n=>!JUMP.test(n.hlinkClick?.action||'')&&!jumpLink(n.source?.element));detached=detachJumps(deck,raw);s.droppedLinks=detached.count+raw.nodes.length-nodes.length;raw={...raw,nodes};}
+ const errors=[];let handle;
+ try{handle=renderSlide(deck.pres,raw,{pdfjs:false,onNavigate:()=>{},onNodeError:(id,e)=>errors.push(id)});await handle.ready;}catch(e){handle?.dispose();throw e;}finally{detached?.restore();}
+ try{
   // CSS 배경의 빈 srcRect/확장 fillRect도 캔버스로 직접 합성한다. DOM은 나머지 개체만 그린다.
   if(s.backgroundPicture){handle.element.style.background='none';for(const el of [...handle.element.children])if(el.matches('[data-pptx-background-image]'))el.remove();}
   const overlay=await rasterDOM(handle.element,deck.width,deck.height);if(errors.length)throw Error('일부 개체를 변환하지 못했습니다. PowerPoint에서 이미지로 저장한 파일을 사용해 주세요.');
@@ -92,8 +103,8 @@ function removeWhiteMatte(canvas){
  for(let i=0;i<d.length;i+=4){if(!d[i+3])continue;const white=Math.min(d[i],d[i+1],d[i+2]),ink=255-white;if(ink<5){d[i+3]=0;continue;}for(let k=0;k<3;k++)d[i+k]=Math.round((d[i+k]-white)*255/ink);d[i+3]=Math.round(d[i+3]*ink/255);}
  ctx.putImageData(pixels,0,0);
 }
-export async function render(deck,i,{mode='full',removeWhite=false,crop=0.167,bottomCrop=0,keepTitle=false,background='original',backgroundColor='#ffffff',backgroundImage=null}={}){
- if(mode==='full')return {foreground:await blob(await full(deck,i)),background:null,warnings:deck.slides[i].warnings};
+export async function render(deck,i,{mode='full',removeWhite=false,crop=0.167,bottomCrop=0,keepTitle=false,background='original',backgroundColor='#ffffff',backgroundImage=null,dropJumpLinks=false}={}){
+ if(mode==='full')return {foreground:await blob(await full(deck,i,false,{dropJumpLinks})),background:null,warnings:deck.slides[i].warnings};
  const s=deck.slides[i],p=s.images[s.scoreIndex];if(!p)throw Error(`${i+1}장에 분리할 악보 이미지가 없습니다. 일반 슬라이드 방식으로 가져와 주세요.`);
  const w=1920,h=Math.round(w*deck.height/deck.width),fg=makeCanvas(w,h);drawPicture(fg.getContext('2d'),p,w/deck.width,keepTitle?0:crop);
  if(!Number.isFinite(bottomCrop)||bottomCrop<0||bottomCrop>.4)throw Error('하단 자르기는 0~40%로 입력해 주세요.');
@@ -107,4 +118,4 @@ export async function palette(source,{lossless=false}={}){
  const bitmap=await createImageBitmap(source);let data,w,h;try{w=bitmap.width;h=bitmap.height;const c=makeCanvas(w,h),ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(bitmap,0,0);data=ctx.getImageData(0,0,w,h).data;}finally{bitmap.close();}
  const r=encodePalettePNG(data,w,h,{lossless});if(!r||r.bytes.length>=source.size)return source;return new Blob([r.bytes],{type:'image/png'});
 }
-export {blob,makeCanvas};
+export {blob,makeCanvas,drawPicture};

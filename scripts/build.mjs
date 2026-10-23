@@ -1,5 +1,6 @@
 import {buildPPT,buildPDF,pdfFiles} from './build-ppt.mjs';
 import {buildManual} from './build-manual.mjs';
+import {buildScoreLab} from './build-score-lab.mjs';
 import { lstat, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
@@ -45,10 +46,10 @@ export function splitTemplates(bytes) {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const publicFiles = Object.freeze([
   'import-background.js', 'lyrics-import.js', 'lyrics-import.css', 'ppt-import.js', 'dropbox-picker.js', 'document-search.js', 'media-library.js', 'image-add.js', 'media-thumbnail.js', 'ppt-import.css', 'hwp-binary.js', 'bulletin-parser.js', 'bulletin-plan.js', 'bulletin-documents.js', 'bulletin.js', 'bulletin.css', 'responsive.js','resource-drawer.js','workspace-state.js', 'studio-drag.js', 'manual.js', 'manual.css', 'responsive.css', 'index.html', 'favicon.svg', 'favicon.ico', 'style.css', 'fonts.css', 'pp6.js',
-  'fonts.js', 'studio-workflow.js', 'layout-editor.js', 'render.js', 'selection.js', 'editor-history.js', 'bible-format.js', 'shortcuts.js', 'app.js', 'drafts.js', 'cloud.js', 'usage.js', 'playlists.js', 'resources.js', 'library-actions.js', 'library-manage.js', 'mac-remote.js', 'panels.js', 'panels.css', 'version-diff.js', 'admin-panel.js', 'qa-chat.js', 'qa-board.js', 'qa-chat.css', 'status.html', 'status.js', 'status.css', '_headers'
+  'fonts.js', 'studio-workflow.js', 'layout-editor.js', 'render.js', 'selection.js', 'editor-history.js', 'bible-format.js', 'shortcuts.js', 'app.js', 'drafts.js', 'cloud.js', 'usage.js', 'playlists.js', 'resources.js', 'library-actions.js', 'library-manage.js', 'mac-remote.js', 'panels.js', 'panels.css', 'version-diff.js', 'admin-panel.js', 'qa-chat.js', 'qa-board.js', 'qa-chat.css', 'status.html', 'status.js', 'status.css', 'score-lab.html', '_headers'
 ]);
 
-export const generatedPublicFiles=Object.freeze(['build-info.js','ppt-engine.js','ppt-LICENSES.txt',...pdfFiles]);
+export const generatedPublicFiles=Object.freeze(['build-info.js','ppt-engine.js','ppt-LICENSES.txt','score-lab.js','score-matte-worker.js',...pdfFiles]);
 // 배포 번호(Actions run 번호)·커밋·빌드 시각과 CHANGELOG 최근 줄을 Studio 콘솔에 보이게 한다.
 export async function buildInfo(sourceRoot=root,env=process.env){
   let changes=[];try{changes=(await readFile(join(sourceRoot,'docs/CHANGELOG.md'),'utf8')).split('\n').filter(l=>/^- \d{4}-\d{2}-\d{2}:/.test(l)).slice(-5).reverse().map(l=>l.slice(2).trim().replace(/\s*\(main 병합·배포\)\.?$/,''));}catch(error){if(error.code!=='ENOENT')throw error;}
@@ -63,7 +64,7 @@ export async function build({ sourceRoot = root, outputDir = join(root, 'dist') 
     if (!(await lstat(source)).isFile()) throw new Error(`Expected a regular source file: ${name}`);
     return [name, await readFile(source)];
   }));
-  contents.push(['build-info.js',Buffer.from(await buildInfo(sourceRoot))],...await buildPPT(),...await buildPDF());
+  contents.push(['build-info.js',Buffer.from(await buildInfo(sourceRoot))],...await buildPPT(),...await buildPDF(),...await buildScoreLab());
   let resources = [];
   let catalogBytes;
   try { catalogBytes = await readFile(join(sourceRoot, 'church-resources/catalog.json'), 'utf8'); } catch (error) { if(error.code !== 'ENOENT') throw error; }

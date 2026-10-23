@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>악보 배경 걷기 실험실</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="robots" content="noindex">
+<style>
+:root{--bg:#f4f6f9;--panel:#fff;--line:#d5dce6;--text:#1d2533;--muted:#5d6878;--accent:#2b5fd9;--refine:#2b6fff;--erase:#e5383b;--keep:#22a35a}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#14181f;--panel:#1d232d;--line:#333d4b;--text:#e7ebf1;--muted:#9aa5b4;--accent:#6f97ff;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#14181f;--panel:#1d232d;--line:#333d4b;--text:#e7ebf1;--muted:#9aa5b4;--accent:#6f97ff;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+header{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--panel)}
+header h1{font-size:16px;margin:0}
+header small{color:var(--muted)}
+button,select,.button{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
+button.primary,.button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.5;cursor:default}
+label{cursor:pointer}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.status{color:var(--muted);min-width:200px;flex:1}
+progress{width:140px}
+main{padding-block:12px 120px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:12px;min-width:0}
+details.settings{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+details.settings summary{cursor:pointer;font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px 18px;margin-top:8px}
+.grid label{display:grid;grid-template-columns:1fr 64px;gap:2px 8px;align-items:center}
+.grid label span{font-size:13px}
+.grid label output{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.grid label input[type=range]{grid-column:1/-1;width:100%}
+.grid label.check{grid-template-columns:auto 1fr}
+.grid h3{grid-column:1/-1;font-size:13px;margin:8px 0 0;color:var(--muted)}
+.panes{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:820px){.panes{grid-template-columns:1fr}}
+.pane{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
+.pane h2{font-size:13px;margin:0;padding:6px 10px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;justify-content:space-between}
+.scroll{overflow:auto;max-height:70vh;position:relative;touch-action:none}
+.stack{position:relative;width:100%}
+.stack canvas{display:block;width:100%;height:auto}
+.stack canvas+canvas{position:absolute;inset:0;width:100%;height:100%}
+.empty{padding:40px 16px;text-align:center;color:var(--muted)}
+.strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}
+.thumb{flex:0 0 auto;border:2px solid transparent;border-radius:6px;background:var(--panel);padding:2px;position:relative;cursor:pointer}
+.thumb.on{border-color:var(--accent)}
+.thumb canvas{display:block;width:150px;height:auto;border-radius:3px}
+.thumb b{position:absolute;left:6px;top:4px;font-size:11px;background:#0008;color:#fff;border-radius:3px;padding:0 4px}
+.thumb i{position:absolute;right:6px;top:6px;width:8px;height:8px;border-radius:50%;background:#aaa}
+.thumb i.ok{background:#22a35a}.thumb i.busy{background:#e0a000}
+.toolbar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding-top:8px;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));z-index:6}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tools label{border:1px solid var(--line);border-radius:6px;padding:4px 9px;display:inline-flex;gap:6px;align-items:center}
+.tools label:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.tools input[type=radio]{margin:0}
+.dot{width:11px;height:11px;border-radius:50%;display:inline-block}
+.report{width:100%;min-height:140px;font:12px/1.4 ui-monospace,Menlo,monospace;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px}
+.note{color:var(--muted);font-size:12.5px;margin:4px 0 0}
+</style>
+</head>
+<body>
+<header>
+ <h1>악보 배경 걷기 실험실</h1>
+ <small>그림은 이 컴퓨터 밖으로 나가지 않습니다 · 예배온 Studio에는 아직 들어가지 않은 시험판</small>
+ <div class="row" style="flex-basis:100%">
+  <label class="button primary">그림·PPTX 열기<input id="file" type="file" hidden multiple accept="image/png,image/jpeg,image/webp,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"></label>
+  <label title="PPTX에서 무엇을 그림으로 쓸지">PPTX: <select id="pptSource"><option value="picture">악보 그림만(Studio 분리와 같음)</option><option value="slide">장 전체</option></select></label>
+  <label><input id="dropLinks" type="checkbox" checked> 장 이동 링크 단추 빼기</label>
+  <button id="sample">합성 예제</button>
+  <span id="status" class="status">그림 여러 장(같은 PPT에서 내보낸 JPG·PNG) 또는 PPTX를 여세요. 같은 배경 장이 4장 이상이면 좋습니다.</span>
+  <progress id="progress" max="1" value="0" hidden></progress>
+ </div>
+</header>
+<main>
+ <details class="settings" id="settings">
+  <summary>설정 <small id="settingsNote" style="font-weight:400;color:var(--muted)"></small></summary>
+  <div class="grid" id="grid"></div>
+  <div class="row" style="margin-top:8px"><button id="reset">기본값으로</button><span class="note">배경판 항목을 바꾸면 배경판을 다시 만들고, 나머지는 장만 다시 처리합니다.</span></div>
+ </details>
+ <div class="panes">
+  <section class="pane"><h2><span>원본 <small id="name"></small></span><span class="row"><label>확대 <select id="zoom"><option value="fit">맞춤</option><option value="1">100%</option><option value="2">200%</option><option value="3">300%</option></select></label></span></h2>
+   <div class="scroll" id="scrollA"><div class="stack" id="stackA"><div class="empty">아직 그림이 없습니다.</div></div></div></section>
+  <section class="pane"><h2><span>결과 <small id="resultNote"></small></span><span class="row">
+   <label>바탕 <select id="backdrop"><option value="checker">체크무늬</option><option value="white">흰색</option><option value="black">검정</option><option value="plate">원래 배경판</option><option value="image">고른 그림…</option></select></label>
+   <label>보기 <select id="diag"><option value="none">결과</option><option value="plate">배경판</option><option value="const">고정 획(파랑 악보·빨강 배경)</option><option value="layers">핵심·몸통</option></select></label>
+   <label><input id="showMarks" type="checkbox" checked> 칠한 곳</label></span></h2>
+   <div class="scroll" id="scrollB"><div class="stack" id="stackB"><div class="empty">배경판을 만들면 여기에 투명 악보가 나옵니다.</div></div></div></section>
+ </div>
+ <div class="strip" id="strip"></div>
+ <details class="settings">
+  <summary>내려받기 · 보고</summary>
+  <div class="row" style="margin-top:8px">
+   <button id="saveOne">이 장 PNG</button><button id="saveAll">모든 장 PNG</button>
+   <label><input id="palette" type="checkbox" checked> 256색으로 줄이기</label>
+   <span class="note">모든 장: 크롬·엣지는 폴더를 고르면 그 안에 한 번에 저장하고, 다른 브라우저는 파일을 하나씩 내려받습니다(압축 없음).</span>
+  </div>
+  <p class="note">아래 보고 글에는 설정값과 숫자만 들어갑니다(그림 없음). 결과가 이상하면 이 글과 화면 캡처를 함께 보내 주세요.</p>
+  <div class="row"><button id="copyReport">보고 복사</button></div>
+  <textarea id="report" class="report" readonly></textarea>
+ </details>
+</main>
+<div class="toolbar">
+ <div class="row tools">
+  <label title="칠한 곳 안에서 검은 악보만 다시 골라 남깁니다"><input type="radio" name="tool" value="refine" checked><span class="dot" style="background:var(--refine)"></span>정교하게</label>
+  <label title="칠한 곳은 배경입니다. 악보에 붙지 않은 덩어리는 통째로 지웁니다"><input type="radio" name="tool" value="erase"><span class="dot" style="background:var(--erase)"></span>지우기</label>
+  <label title="칠한 곳은 악보입니다. 옅게 지워진 곳을 되살립니다"><input type="radio" name="tool" value="keep"><span class="dot" style="background:var(--keep)"></span>살리기</label>
+  <label title="칠한 표시를 지웁니다"><input type="radio" name="tool" value="clear"><span class="dot" style="background:#999"></span>칠 지우개</label>
+  <label>크기 <input id="size" type="range" min="4" max="160" value="36"><output id="sizeOut">36</output></label>
+  <label title="하단 네비게이터·로고처럼 모든 장의 같은 자리에 남는 찌꺼기"><input id="allSlides" type="checkbox"> 모든 장 같은 자리</label>
+  <button id="undo" title="Ctrl+Z">되돌리기</button>
+  <button id="clearSlide">이 장 칠 모두 지우기</button>
+  <span class="note">← → 장 넘기기 · [ ] 붓 크기</span>
+ </div>
+</div>
+<script src="score-lab.js"></script>
+</body>
+</html>
