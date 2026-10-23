@@ -412,6 +412,7 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
                 [engine untrashOnServer:path];
                 Check([[web request:[@"/api/documents/" stringByAppendingString:made[@"id"]] method:@"GET" body:nil headers:nil][@"document"][@"state"] isEqual:@"active"], @"untrashed on the server");
                 Check([NSFileManager.defaultManager fileExistsAtPath:Local(name)], @"mac edit kept");
+                Check([bytes writeToFile:Local(name) atomically:YES], @"test cleanup: mac file back to the server content");
             } else {
                 [engine acceptServerTrash:path];
                 Check(![NSFileManager.defaultManager fileExistsAtPath:Local(name)], @"mac file moved to the trash too");
