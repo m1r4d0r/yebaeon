@@ -27,7 +27,7 @@ export async function migrateRemoteSupport(db) {
 const STATUS_LIMIT = 64 * 1024, COMMAND_TTL = 10 * 60e3, SUPPORT_MAX = 60, PENDING_MAX = 20;
 const COMMAND_ID = /^[0-9a-f-]{36}$/;
 // 명령 종류와 인자. Mac 창의 버튼과 같은 이름을 쓴다.
-const ORGANIZER = new Set(['server', 'mac', 'number', 'trash', 'image', 'import', 'removeNumbered']);
+const ORGANIZER = new Set(['server', 'mac', 'number', 'trash', 'image', 'import', 'removeNumbered', 'trashMac', 'untrash']);
 const FORCE = new Set(['server', 'mac', 'trashServer', 'trashMac']);
 const text = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value);
 function commandArgs(action, args) {

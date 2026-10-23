@@ -92,6 +92,8 @@
 // 정리 창 버튼. 모두 사용자가 누를 때만 돈다.
 - (void)trashOnServer:(NSString *)path;          // Mac에서 지운 문서를 서버 휴지통으로
 - (void)trashOnMac:(NSString *)path;             // 강제 동작: Mac 파일을 macOS 휴지통으로(백업 사본)
+- (void)acceptServerTrash:(NSString *)path;      // 서버 휴지통 문서를 Mac에서도 지운다(Mac에서 고친 것이어도. 백업 사본)
+- (void)untrashOnServer:(NSString *)path;        // 서버 휴지통 문서를 꺼낸다(Mac에서 고쳤거나 Mac 예배가 아직 씀)
 - (void)receiveNewServerDocument:(NSString *)path; // 서버에만 있는 문서·연결 이미지 받기, 기존 Mac 파일은 거절(PP6가 켜져 있어도 됨)
 - (void)takeServer:(NSString *)path;             // 같은 이름 다른 내용: 서버 것으로(Mac 것은 백업·서버 보관본)
 - (void)takeMac:(NSString *)path;                // 같은 이름 다른 내용: Mac 것을 서버 새 버전으로

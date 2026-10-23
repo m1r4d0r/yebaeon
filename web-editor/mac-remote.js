@@ -7,7 +7,7 @@
  const minutesLeft=until=>Math.max(0,Math.ceil((Date.parse(until)-Date.now())/60000));
  function el(tag,props={},...children){const node=document.createElement(tag);for(const [k,v] of Object.entries(props)){if(k==='class')node.className=v;else if(k.startsWith('on'))node.addEventListener(k.slice(2),v);else if(k.includes('-')||k==='role')node.setAttribute(k,v);else if(v!==undefined&&v!==null&&v!==false)node[k]=v;}for(const c of children.flat())if(c!==null&&c!==undefined&&c!==false)node.append(c);return node;}
  // Mac 창의 버튼 이름과 같다.
- const ORGANIZER={server:'서버 것 받기',mac:'Mac 것 올리기',number:'둘 다 두기',trash:'서버 휴지통으로',image:'이미지 받기',import:'그림 가져오기',removeNumbered:'번호 사본 지우기'};
+ const ORGANIZER={server:'서버 것 받기',mac:'Mac 것 올리기',number:'둘 다 두기',trash:'서버 휴지통으로',image:'이미지 받기',import:'그림 가져오기',removeNumbered:'번호 사본 지우기',trashMac:'Mac에서도 지우기',untrash:'서버에서 꺼내기'};
  const FORCE={server:'서버 것 받기',mac:'Mac 것 올리기',trashServer:'서버 휴지통으로',trashMac:'Mac에서 지우기'};
  const STATE={pending:'기다림',taken:'Mac이 실행 중',done:'완료',failed:'실패',rejected:'하지 않음',expired:'만료'};
  const describe=c=>c.action==='check'?'다시 비교':c.action==='fullCheck'?'전체 확인':c.action==='undo'?'마지막 적용 되돌리기':c.action==='apply'?`적용 · ${(c.args.nodes||[]).join(', ')}`:c.action==='organizer'?`정리 · ${ORGANIZER[c.args.do]||c.args.do} · ${c.args.path}`:c.action==='force'?`강제 · ${FORCE[c.args.do]||c.args.do} · ${c.args.path}`:c.action==='message'?`안내 · ${c.args.text}`:c.action;

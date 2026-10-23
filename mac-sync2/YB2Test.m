@@ -397,6 +397,28 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         rows = Sync();
         Check(RowNamed(rows, @"문서 정리(서버)") == nil && RowNamed(rows, @"서버 휴지통 정리") == nil, @"untrash cancels the waiting move");
         Check([[engine uploadNew][@"created"] count] == 0, @"a trashed server document is not uploaded again");
+        // 18-0. 서버 휴지통 문서를 Mac에서 고쳤으면 보류. 사람이 [서버에서 꺼내기] 또는 [Mac에서도 지우기]로 정한다.
+        for (NSString *name in @[@"보류 꺼내기", @"보류 지우기"]) {
+            NSData *bytes = Doc(name);
+            NSDictionary *made = [web upload:bytes path:[name stringByAppendingString:@".pro6"] previous:nil];
+            Check([bytes writeToFile:Local(name) atomically:YES], @"local copy");
+            Sync();
+            Post([NSString stringWithFormat:@"/api/documents/%@/state", made[@"id"]], @{@"action": @"trash"}, nil);
+            Check([Doc([name stringByAppendingString:@" Mac 수정"]) writeToFile:Local(name) atomically:YES], @"mac edit");
+            NSDictionary *held = RowNamed(Sync(), @"문서 정리(서버)");
+            Check([[held[@"actionHolds"] valueForKey:@"reason"] containsObject:@"서버 휴지통에 있음 · Mac에서 고침"], [NSString stringWithFormat:@"edited trashed document held: %@", held]);
+            NSString *path = [name stringByAppendingString:@".pro6"];
+            if ([name hasSuffix:@"꺼내기"]) {
+                [engine untrashOnServer:path];
+                Check([[web request:[@"/api/documents/" stringByAppendingString:made[@"id"]] method:@"GET" body:nil headers:nil][@"document"][@"state"] isEqual:@"active"], @"untrashed on the server");
+                Check([NSFileManager.defaultManager fileExistsAtPath:Local(name)], @"mac edit kept");
+                Check([bytes writeToFile:Local(name) atomically:YES], @"test cleanup: mac file back to the server content");
+            } else {
+                [engine acceptServerTrash:path];
+                Check(![NSFileManager.defaultManager fileExistsAtPath:Local(name)], @"mac file moved to the trash too");
+            }
+            Check(![[RowNamed(Sync(), @"문서 정리(서버)")[@"actionHolds"] valueForKey:@"path"] containsObject:path], [@"hold resolved: " stringByAppendingString:name]);
+        }
 
         // 18-1. 고아 그림: 관리자가 서버에서 휴지통에 넣으면(그 뒤 비워도) [적용] 때 서버가 알던 그대로인 파일만 macOS 휴지통으로 옮긴다. Mac 문서가 아직 쓰는 그림은 둔다.
         NSString *orphanPath = [mediaDir stringByAppendingPathComponent:[NSString stringWithFormat:@"sync2-orphan-%@.png", NSUUID.UUID.UUIDString]];
