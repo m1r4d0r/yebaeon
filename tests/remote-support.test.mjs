@@ -55,8 +55,8 @@ test('remote support: Mac opens the window, admin leaves commands, Mac takes the
   assert.equal((await send(owner,action,args)).status,400,action);
  const first=(await read(await send(owner,'check'),201)).command;
  assert.deepEqual([first.action,first.args,first.author,first.state],['check',{},'관리자','pending']);
- const second=(await read(await send(owner,'organizer',{path:'찬양/주님.pro6',do:'server',extra:'버림'}),201)).command;
- assert.deepEqual(second.args,{path:'찬양/주님.pro6',do:'server'});
+ const second=(await read(await send(owner,'organizer',{path:'찬양/주님.pro6',do:'untrash',extra:'버림'}),201)).command;
+ assert.deepEqual(second.args,{path:'찬양/주님.pro6',do:'untrash'},'organizer buttons include 서버에서 꺼내기');
  await read(await send(owner,'apply',{nodes:['N1','N1','N2']}),201);
  // Mac은 한 번만 가져간다(만든 순서대로). 다시 물으면 빈 목록.
  const taken=await read(await device(`/sync/devices/${id}/commands`));
