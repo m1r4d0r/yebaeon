@@ -24,6 +24,8 @@ static NSString *Env(NSString *key) { const char *value = getenv(key.UTF8String)
 #endif
 static NSString *const kRootKey = @"documentsRoot", *const kPlaylistKey = @"playlistPath";
 static NSString *const kResidentKey = @"residentMode";
+// PP6가 켜진 것을 본 뒤 종료 뒤 올리기를 아직 못 함(PP6를 닫지 않고 Mac을 끔). 다음 시작 때 PP6가 꺼져 있으면 이어서 한다.
+static NSString *const kQuitPendingKey = @"presenterQuitPending", *const kQuitApplyKey = @"quitApplyReservation";
 static NSString *const kAgentLabel = @"org.yebaeon.sync2";
 static const NSTimeInterval kResidentInterval = 15 * 60;
 
@@ -35,7 +37,8 @@ static const NSTimeInterval kResidentInterval = 15 * 60;
 @property(nonatomic) NSButton *compareButton, *applyButton, *reviewButton;
 // 오른쪽 클릭으로 예약한 강제 동작 {kind:"document"|"order", key(예배 줄), path|fromServer, action, label}. [적용] 때 함께 돈다.
 @property(nonatomic) NSMutableArray *reservations;
-// PP6를 닫으면 적용: 예약할 때 고른 예배 줄(RowID)과 강제 동작. PP6 종료 뒤 올리기·비교가 끝나면 그때 줄로 다시 맞춰 적용한다(이번 실행 동안만 기억).
+// PP6를 닫으면 적용: 예약할 때 고른 예배 줄(RowID)과 강제 동작. PP6 종료 뒤 올리기·비교가 끝나면 그때 줄로 다시 맞춰 적용한다.
+// 설정에 남겨 두어 Sync를 다시 켜거나 Mac을 껐다 켜도 이어진다(storeQuitKeys:forced:).
 @property(nonatomic) NSArray *quitKeys, *quitForced;
 // 정리 창: 전체 확인과 비교가 만든 목록. 아무도 안 눌러도 아무 일도 생기지 않는다.
 @property(nonatomic) NSWindow *organizer;
@@ -368,6 +371,8 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 #endif
     self.work = dispatch_queue_create("org.yebaeon.sync2", DISPATCH_QUEUE_SERIAL);
     self.rows = [NSMutableArray array]; self.reservations = [NSMutableArray array];
+    NSDictionary *savedQuit = [NSUserDefaults.standardUserDefaults dictionaryForKey:kQuitApplyKey];
+    if ([savedQuit[@"keys"] isKindOfClass:NSArray.class]) { self.quitKeys = savedQuit[@"keys"]; self.quitForced = [savedQuit[@"forced"] isKindOfClass:NSArray.class] ? savedQuit[@"forced"] : @[]; }
     [self buildMenu]; [self buildWindow]; [self buildStatusItem];
     [self.window makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
 #ifdef YB2_MANUAL_CAPTURE
@@ -401,7 +406,19 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
         if (!error) { dispatch_async(dispatch_get_main_queue(), ^{ [self captureForManual]; }); return; }
         NSLog(@"capture compare failed: %@", error.reason); exit(3);
 #endif
-        if (!error) { [self runFullCheckIfDue]; [self checkUpdate:NO]; return; }
+        if (!error) {
+            // PP6를 닫지 않고 Mac을 꺼서 지난번 종료 뒤 올리기·예약한 적용을 못 했다: 지금 PP6가 꺼져 있으면 이어서 한다.
+            BOOL missed = [NSUserDefaults.standardUserDefaults boolForKey:kQuitPendingKey] && self.resident;
+            if ((missed || self.quitKeys) && !YBPresenterRunning()) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self note:@"지난번 PP6 종료 뒤 할 일을 이어서 함(PP6를 닫지 않고 Mac을 끈 것으로 봄)"];
+                    self.statusLabel.stringValue = @"지난번 PP6 종료 뒤 할 일 이어서 하는 중";
+                    [self performSelector:@selector(afterPresenterQuit) withObject:nil afterDelay:1];
+                });
+                return;
+            }
+            [self runFullCheckIfDue]; [self checkUpdate:NO]; return;
+        }
         if ([error.reason hasPrefix:@"HTTP 401"]) { dispatch_async(dispatch_get_main_queue(), ^{ [self handleLoginRequired]; }); return; }
         if ([error.reason hasPrefix:@"HTTP "]) { dispatch_async(dispatch_get_main_queue(), ^{ self.statusLabel.stringValue = error.reason; }); return; }
         // 켜자마자 연결하고, 네트워크가 없으면 15초마다 다시 시도한다(최대 5분).
@@ -462,6 +479,7 @@ static BOOL IsPresenter(NSRunningApplication *app) {
     if (self.busy) { [self performSelector:@selector(afterPresenterQuit) withObject:nil afterDelay:30]; return; }
     if (YBPresenterRunning()) return;   // 그 사이 다시 켰다: 다음 종료 때
     [self runCycleForce:YES upload:self.resident completion:^(NSException *error) {
+        if (!error) [NSUserDefaults.standardUserDefaults setBool:NO forKey:kQuitPendingKey];
         if (!self.quitKeys) return;
         if (error) { [self performSelector:@selector(afterPresenterQuit) withObject:nil afterDelay:60]; return; }   // 비교하지 못했다(네트워크 등): 1분 뒤 다시
         [self runQuitApply];
@@ -503,6 +521,7 @@ static BOOL ForceChangesMac(NSDictionary *item) { return [item[@"kind"] isEqual:
 - (void)refreshPresenterState {
     BOOL running = YBPresenterRunning();
     self.presenterLabel.stringValue = running ? @"PP6 실행 중" : @"PP6 꺼져 있음";
+    if (running && ![NSUserDefaults.standardUserDefaults boolForKey:kQuitPendingKey]) [NSUserDefaults.standardUserDefaults setBool:YES forKey:kQuitPendingKey];
     if (self.presenterSeen && self.presenterSeen.boolValue != running) [self scheduleStatus];
     self.presenterSeen = @(running);
     [self refreshApplyButton];
@@ -520,7 +539,7 @@ static BOOL ForceChangesMac(NSDictionary *item) { return [item[@"kind"] isEqual:
 }
 - (void)refreshStatusItem {
     NSUInteger waiting = 0, hold = 0;
-    for (NSDictionary *row in self.rows) { if (Checkable(row) && !([row[@"macDeleted"] boolValue]) && !NoHistoryOnly(row)) waiting++; else if ([row[@"status"] isEqual:@"hold"] || NoHistoryOnly(row)) hold++; }
+    for (NSDictionary *row in self.rows) { if ([row[@"bulk"] boolValue]) continue; if (Checkable(row) && !([row[@"macDeleted"] boolValue]) && !NoHistoryOnly(row)) waiting++; else if ([row[@"status"] isEqual:@"hold"] || NoHistoryOnly(row)) hold++; }
     NSString *title = self.busy ? @"예배온 확인 중" : self.quitKeys ? @"예배온 · PP6 닫으면 적용" : waiting ? [NSString stringWithFormat:@"예배온 대기 %lu", (unsigned long)waiting] : hold ? [NSString stringWithFormat:@"예배온 보류 %lu", (unsigned long)hold] : @"예배온 최신";
     if (self.supportUntil) title = [@"원격 지원 · " stringByAppendingString:title];
     self.statusItem.button.title = self.pendingRelease ? [title stringByAppendingString:@" · 새 버전"] : title;
@@ -531,12 +550,14 @@ static BOOL ForceChangesMac(NSDictionary *item) { return [item[@"kind"] isEqual:
 - (void)showRows:(NSArray *)result {
     [self.rows removeAllObjects];
     // Mac에서 지운 예배는 기본 체크 꺼짐(되살리지 않는다). 나머지 고를 수 있는 줄은 켜 둔다.
-    for (NSDictionary *row in result) { NSMutableDictionary *m = [row mutableCopy]; m[@"checked"] = @(Checkable(row) && ![row[@"macDeleted"] boolValue] && !NoHistoryOnly(row)); [self.rows addObject:m]; }
+    // 서버 휴지통 정리(bulk)도 기본 체크 꺼짐: 수천 개일 수 있어 급한 받기와 묶지 않는다. 시간 날 때 체크해 적용한다.
+    for (NSDictionary *row in result) { NSMutableDictionary *m = [row mutableCopy]; m[@"checked"] = @(Checkable(row) && ![row[@"macDeleted"] boolValue] && !NoHistoryOnly(row) && ![row[@"bulk"] boolValue]); [self.rows addObject:m]; }
     [self.table reloadData];
-    NSUInteger receive = 0, mac = 0, hold = 0, trash = 0;
+    NSUInteger receive = 0, mac = 0, hold = 0, trash = 0, cleanup = 0;
     for (NSDictionary *row in self.rows) {
         NSString *status = row[@"status"];
-        if (NoHistoryOnly(row)) hold++;
+        if ([row[@"bulk"] boolValue]) cleanup += [row[@"trashes"] count] + [row[@"imageTrashes"] count];
+        else if (NoHistoryOnly(row)) hold++;
         else if ([status isEqual:@"receive"] && ![row[@"macDeleted"] boolValue]) receive++;
         else if ([status isEqual:@"mac"] || [status isEqual:@"macNew"]) mac++;
         else if ([status isEqual:@"trash"]) trash++;
@@ -548,6 +569,7 @@ static BOOL ForceChangesMac(NSDictionary *item) { return [item[@"kind"] isEqual:
     if (mac) [parts addObject:[NSString stringWithFormat:@"올릴 예배 %lu개", (unsigned long)mac]];
     if (trash) [parts addObject:[NSString stringWithFormat:@"서버 정리 %lu개", (unsigned long)trash]];
     if (hold) [parts addObject:[NSString stringWithFormat:@"정리 창에서 정할 것 %lu개", (unsigned long)hold]];
+    if (cleanup) [parts addObject:[NSString stringWithFormat:@"휴지통 정리 %lu개(시간 날 때 체크)", (unsigned long)cleanup]];
     self.statusLabel.stringValue = parts.count ? [parts componentsJoinedByString:@" · "] : @"모두 같음";
     self.summary = self.statusLabel.stringValue;
     if (self.reservations.count) self.statusLabel.stringValue = [NSString stringWithFormat:@"%@ · 강제 동작 예약 %lu개", self.summary, (unsigned long)self.reservations.count];
@@ -625,6 +647,14 @@ static NSString *Summary(NSDictionary *result) {
         if ([error.reason hasPrefix:@"HTTP 401"]) dispatch_async(dispatch_get_main_queue(), ^{ [self handleLoginRequired]; });
     }];
 }
+// 예약을 바꾸고 설정에도 남긴다(nil이면 지움). 강제 동작은 설정에 쓸 수 있는 칸만 남긴다(줄은 적용 때 다시 맞춘다).
+- (void)storeQuitKeys:(NSArray *)keys forced:(NSArray *)forced {
+    NSMutableArray *plain = [NSMutableArray array];
+    for (NSDictionary *item in forced ?: @[]) { NSMutableDictionary *kept = [NSMutableDictionary dictionary]; for (NSString *key in @[@"kind", @"key", @"path", @"action", @"label", @"fromServer"]) if ([item[key] isKindOfClass:NSString.class] || [item[key] isKindOfClass:NSNumber.class]) kept[key] = item[key]; [plain addObject:kept]; }
+    self.quitKeys = keys; self.quitForced = keys ? plain : nil;
+    if (keys) [NSUserDefaults.standardUserDefaults setObject:@{@"keys": keys, @"forced": plain} forKey:kQuitApplyKey];
+    else [NSUserDefaults.standardUserDefaults removeObjectForKey:kQuitApplyKey];
+}
 // 줄을 가리키는 이름. 문서 정리 줄처럼 예배 key가 없는 줄은 이름으로.
 static NSString *RowID(NSDictionary *row) { return row[@"key"] ?: row[@"name"] ?: @""; }
 // [적용]할 줄: keys가 없으면 체크한 줄, 있으면 그 줄(예약). 이력 없는 문서뿐인 줄은 organizerOnly로.
@@ -650,7 +680,7 @@ static NSString *OrganizerNote(NSArray *organizerOnly) {
 - (void)applyNow:(id)sender {
     if (self.busy) return;
     if (self.quitKeys) {
-        self.quitKeys = nil; self.quitForced = nil;
+        [self storeQuitKeys:nil forced:nil];
         [self note:@"PP6 닫으면 적용 예약 취소"]; self.statusLabel.stringValue = self.summary ?: @"";
         [self refreshApplyButton]; [self refreshStatusItem];
         return;
@@ -687,7 +717,7 @@ static NSString *OrganizerNote(NSArray *organizerOnly) {
 // PP6가 켜져 있다: 지금은 Mac에 없던 문서·그림만 넣고(PP6가 열어 둔 파일·재생목록은 건드리지 않음) 나머지는 PP6를 닫으면 적용한다.
 - (void)reserveQuitApply:(NSArray *)selected forced:(NSArray *)forced {
     NSMutableArray *keys = [NSMutableArray array]; for (NSDictionary *row in selected) [keys addObject:RowID(row)];
-    self.quitKeys = keys; self.quitForced = forced;
+    [self storeQuitKeys:keys forced:forced];
     [self.reservations removeAllObjects]; [self refreshReservations];
     self.busy = YES; self.statusLabel.stringValue = @"PP6가 켜져 있어 새 문서·그림만 넣는 중";
     dispatch_async(self.work, ^{
@@ -702,7 +732,7 @@ static NSString *OrganizerNote(NSArray *organizerOnly) {
             for (NSString *path in placed[@"failed"]) [text appendFormat:@"새 문서 받기 실패 · %@: %@\n", path, placed[@"failed"][path]];
             for (NSString *line in placed[@"imageFailed"]) [text appendFormat:@"그림 받기 실패 · %@\n", line];
             if (!text.length) [text appendString:@"지금 넣을 새 문서·그림은 없었습니다.\n"];
-            [text appendFormat:@"\n나머지(예배 %lu개%@)는 PP6를 닫으면 적용합니다. 예배 중에는 그대로 두세요. 취소하려면 [적용 예약 취소]를 누르세요.", (unsigned long)self.quitKeys.count, self.quitForced.count ? [NSString stringWithFormat:@", 강제 동작 %lu개", (unsigned long)self.quitForced.count] : @""];
+            [text appendFormat:@"\n나머지(예배 %lu개%@)는 PP6를 닫으면 적용합니다. 예배 중에는 그대로 두세요. PP6를 닫지 않고 Mac을 꺼도 다음에 켤 때 PP6가 꺼져 있으면 이어서 합니다. 취소하려면 [적용 예약 취소]를 누르세요.", (unsigned long)self.quitKeys.count, self.quitForced.count ? [NSString stringWithFormat:@", 강제 동작 %lu개", (unsigned long)self.quitForced.count] : @""];
             [self note:[@"PP6 닫으면 적용 예약 · " stringByAppendingString:text]];
             [self alert:@"PP6를 닫으면 적용" text:text];
             [self revealImages:placed[@"images"]];
@@ -716,7 +746,7 @@ static NSString *OrganizerNote(NSArray *organizerOnly) {
     if (YBPresenterRunning()) { self.statusLabel.stringValue = @"PP6가 다시 켜져 예약한 적용을 다음 종료 때로 미룹니다"; return; }
     NSMutableArray *organizerOnly = [NSMutableArray array], *skipped = [NSMutableArray array];
     NSArray *selected = [self rowsToApply:[NSSet setWithArray:self.quitKeys] organizerOnly:organizerOnly], *forced = [self resolveForced:self.quitForced skipped:skipped];
-    self.quitKeys = nil; self.quitForced = nil; [self refreshApplyButton]; [self refreshStatusItem];
+    [self storeQuitKeys:nil forced:nil]; [self refreshApplyButton]; [self refreshStatusItem];
     NSMutableString *note = [NSMutableString stringWithString:OrganizerNote(organizerOnly) ?: @""];
     if (skipped.count) [note appendFormat:@"%@그 사이 할 수 없게 된 강제 동작: %@", note.length ? @"\n" : @"", [skipped componentsJoinedByString:@", "]];
     if (!selected.count && !forced.count) { [self note:[@"PP6 종료 · 예약한 적용: 그 사이 모두 같아져 할 것이 없음 " stringByAppendingString:note]]; self.statusLabel.stringValue = @"예약한 적용: 할 것이 없었습니다"; return; }
@@ -1357,6 +1387,7 @@ static NSString *DetailText(NSDictionary *row) {
             [lines addObject:[@"그림을 macOS 휴지통으로(서버에서 쓰지 않음): " stringByAppendingString:[names componentsJoinedByString:@", "]]];
         }
         if ([row[@"actionHolds"] count]) [lines addObject:[@"확인 필요(정리 창): " stringByAppendingString:Names(row[@"actionHolds"])]];
+        if ([row[@"bulk"] boolValue]) [lines insertObject:@"급하지 않은 정리라 기본으로 체크하지 않습니다. 체크하면 [적용] 때 함께 합니다(많으면 오래 걸림). PP6를 닫아야 합니다." atIndex:0];
         return [lines componentsJoinedByString:@"\n"];
     }
     if ([status isEqual:@"macNew"] && [row[@"macNewDocuments"] count]) return [NSString stringWithFormat:@"%@\n새 문서 올리기(서버에 없음): %@", StatusText(row), Names(row[@"macNewDocuments"])];
@@ -1605,6 +1636,7 @@ static NSString *Bytes(unsigned long long bytes) { return [NSByteCountFormatter 
             if (!compact) item[@"detail"] = DetailText(row) ?: @"";
             item[@"applicable"] = @(Checkable(row) && !NoHistoryOnly(row) && [row[@"key"] length] > 0);
             item[@"changesMac"] = @(ChangesMac(row));
+            if ([row[@"bulk"] boolValue]) item[@"bulk"] = @YES;   // 웹 교회 Mac 창도 기본 체크하지 않는다
             if (support) {
                 NSMutableArray *docs = [NSMutableArray array];
                 for (NSString *path in RowDocumentPaths(row)) {

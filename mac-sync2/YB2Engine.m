@@ -547,9 +547,14 @@ static NSString *ImageDiskPath(NSString *path) {
             else [trashes addObject:@{@"id": item[@"entity"], @"path": path, @"sha": item[@"sha"] ?: @""}];
         }
     }
-    if (renames.count || trashes.count || imageTrashes.count || holds.count)
-        [rows addObject:@{@"key": @"doc-actions", @"nodeID": @"", @"name": imageTrashes.count ? @"문서·그림 정리(서버)" : @"문서 정리(서버)", @"status": renames.count || trashes.count || imageTrashes.count ? @"actions" : @"hold",
-                          @"reason": holds.count ? [NSString stringWithFormat:@"확인 필요 %lu", (unsigned long)holds.count] : @"", @"renames": renames, @"trashes": trashes, @"imageTrashes": imageTrashes, @"actionHolds": holds}];
+    // 이름 바꾸기는 예배 참조와 맞물려 데일리 [적용]에 둔다. 서버 휴지통을 따라 Mac에서 지우기(문서·그림)는 한꺼번에 수천 개가 올 수 있어
+    // '서버 휴지통 정리' 줄(bulk)로 따로 둔다. 앱은 이 줄을 기본으로 체크하지 않아 급한 받기와 묶이지 않는다.
+    if (renames.count || holds.count)
+        [rows addObject:@{@"key": @"doc-actions", @"nodeID": @"", @"name": @"문서 정리(서버)", @"status": renames.count ? @"actions" : @"hold",
+                          @"reason": holds.count ? [NSString stringWithFormat:@"확인 필요 %lu", (unsigned long)holds.count] : @"", @"renames": renames, @"trashes": @[], @"imageTrashes": @[], @"actionHolds": holds}];
+    if (trashes.count || imageTrashes.count)
+        [rows addObject:@{@"key": @"server-cleanup", @"nodeID": @"", @"name": @"서버 휴지통 정리", @"status": @"actions", @"bulk": @YES, @"reason": @"",
+                          @"renames": @[], @"trashes": trashes, @"imageTrashes": imageTrashes, @"actionHolds": @[]}];
     self.knownDocumentIDs = documentIDs; self.knownImagePaths = imagePaths;
     [self report:@"비교 완료"];
     return rows;

@@ -134,7 +134,7 @@
   if(!d){body.append(el('div',{class:'mac-wait'},el('strong',{textContent:'연결된 교회 Mac이 없습니다'}),el('p',{textContent:'Sync 2에서 입장하면 여기에 나옵니다.'})));return;}
   const s=d.status||{};body.append(header(d,s));
   if(!on){body.append(...waiting(),el('p',{id:'macMessage',class:'panel-foot',role:'status',textContent:note}));return;}
-  for(const r of s.rows||[])if(!checked.has(r.node))checked.set(r.node,!!r.applicable);
+  for(const r of s.rows||[])if(!checked.has(r.node))checked.set(r.node,!!r.applicable&&!r.bulk);
   const text=el('input',{type:'text',maxLength:200,placeholder:'Mac 화면에 띄울 안내 (예: PP6를 닫아 주세요)','aria-label':'Mac에 띄울 안내'});
   body.append(el('div',{class:'mac-support on'},
    el('div',{class:'top'},el('div',{},el('strong',{textContent:`원격 지원 중 · ${minutesLeft(d.supportUntil)}분 남음`}),el('small',{textContent:'Sync 2에서 요청한 지원입니다. 한 번 열면 최대 60분입니다.'})),

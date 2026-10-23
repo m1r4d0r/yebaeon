@@ -389,13 +389,13 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         NSDictionary *opening = Meta(@"첫화면.pro6");
         Post([NSString stringWithFormat:@"/api/documents/%@/state", opening[@"id"]], @{@"action": @"trash"}, nil);
         Post([NSString stringWithFormat:@"/api/documents/%@/state", newDoc[@"id"]], @{@"action": @"trash"}, nil);
-        rows = Sync(); actions = RowNamed(rows, @"문서 정리(서버)");
-        Check([actions[@"trashes"] count] == 1 && [actions[@"trashes"][0][@"path"] isEqual:@"새 문서.pro6"] && [actions[@"actionHolds"] count] == 1, @"a document still used by a service is held");
+        rows = Sync(); actions = RowNamed(rows, @"서버 휴지통 정리");
+        Check([actions[@"bulk"] boolValue] && [actions[@"trashes"] count] == 1 && [actions[@"trashes"][0][@"path"] isEqual:@"새 문서.pro6"] && [RowNamed(rows, @"문서 정리(서버)")[@"actionHolds"] count] == 1, @"trash moves get their own bulk row, a document still used by a service is held");
         result = [engine apply:@[actions]];
         Check(![NSFileManager.defaultManager fileExistsAtPath:Local(@"새 문서")] && [NSFileManager.defaultManager fileExistsAtPath:[trashBin stringByAppendingPathComponent:[@"새 문서.pro6" decomposedStringWithCanonicalMapping]]] , @"unused document moved to the trash");
         Post([NSString stringWithFormat:@"/api/documents/%@/state", opening[@"id"]], @{@"action": @"untrash"}, nil);
         rows = Sync();
-        Check(RowNamed(rows, @"문서 정리(서버)") == nil, @"untrash cancels the waiting move");
+        Check(RowNamed(rows, @"문서 정리(서버)") == nil && RowNamed(rows, @"서버 휴지통 정리") == nil, @"untrash cancels the waiting move");
         Check([[engine uploadNew][@"created"] count] == 0, @"a trashed server document is not uploaded again");
 
         // 18-1. 고아 그림: 관리자가 서버에서 휴지통에 넣으면(그 뒤 비워도) [적용] 때 서버가 알던 그대로인 파일만 macOS 휴지통으로 옮긴다. Mac 문서가 아직 쓰는 그림은 둔다.
@@ -429,9 +429,9 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
             Check([Post(@"/api/admin/orphans", @{@"purge": @[orphanPath]}, admin)[@"purged"] integerValue] == 1, @"image trash emptied before the mac applies");
             NSData *hymn = [NSData dataWithContentsOfFile:Local(@"오 신실하신 주")];
             Check([Doc([@"찬양 1 " stringByAppendingString:ImageXML(usedPath)]) writeToFile:Local(@"오 신실하신 주") atomically:YES], @"mac document starts using a trashed image");
-            rows = Sync(); actions = RowNamed(rows, @"문서·그림 정리(서버)");
-            Check([actions[@"status"] isEqual:@"actions"] && [actions[@"imageTrashes"] count] == 1 && [actions[@"imageTrashes"][0][@"path"] isEqual:orphanPath], @"server-trashed image waits for apply");
-            Check([[actions[@"actionHolds"] valueForKey:@"path"] containsObject:usedPath], @"image still used on the mac is held");
+            rows = Sync(); actions = RowNamed(rows, @"서버 휴지통 정리");
+            Check([actions[@"status"] isEqual:@"actions"] && [actions[@"bulk"] boolValue] && [actions[@"imageTrashes"] count] == 1 && [actions[@"imageTrashes"][0][@"path"] isEqual:orphanPath], @"server-trashed image waits in the bulk cleanup row");
+            Check([[RowNamed(rows, @"문서 정리(서버)")[@"actionHolds"] valueForKey:@"path"] containsObject:usedPath], @"image still used on the mac is held");
             Check([NSFileManager.defaultManager fileExistsAtPath:orphanPath], @"compare does not trash images");
             result = [engine apply:@[actions]];
             Check([result[@"failed"] count] == 0 && ![NSFileManager.defaultManager fileExistsAtPath:orphanPath] && [NSFileManager.defaultManager fileExistsAtPath:[trashBin stringByAppendingPathComponent:orphanPath.lastPathComponent]], @"orphan image moved to the trash");
@@ -439,7 +439,7 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
             Check([hymn writeToFile:Local(@"오 신실하신 주") atomically:YES], @"mac document restored");
             [NSFileManager.defaultManager removeItemAtPath:usedPath error:NULL];
             rows = Sync();
-            Check(RowNamed(rows, @"문서·그림 정리(서버)") == nil && RowNamed(rows, @"문서 정리(서버)") == nil, @"nothing left once the held image is gone");
+            Check(RowNamed(rows, @"서버 휴지통 정리") == nil && RowNamed(rows, @"문서 정리(서버)") == nil, @"nothing left once the held image is gone");
         }
 
         // 19. 웹에서 예배를 휴지통에: [적용] 때 그 노드만 뺀다. 꺼내면 서버에 새로 생긴 예배로 다시 받는다.
