@@ -46,6 +46,7 @@
 
 // 시작할 때 호출. 중단된 적용이 있으면 끝까지 마무리한다. 마무리한 것이 있으면 설명을 돌려준다.
 - (NSString *)finishInterruptedApply;
+- (BOOL)interruptedApplyWaitsForPresenter;
 
 // ── 2차 ──
 // Mac에서만 바뀐 것을 올린다: 문서(서버 새 버전), 예배 순서(노드 교체), 사용일(버전 없이 usage).

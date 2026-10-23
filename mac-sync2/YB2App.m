@@ -392,8 +392,8 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     [workspace addObserver:self selector:@selector(didWake:) name:NSWorkspaceDidWakeNotification object:nil];
     [self refreshPresenterState];
     @try {
-        NSString *finished = [self.engine finishInterruptedApply];
-        if (finished) [self alert:@"중단된 적용 마무리" text:finished];
+        if ([self.engine interruptedApplyWaitsForPresenter]) [self alert:@"중단된 적용이 있습니다" text:@"지난번에 파일을 옮기다 멈춘 적용이 있습니다. PP6를 닫으면 다음 비교 때 마무리합니다."];
+        else { NSString *finished = [self.engine finishInterruptedApply]; if (finished) [self alert:@"중단된 적용 마무리" text:finished]; }
     } @catch (NSException *e) { [self alert:@"중단된 적용을 마무리하지 못함" text:e.reason]; }
     if (!self.server.cookie && !self.server.deviceToken) { if (![self loginSheet]) return; }
     else self.connectionLabel.stringValue = [NSString stringWithFormat:@"연결 확인 중%@ · %@", self.server.deviceToken ? @" (장치 열쇠)" : @"", YB2_ORIGIN];
@@ -1911,7 +1911,17 @@ static NSString *Bytes(unsigned long long bytes) { return [NSByteCountFormatter 
 }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)app {
-    if (self.busy) { self.statusLabel.stringValue = @"작업 중에는 종료할 수 없습니다. 끝난 뒤 다시 종료해 주세요."; return NSTerminateCancel; }
+    // 작업 중이면 묻고, 강제 종료하면 하던 일을 그 자리에서 멈춘다. 받는 중이면 Mac 파일은 그대로이고,
+    // 파일을 옮기던 중이면 기록(apply-journal.json)이 남아 다음 비교 때 마무리한다. 올리기는 끝난 문서까지만 서버에 있다.
+    if (self.busy) {
+        [NSApp activateIgnoringOtherApps:YES];
+        NSAlert *ask = [NSAlert new]; ask.alertStyle = NSAlertStyleWarning;
+        ask.messageText = [NSString stringWithFormat:@"작업 중입니다 · %@", self.statusLabel.stringValue];
+        ask.informativeText = @"강제 종료하면 하던 일을 지금 멈춥니다. 받는 중이면 Mac 파일은 그대로이고, 파일을 옮기던 중이면 다음에 켰을 때 마무리합니다. 남은 일은 다음 비교에 다시 보입니다.";
+        [ask addButtonWithTitle:@"계속 기다리기"]; [ask addButtonWithTitle:@"강제 종료"];
+        if ([ask runModal] != NSAlertSecondButtonReturn) return NSTerminateCancel;
+        [self note:[@"강제 종료 · " stringByAppendingString:self.statusLabel.stringValue ?: @""]];
+    }
     if (self.supportUntil) {   // 앱을 끄면 지원 시간도 닫는다(종료 중이라 기다려서 보낸다)
         for (NSDictionary *command in self.remoteQueue) {
             @try { [self.server finishCommand:command[@"id"] state:@"rejected" message:@"Sync가 종료돼 하지 않았습니다."]; } @catch (NSException *e) { NSLog(@"remote result: %@", e.reason); }

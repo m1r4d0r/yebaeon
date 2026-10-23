@@ -63,6 +63,12 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         YB2Engine *engine = [[YB2Engine alloc] initWithServer:mac root:docs playlist:playlistURL profile:profile];
         engine.presenterRunning = ^BOOL { return NO; };
         Check([engine finishInterruptedApply] == nil, @"no interrupted apply");
+        NSString *journalFile = [profile stringByAppendingPathComponent:@"apply-journal.json"];
+        Check([[NSJSONSerialization dataWithJSONObject:@{@"id": @"stopped", @"status": @"prepared", @"root": engine.root, @"playlist": playlistURL.path, @"documents": @[]} options:0 error:NULL] writeToFile:journalFile atomically:YES], @"stopped journal");
+        engine.presenterRunning = ^BOOL { return YES; };
+        Check([engine interruptedApplyWaitsForPresenter], @"stopped apply waits for PP6");
+        engine.presenterRunning = ^BOOL { return NO; };
+        Check(![engine interruptedApplyWaitsForPresenter] && [engine finishInterruptedApply] == nil && ![NSFileManager.defaultManager fileExistsAtPath:journalFile], @"stopped apply without stage is cleared");
 
         // 1. 처음 연결: 모두 같음. 원본 없는 참조는 막지 않는다.
         NSArray *rows = [engine compare];

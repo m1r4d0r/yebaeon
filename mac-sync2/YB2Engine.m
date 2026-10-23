@@ -320,6 +320,11 @@ static NSString *ImageDiskPath(NSString *path) {
     return ![self.receipt ledger:name] && ![self.receipt document:name] && [self diskPath:name] != nil;
 }
 - (NSArray *)compare {
+    // 강제 종료 등으로 파일을 옮기다 멈춘 적용은 PP6가 꺼져 있을 때 비교 전에 마무리한다.
+    if ([NSFileManager.defaultManager fileExistsAtPath:self.journalPath] && !self.presenterRunning()) {
+        NSString *finished = [self finishInterruptedApply];
+        if (finished) [self report:finished];
+    }
     [self repairUndoneNumbering];
     [self report:@"서버 재생목록 확인 중"];
     self.library = [self findLibrary];
@@ -1339,6 +1344,11 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     return @{@"restored": restored, @"skipped": skipped};
 }
 
+// 파일을 옮기다 멈춘 적용이 있는데 PP6가 켜져 있다(새 파일만 넣던 것은 PP6가 켜져 있어도 마무리한다).
+- (BOOL)interruptedApplyWaitsForPresenter {
+    NSDictionary *journal = JSON([NSData dataWithContentsOfFile:self.journalPath]);
+    return [journal isKindOfClass:NSDictionary.class] && !NewFilesOnly(journal) && self.presenterRunning();
+}
 - (NSString *)finishInterruptedApply {
     NSDictionary *journal = JSON([NSData dataWithContentsOfFile:self.journalPath]);
     if (![journal isKindOfClass:NSDictionary.class]) return nil;
