@@ -261,7 +261,7 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
     NSString *notes = [self.pendingRelease[@"notes"] length] ? [@" · " stringByAppendingString:self.pendingRelease[@"notes"]] : @"";
     self.updateLabel.stringValue = self.pendingRelease ? [NSString stringWithFormat:@"새 버전 있음 · 빌드 %@ (지금 빌드 %ld)%@", self.pendingRelease[@"build"], (long)[YB2Update currentBuild], notes] : @"";
     self.updateLabel.toolTip = self.updateLabel.stringValue;
-    NSString *blocked = self.busy ? @"작업 중" : self.checking ? @"전체 확인 중" : YBPresenterRunning() ? @"PP6를 닫은 뒤" : nil;
+    NSString *blocked = self.busy ? @"작업 중" : self.checking ? @"전체 확인 중" : nil;
     self.updateButton.enabled = self.pendingRelease && !blocked;
     self.updateButton.toolTip = blocked ? [blocked stringByAppendingString:@" 설치할 수 있습니다."] : nil;
     for (NSMenuItem *item in @[self.statusUpdateItem ?: [NSMenuItem new], self.appUpdateItem ?: [NSMenuItem new]]) {
@@ -274,7 +274,8 @@ static NSButton *Button(NSString *title, NSRect frame, id target, SEL action) {
 - (void)installUpdate:(id)sender {
     NSDictionary *release = self.pendingRelease;
     if (!release) return;
-    if (self.busy || self.checking || YBPresenterRunning()) { [self alert:@"지금은 설치할 수 없습니다" text:@"적용·전체 확인이 끝나고 PP6를 닫은 뒤 다시 눌러 주세요."]; return; }
+    // 앱 파일만 바꾸고 문서·재생목록은 건드리지 않으므로 PP6가 켜져 있어도 설치한다.
+    if (self.busy || self.checking) { [self alert:@"지금은 설치할 수 없습니다" text:@"적용·전체 확인이 끝난 뒤 다시 눌러 주세요."]; return; }
     [self showWindow:nil];
     NSAlert *confirm = [NSAlert new]; confirm.messageText = [NSString stringWithFormat:@"빌드 %@로 바꿀까요?", release[@"build"]];
     confirm.informativeText = @"새 버전을 받아 앱을 바꾸고 다시 켭니다. 지금 앱은 백업 폴더에 남습니다. 영수증·백업·설정은 그대로입니다.";
