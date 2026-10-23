@@ -1093,6 +1093,20 @@ static NSArray *ExternalReferences(NSData *document, NSString *root) {
     [self.receipt setValue:@"1" forKey:MacTrashKey(path)];
     YBRequire(self.trashItem(disk) != nil, @"Mac 파일을 휴지통으로 옮기지 못했습니다.");
 }
+// 서버 휴지통 문서인데 Mac에서 고쳐 [적용]이 옮기지 않은 것: 사람이 정해서 Mac 파일도 지운다. 기다리던 휴지통 이동은 끝난 것으로 지운다.
+- (void)acceptServerTrash:(NSString *)path {
+    NSDictionary *entry = [self.receipt ledger:path];
+    YBRequire([entry[@"state"] isEqual:@"trashed"], @"서버 휴지통에 있는 문서가 아닙니다. 다시 비교해 주세요.");
+    [self trashOnMac:path];
+    [self.receipt removePending:@"doc" entity:entry[@"id"] action:@"trashed"];
+}
+// 서버 휴지통에서 꺼낸다. 다음 비교에서 Mac에서 고친 내용은 올리기 대기로 보인다.
+- (void)untrashOnServer:(NSString *)path {
+    NSDictionary *entry = [self.receipt ledger:path]; YBRequire([entry[@"id"] length] > 0, @"서버 장부에 없는 문서입니다.");
+    NSDictionary *result = [self.server request:[NSString stringWithFormat:@"/api/documents/%@/state", Query(entry[@"id"])] method:@"POST" body:JSONData(@{@"action": @"untrash"}) headers:JSONHeaders()];
+    YBRequire([result[@"document"] isKindOfClass:NSDictionary.class], @"서버 휴지통에서 꺼내지 못했습니다.");
+    [self.receipt transaction:^{ [self.receipt setLedger:path id:entry[@"id"] version:entry[@"version"] sha:entry[@"sha"] state:@"active"]; [self.receipt removePending:@"doc" entity:entry[@"id"] action:@"trashed"]; }];
+}
 // 대소문자·한글 조합형 차이도 새 문서 이름 충돌로 취급한다.
 - (BOOL)localNameExists:(NSString *)path {
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.root error:NULL])
