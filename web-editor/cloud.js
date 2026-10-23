@@ -95,8 +95,9 @@
         documents.push(doc);const item=document.createElement('div');item.className='document-item';select.bind(item,doc.id);
         const name=document.createElement('strong');name.textContent=doc.name.replace(/\.pro6$/i,'');const small=document.createElement('small');
         const used=doc.lastDateUsed?new Date(doc.lastDateUsed):null;
-        // 한 줄: 이름 · 카테고리(본문으로만 찾았으면 '본문 일치'). 최근 사용일은 보이지 않고, 검색어 일치가 같은 것끼리 정렬에만 쓴다(서버).
-        small.textContent=doc.available===false?'원본 미업로드 · 편집 불가':doc.matchedBy==='content'?'본문 일치':'';item.classList.toggle('unavailable',doc.available===false);if(doc.category&&doc.available!==false){const category=document.createElement('span');category.className='doc-category';category.textContent=doc.category;small.prepend(category);}item.append(window.YebaeonSyncLights.dot('document',doc.id,''),name,small);item.title=doc.path+(doc.category?' · '+doc.category:'')+(used?' · '+used.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',timeZone:'Asia/Seoul'})+' 사용':'')+(doc.localPresent===false?' · 마지막 Mac 인덱스에서 없음 · 서버 원본과 이력은 보존됩니다.':'');
+        // 한 줄: 이름 · ('본문 일치') 카테고리. 카테고리 칩은 늘 오른쪽 끝이라 줄마다 같은 자리다. 최근 사용일은 보이지 않고, 검색어 일치가 같은 것끼리 정렬에만 쓴다(서버).
+        // 교회 Mac 적용 신호등은 검색 목록에 두지 않는다(검색마다 상태 조회가 생긴다). 순서 목록에만 있다.
+        small.textContent=doc.available===false?'원본 미업로드 · 편집 불가':doc.matchedBy==='content'?'본문 일치':'';item.classList.toggle('unavailable',doc.available===false);if(doc.category&&doc.available!==false){const category=document.createElement('span');category.className='doc-category';category.textContent=doc.category;small.append(category);}item.append(name,small);item.title=doc.path+(doc.category?' · '+doc.category:'')+(used?' · '+used.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',timeZone:'Asia/Seoul'})+' 사용':'')+(doc.localPresent===false?' · 마지막 Mac 인덱스에서 없음 · 서버 원본과 이력은 보존됩니다.':'');
         item.addEventListener('click',e=>{if(!e.ctrlKey&&!e.metaKey&&!e.shiftKey)openCloud(doc.id,false,doc);});
         item.oncontextmenu=e=>{if(!select.chosen.has(doc.id))select.select(doc.id);YebaeonSelection.menu(e,[{label:'열기 Enter',action:()=>openCloud(doc.id,false,doc)},{label:'문서 복제',disabled:doc.available===false,action:()=>YebaeonLibraryActions.duplicate(doc)},{label:'순서에 복사 Ctrl+C',action:()=>select.options.copy()},{label:'선택 문서를 찬양용으로 설정',action:()=>applySelectedPolicy(true,false)},{label:'선택 문서를 예배순서용으로 설정',action:()=>applySelectedPolicy(true,true)},{label:'이름 바꾸기',disabled:doc.available===false,action:()=>YebaeonLibraryManage.renameDocument(doc)},{label:'휴지통으로',disabled:doc.available===false,action:()=>YebaeonLibraryManage.setDocumentState(documents.filter(d=>select.chosen.has(d.id)&&d.available!==false),'trash')}]);};$('libraryList').append(item);
       }
@@ -105,7 +106,6 @@
       listNext = data.next; $('libraryMore').hidden = !listNext;
       if (!$('libraryList').children.length) empty($('libraryList'), query ? '검색 결과가 없습니다.' : '아직 서버 문서가 없습니다. 교회 Sync에서 올려 주세요.');
       $('libraryMessage').textContent='';
-      await window.YebaeonSyncLights.refresh();
     } catch (error) { if (sequence === listSequence) $('libraryMessage').textContent = error.message; }
   }
   async function applySelectedPolicy(searchEnabled,historyEnabled){
