@@ -43,9 +43,17 @@ export async function parse(buffer){
  try{for(const s of deck.slides){
   if(s.background){s.background.url=URL.createObjectURL(new Blob([s.background.bytes],{type:s.background.type}));deck.urls.push(s.background.url);}
   for(const p of s.images){if(!p.url){p.url=URL.createObjectURL(new Blob([p.bytes],{type:p.type}));deck.urls.push(p.url);}p.image=await image(p.url);if(p.image.naturalWidth*p.image.naturalHeight>40e6)throw Error('너무 큰 이미지가 있습니다. 이미지 해상도를 줄여 주세요.');
-   const c=makeCanvas(48,48);c.getContext('2d').drawImage(p.image,0,0,48,48);const pixels=c.getContext('2d').getImageData(0,0,48,48).data;let alpha=0;for(let j=3;j<pixels.length;j+=4)if(pixels[j]<240)alpha++;p.transparent=alpha>24;
+   // 투명(잘라 낸 악보)은 완전히 비치는 점이 있는 그림이다. 전체가 반투명한 배경 사진(알파 170 등)은 투명으로 보지 않는다.
+   const c=makeCanvas(48,48);c.getContext('2d').drawImage(p.image,0,0,48,48);const pixels=c.getContext('2d').getImageData(0,0,48,48).data;let alpha=0;for(let j=3;j<pixels.length;j+=4)if(pixels[j]<16)alpha++;p.transparent=alpha>24;
   }
-  s.scoreIndex=s.images.reduce((best,p,j)=>best<0||((p.transparent?2:1)*p.w*p.h>(s.images[best].transparent?2:1)*s.images[best].w*s.images[best].h)?j:best,-1);
+ }
+ // 3장 이상에서 75% 넘는 장에 같은 그림이 그대로 들어 있으면 공통 배경으로 보고 악보 후보에서 뒤로 미룬다(장마다 다른 그림이 같은 장에 있을 때).
+ const seen=new Map(),keyOf=p=>{const b=p.bytes;let h=b.length;for(let k=0;k<64;k++)h=(h*31+b[Math.floor(k*(b.length-1)/63)])>>>0;return h;};
+ for(const s of deck.slides)for(const k of new Set(s.images.map(keyOf)))seen.set(k,(seen.get(k)||0)+1);
+ const shared=p=>deck.slides.length>=3&&seen.get(keyOf(p))>deck.slides.length*.75;
+ for(const s of deck.slides){
+  const weight=p=>(p.transparent?2:1)*p.w*p.h*(shared(p)&&s.images.some(q=>q!==p&&!shared(q))?.3:1);
+  s.scoreIndex=s.images.reduce((best,p,j)=>best<0||weight(p)>weight(s.images[best])?j:best,-1);
  }}catch(e){deck.dispose();throw e;}
  return deck;
 }

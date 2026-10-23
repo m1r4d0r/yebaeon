@@ -57,6 +57,7 @@ details.settings summary{cursor:pointer;font-weight:600}
 .dot{width:11px;height:11px;border-radius:50%;display:inline-block}
 .report{width:100%;min-height:140px;font:12px/1.4 ui-monospace,Menlo,monospace;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px}
 .note{color:var(--muted);font-size:12.5px;margin:4px 0 0}
+.warnings{margin:0;padding:8px 12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:6px;background:var(--panel);white-space:pre-line}
 </style>
 </head>
 <body>
@@ -73,6 +74,7 @@ details.settings summary{cursor:pointer;font-weight:600}
  </div>
 </header>
 <main>
+ <p id="warnings" class="warnings" role="status" hidden></p>
  <details class="settings" id="settings">
   <summary>설정 <small id="settingsNote" style="font-weight:400;color:var(--muted)"></small></summary>
   <div class="grid" id="grid"></div>

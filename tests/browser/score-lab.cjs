@@ -58,6 +58,25 @@ function png(w,h,data){
   const state=await page.evaluate(()=>({status:document.querySelector('#status').textContent,warnings:ScoreLab.state().warnings,frames:ScoreLab.state().frames.length,name:ScoreLab.state().sourceName}));
   assert.equal(state.frames,4,state.status);assert.equal(state.name,'링크 시험');assert.ok(state.warnings.some(w=>/링크가 걸린 개체 8개/.test(w)),state.warnings.join(' / '));
   assert.ok((await count(0,[400,860,1700,1000])).on<300,'링크 단추 자리는 비어 있음');
+
+  // 레이어가 나뉜 PPTX: 모든 장 배경에 같은 반투명 사진(알파 170), 장마다 다른 투명 악보. 배경이 아니라 악보 그림을 고른다.
+  const W=480,H=360,bgPx=new Uint8ClampedArray(W*H*4),layered={'[Content_Types].xml':files['[Content_Types].xml'],'ppt/presentation.xml':`<p:presentation ${ns}><p:sldIdLst>${[0,1,2,3].map(i=>`<p:sldId id="${256+i}" r:id="r${i+1}"/>`).join('')}</p:sldIdLst><p:sldSz cx="9144000" cy="6858000"/></p:presentation>`,'ppt/_rels/presentation.xml.rels':files['ppt/_rels/presentation.xml.rels']};
+  for(let i=0;i<W*H;i++){bgPx[i*4]=90+(i%W)/4;bgPx[i*4+1]=120;bgPx[i*4+2]=160;bgPx[i*4+3]=170;}
+  const zipped2={};
+  for(let n=0;n<4;n++){
+   const px=new Uint8ClampedArray(W*H*4);for(let y=40+n*20;y<300;y+=40)for(let x=30;x<450;x++){const o=(y*W+x)*4;px[o]=px[o+1]=px[o+2]=20;px[o+3]=255;}
+   for(let y=100;y<130;y++)for(let x=60+n*80;x<80+n*80;x++){const o=(y*W+x)*4;px[o]=px[o+1]=px[o+2]=10;px[o+3]=255;}
+   zipped2[`ppt/media/score${n}.png`]=png(W,H,px);
+   layered[`ppt/slides/slide${n+1}.xml`]=`<p:sld ${ns}><p:cSld><p:bg><p:bgPr><a:blipFill><a:blip r:embed="bg"/><a:stretch><a:fillRect/></a:stretch></a:blipFill><a:effectLst/></p:bgPr></p:bg><p:spTree><p:nvGrpSpPr/><p:grpSpPr/><p:pic><p:nvPicPr><p:cNvPr id="2" name="악보"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="img"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr><a:xfrm><a:off x="1143000" y="0"/><a:ext cx="6858000" cy="5143500"/></a:xfrm><a:prstGeom prst="rect"/></p:spPr></p:pic></p:spTree></p:cSld></p:sld>`;
+   layered[`ppt/slides/_rels/slide${n+1}.xml.rels`]=`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="img" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/score${n}.png"/><Relationship Id="bg" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/bg.png"/></Relationships>`;
+  }
+  for(const [k,v] of Object.entries(layered))zipped2[k]=strToU8(v);zipped2['ppt/media/bg.png']=png(W,H,bgPx);
+  await page.locator('#pptSource').selectOption('picture');
+  await page.locator('#file').setInputFiles({name:'레이어 시험.pptx',mimeType:'application/vnd.openxmlformats-officedocument.presentationml.presentation',buffer:Buffer.from(zipSync(zipped2))});
+  await page.waitForFunction(()=>ScoreLab.state().frames[0]?.name==='1장'&&ScoreLab.state().frames[0].width===480||/실패/.test(document.querySelector('#status').textContent),null,{timeout:120000});await done();
+  const picked=await page.evaluate(()=>{const s=ScoreLab.state(),v=s.frames[0].view.getContext('2d').getImageData(2,2,1,1).data;return {corner:[...v].slice(0,3),warnings:document.querySelector('#warnings').textContent,shown:!document.querySelector('#warnings').hidden};});
+  assert.deepEqual(picked.corner,[255,255,255],'악보 그림(투명 바탕)을 골랐다: 모서리가 흰 바탕');
+  assert.ok(picked.shown&&/이미 투명/.test(picked.warnings),picked.warnings);
   assert.deepEqual(errors,[]);
   console.log('score-lab browser test passed');
  }finally{await browser.close();server.close();}

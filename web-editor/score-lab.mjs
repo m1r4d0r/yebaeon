@@ -81,11 +81,12 @@ async function fromPPTX(file){
  const E=window.YebaeonPPTEngine,deck=await E.parse(await file.arrayBuffer()),frames=[],mode=$('pptSource').value;
  if(deck.kind!=='pptx')S.warnings.push('옛 PPT 형식은 링크 단추 빼기를 하지 않습니다.');
  try{
-  let links=0;
+  let links=0,clear=0;
   for(let i=0;i<deck.slides.length&&frames.length<MAX_FRAMES;i++){
    const s=deck.slides[i];status(`${i+1}/${deck.slides.length}장 그리는 중…`,i/deck.slides.length);
    if(mode==='picture'){
     const p=s.images[s.scoreIndex];if(!p){S.warnings.push(`${i+1}장: 악보 그림이 없어 뺐습니다.`);continue;}
+    if(p.transparent)clear++;
     const c=p.crop||{},img=p.image,sw=img.width*(1-(c.left||0)-(c.right||0)),sh=img.height*(1-(c.top||0)-(c.bottom||0)),cv=canvas(Math.round(sw),Math.round(sh));
     cv.getContext('2d').drawImage(img,(c.left||0)*img.width,(c.top||0)*img.height,sw,sh,0,0,cv.width,cv.height);
     frames.push(await bitmapFrame(cv,`${i+1}장`));
@@ -94,6 +95,8 @@ async function fromPPTX(file){
     const bmp=await createImageBitmap(r.foreground);frames.push(await bitmapFrame(bmp,`${i+1}장`));bmp.close();
    }
   }
+  // 레이어가 나뉜 파일: 장마다 악보가 이미 투명한 그림이다. 배경 걷기 없이 Studio '악보와 배경 분리'로 그대로 나뉜다.
+  if(mode==='picture'&&clear&&clear>=frames.length*.75)S.warnings.unshift(`악보 그림 ${clear}/${frames.length}장이 이미 투명합니다(배경과 레이어가 나뉜 파일). 배경 걷기 없이 Studio '악보와 배경 분리'로 그대로 나눠집니다. 여기서는 흰 바탕에 올려 걷은 결과를 봅니다.`);
   if(mode==='slide'&&$('dropLinks').checked)S.warnings.push(links?`장 이동 링크가 걸린 개체 ${links}개를 빼고 그렸습니다.`:'장 이동 링크가 걸린 개체는 없었습니다.');
   if(deck.slides.length>MAX_FRAMES)S.warnings.push(`앞 ${MAX_FRAMES}장만 씁니다.`);
  }finally{deck.dispose?.();}
@@ -293,7 +296,9 @@ async function saveAll(){
 }
 
 // ---------- 보고 ----------
+function warnings(){const el=$('warnings');el.textContent=S.warnings.join('\n');el.hidden=!S.warnings.length;}
 function report(){
+ warnings();
  const diff=Object.fromEntries(Object.keys(DEFAULTS).filter(k=>S.options[k]!==DEFAULTS[k]).map(k=>[k,S.options[k]]));
  const count=m=>{if(!m)return null;const c={refine:0,erase:0,keep:0};for(const v of m)if(v===1)c.refine++;else if(v===2)c.erase++;else if(v===3)c.keep++;return c;};
  const text={source:S.sourceName,frames:S.frames.length,size:S.frames[0]?`${S.frames[0].width}x${S.frames[0].height}`:null,worker:client.inWorker(),changedOptions:diff,plate:S.plateReport,
