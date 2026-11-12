@@ -562,7 +562,7 @@ static BOOL ForceChangesMac(NSDictionary *item) { return [item[@"kind"] isEqual:
         else if ([status isEqual:@"receive"] && ![row[@"macDeleted"] boolValue]) receive++;
         else if ([status isEqual:@"mac"] || [status isEqual:@"macNew"]) mac++;
         else if ([status isEqual:@"trash"]) trash++;
-        else if ([status isEqual:@"actions"]) trash += [row[@"renames"] count] + [row[@"trashes"] count] + [row[@"imageTrashes"] count];
+        else if ([status isEqual:@"actions"]) trash += [row[@"renames"] count] + [row[@"trashFirst"] count] + [row[@"trashes"] count] + [row[@"imageTrashes"] count];
         else if ([status isEqual:@"hold"]) hold++;
     }
     NSMutableArray *parts = [NSMutableArray array];
@@ -833,7 +833,11 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
         for (NSDictionary *hold in row[@"actionHolds"]) {
             // 서버 휴지통 보류는 다음 비교 전이라도 Mac 파일이 없어졌거나(PP6에서 지움) 서버에서 꺼냈으면 뺀다.
             if ([hold[@"reason"] hasPrefix:@"서버 휴지통에 있음"] && (![self.engine hasLocalDocument:hold[@"path"]] || [[self.engine.receipt ledger:hold[@"path"]][@"state"] isEqual:@"active"])) continue;
-            [items addObject:@{@"list": kListHold, @"title": hold[@"path"], @"path": hold[@"path"], @"detail": hold[@"reason"] ?: @""}];
+            NSMutableDictionary *entry = [@{@"list": kListHold, @"title": hold[@"path"], @"path": hold[@"path"], @"detail": hold[@"reason"] ?: @""} mutableCopy];
+            // 서버 이름 따르기: 새 이름 자리가 비어 있을 때만(원격 지원 버튼도 이것을 본다)
+            NSString *serverName = [hold[@"reason"] hasPrefix:@"이름이 바뀐 문서"] ? [self.engine serverNameFor:hold[@"path"]] : nil;
+            if (serverName && ![self.engine hasLocalDocument:serverName]) entry[@"serverName"] = serverName;
+            [items addObject:entry];
         }
         if ([row[@"macDeleted"] boolValue]) [items addObject:@{@"list": kListMacDeleted, @"title": row[@"name"] ?: @"", @"detail": @"예배 · 데일리 창에서 체크하면 다시 받습니다"}];
     }
@@ -919,7 +923,7 @@ static NSString *const kListHold = @"확인 필요", *const kListMacDeleted = @"
     CGFloat bw = w - 32;
     self.organizerTitle = Label(@"", NSMakeRect(12, 64, bw - 24, 18), 13); self.organizerTitle.autoresizingMask = NSViewWidthSizable; [inner addSubview:self.organizerTitle];
     self.organizerHint = Label(@"", NSMakeRect(12, 6, bw - 24, 16), 11); self.organizerHint.textColor = NSColor.secondaryLabelColor; self.organizerHint.autoresizingMask = NSViewWidthSizable; [inner addSubview:self.organizerHint];
-    NSArray *actions = @[@[@"preview", @"그림 보기"], @[@"trashMac", @"Mac에서도 지우기"], @[@"untrash", @"서버에서 꺼내기"], @[@"diff", @"차이 보기"], @[@"server", @"서버 것 받기"], @[@"mac", @"Mac 것 올리기"], @[@"number", @"둘 다 두기"], @[@"trash", @"서버 휴지통으로"], @[@"image", @"이미지 받기"], @[@"import", @"그림 가져오기"], @[@"removeNumbered", @"번호 사본 지우기"], @[@"web", @"웹에서 보기"]];
+    NSArray *actions = @[@[@"preview", @"그림 보기"], @[@"trashMac", @"Mac에서도 지우기"], @[@"untrash", @"서버에서 꺼내기"], @[@"follow", @"서버 이름 따르기"], @[@"diff", @"차이 보기"], @[@"server", @"서버 것 받기"], @[@"mac", @"Mac 것 올리기"], @[@"number", @"둘 다 두기"], @[@"trash", @"서버 휴지통으로"], @[@"image", @"이미지 받기"], @[@"import", @"그림 가져오기"], @[@"removeNumbered", @"번호 사본 지우기"], @[@"web", @"웹에서 보기"]];
     NSMutableDictionary *buttons = [NSMutableDictionary dictionary];
     for (NSArray *spec in actions) {
         NSButton *button = Button(spec[1], NSMakeRect(12, 28, 80, 28), self, @selector(organizerAction:));
@@ -1077,6 +1081,7 @@ static NSString *ActionHint(NSString *action, NSString *list) {
     if ([action isEqual:@"server"] && [list isEqual:kListMacDeleted]) return @"다시 받기: 서버 것을 이 Mac에 다시 받습니다.";
     if ([action isEqual:@"trashMac"]) return @"Mac에서도 지우기: 서버 휴지통에 있는 문서의 Mac 파일을 macOS 휴지통으로 옮깁니다(백업 폴더에도 사본). Mac에서 고친 내용은 버립니다.";
     if ([action isEqual:@"untrash"]) return @"서버에서 꺼내기: 서버 휴지통에서 꺼내 다시 쓰는 문서로 돌립니다. Mac에서 고친 내용은 다음 비교에서 올리기 대기로 보입니다.";
+    if ([action isEqual:@"follow"]) return @"서버 이름 따르기: Mac 내용은 그대로 두고 파일 이름과 모든 예배의 참조만 서버 이름으로 바꿉니다. 내용 차이는 다음 비교에서 올리기 대기나 양쪽 수정으로 보입니다.";
     if ([action isEqual:@"preview"]) return [list isEqual:kListExternal] ? @"그림 보기: 이 문서가 가리키는 이 Mac의 그림을 작은 창에 띄웁니다." : @"그림 보기: 서버에 있는 그 그림을 받아 작은 창에 띄웁니다(파일로 저장하지 않음). 창을 열어 둔 채 다른 줄을 고르면 바뀝니다.";
     return @{@"diff": @"차이 보기: 슬라이드별로 Mac·서버 내용을 나란히 봅니다. 코드를 복사해 물어볼 수 있습니다.",
              @"server": @"서버 것 받기: Mac 파일을 서버 내용으로 바꾸고, Mac 것은 백업 폴더와 서버 보관본에 남깁니다.",
@@ -1097,9 +1102,14 @@ static NSString *ActionHint(NSString *action, NSString *list) {
     BOOL trashHolds = items.count > 0, stillUsed = NO;
     for (NSDictionary *each in items) { if (![each[@"detail"] hasPrefix:@"서버 휴지통에 있음"]) trashHolds = NO; if ([each[@"detail"] rangeOfString:@"예배가 아직 씀"].location != NSNotFound) stillUsed = YES; }
     BOOL web = single && docs && [self.engine webLink:item[@"path"]] != nil;
+    // 이름이 바뀐 문서 · Mac에서 고침: 서버 이름 따르기(새 이름 자리에 다른 파일이 있으면 끈다)
+    BOOL renameHold = single && docs && [item[@"detail"] hasPrefix:@"이름이 바뀐 문서"];
+    NSString *serverName = renameHold ? [self.engine serverNameFor:item[@"path"]] : nil;
+    BOOL followable = serverName != nil && ![self.engine hasLocalDocument:serverName];
     NSArray *shown = @[]; NSString *note = nil;
     if ([list isEqual:kListCollision]) shown = single ? (web ? @[@"diff", @"server", @"mac", @"number", @"web"] : @[@"diff", @"server", @"mac", @"number"]) : @[@"server", @"mac"];
     else if ([list isEqual:kListHold] && docs && trashHolds) shown = stillUsed ? @[@"untrash"] : @[@"trashMac", @"untrash"];
+    else if ([list isEqual:kListHold] && renameHold && serverName) shown = web ? @[@"follow", @"diff", @"web"] : @[@"follow", @"diff"];
     else if ([list isEqual:kListHold] && docs) shown = single ? (web ? @[@"diff", @"web"] : @[@"diff"]) : @[];
     else if ([list isEqual:kListServerOnly] && docs) shown = web ? @[@"server", @"web"] : @[@"server"];
     else if ([list isEqual:kListMacDeleted] && docs) shown = @[@"server", @"trash"];
@@ -1110,14 +1120,15 @@ static NSString *ActionHint(NSString *action, NSString *list) {
     else if (!list) { self.organizerTitle.stringValue = [NSString stringWithFormat:@"%lu개 고름", (unsigned long)items.count]; note = @"같은 구분끼리만 함께 처리할 수 있습니다."; }
     else self.organizerTitle.stringValue = single ? [NSString stringWithFormat:@"%@ · %@", item[@"title"] ?: @"", list] : [NSString stringWithFormat:@"%lu개 · %@", (unsigned long)items.count, list];
     CGFloat x = 12;
-    for (NSString *key in @[@"preview", @"trashMac", @"untrash", @"diff", @"server", @"mac", @"number", @"trash", @"image", @"import", @"removeNumbered", @"web"]) {
+    for (NSString *key in @[@"preview", @"trashMac", @"untrash", @"follow", @"diff", @"server", @"mac", @"number", @"trash", @"image", @"import", @"removeNumbered", @"web"]) {
         NSButton *button = self.organizerButtons[key]; BOOL visible = [shown containsObject:key];
-        button.hidden = !visible; button.enabled = idle && visible;
+        button.hidden = !visible; button.enabled = idle && visible && (![key isEqual:@"follow"] || followable);
         if ([key isEqual:@"server"]) button.title = [list isEqual:kListMacDeleted] ? @"다시 받기" : @"서버 것 받기";
         button.toolTip = ActionHint(key, list);
         if (!visible) continue;
         [button sizeToFit]; NSRect fit = button.frame; fit.size.width += 12; fit.origin = NSMakePoint(x, 28); button.frame = fit; x += fit.size.width + 6;
     }
+    if (renameHold && serverName && !followable) note = [NSString stringWithFormat:@"새 이름 ‘%@’의 파일이 이미 있어 서버 이름을 따를 수 없습니다.", serverName.stringByDeletingPathExtension];
     self.organizerHint.stringValue = note ?: (shown.count ? ActionHint(shown[([shown.firstObject isEqual:@"diff"] || [shown.firstObject isEqual:@"preview"]) && shown.count > 1 ? 1 : 0], list) : @"");
     // 백업 정리는 다른 버튼처럼 작업 중·전체 확인 중·PP6 실행 중이면 막는다. 남길 회차 말고 옮길 것이 없어도 끈다.
     NSUInteger movable = [self.backupInfo[@"count"] unsignedIntegerValue] - ([self.backupInfo[@"keep"] length] ? 1 : 0);
@@ -1183,7 +1194,8 @@ static NSString *ActionHint(NSString *action, NSString *list) {
                             @"import": @"그림을 PP6 미디어 폴더 YebaeOn/으로 복사하고 문서 안 경로를 바꿀까요? 바꾸기 전 문서는 백업 폴더에 남고, 서버와 맞춰 본 문서는 서버에도 올립니다.",
                             @"removeNumbered": @"번호 붙은 사본을 지울까요? Mac 파일은 macOS 휴지통(백업 폴더에도 사본), 서버 문서는 서버 휴지통으로 옮깁니다. 원래 문서는 그대로 둡니다.",
                             @"trashMac": @"서버 휴지통에 있는 이 문서를 Mac에서도 지울까요? Mac 파일은 macOS 휴지통으로 옮기고 백업 폴더에도 사본을 남깁니다. PP6를 종료해 주세요.",
-                            @"untrash": @"서버 휴지통에서 꺼낼까요? 다시 쓰는 문서가 되고, Mac에서 고친 내용은 다음 비교에서 올리기 대기로 보입니다."};
+                            @"untrash": @"서버 휴지통에서 꺼낼까요? 다시 쓰는 문서가 되고, Mac에서 고친 내용은 다음 비교에서 올리기 대기로 보입니다.",
+                            @"follow": [NSString stringWithFormat:@"Mac 파일 이름을 서버 이름 ‘%@’(으)로 바꿀까요? Mac 내용은 그대로 두고 모든 예배의 참조도 함께 고칩니다. 내용 차이는 다음 비교에서 올리기 대기나 양쪽 수정으로 보입니다. PP6를 종료해 주세요.", [[self.engine serverNameFor:path] stringByDeletingPathExtension] ?: @""]};
     NSAlert *confirm = [NSAlert new]; confirm.messageText = items.count == 1 ? (item[@"title"] ?: @"") : [NSString stringWithFormat:@"%lu개 항목", (unsigned long)items.count];
     confirm.informativeText = [action isEqual:@"server"] && [item[@"list"] isEqual:kListServerOnly] ? @"고른 문서와 연결 이미지를 이 Mac에 받을까요? 재생목록은 바꾸지 않습니다." : [action isEqual:@"server"] && [item[@"list"] isEqual:kListMacDeleted] ? @"서버 것을 이 Mac에 다시 받을까요?" : words[action] ?: @"";
     [confirm addButtonWithTitle:@"진행"]; [confirm addButtonWithTitle:@"취소"];
@@ -1204,6 +1216,7 @@ static NSString *ActionHint(NSString *action, NSString *list) {
                 else if ([action isEqual:@"trash"]) [self.engine trashOnServer:target];
                 else if ([action isEqual:@"trashMac"]) [self.engine acceptServerTrash:target];
                 else if ([action isEqual:@"untrash"]) [self.engine untrashOnServer:target];
+                else if ([action isEqual:@"follow"]) [self.engine followServerName:target];
                 else if ([action isEqual:@"image"]) { [self.engine fetchImage:each[@"item"]]; [images addObject:each[@"path"]]; }
                 else if ([action isEqual:@"removeNumbered"]) [self.engine removeNumbered:each[@"item"]];
                 else if ([action isEqual:@"import"]) {
@@ -1337,7 +1350,7 @@ static NSString *StatusText(NSDictionary *row) {
     if ([status isEqual:@"actions"]) {
         NSMutableArray *parts = [NSMutableArray array];
         if ([row[@"renames"] count]) [parts addObject:[NSString stringWithFormat:@"이름 바꾸기 %lu", (unsigned long)[row[@"renames"] count]]];
-        if ([row[@"trashes"] count]) [parts addObject:[NSString stringWithFormat:@"휴지통으로 %lu", (unsigned long)[row[@"trashes"] count]]];
+        if ([row[@"trashes"] count] + [row[@"trashFirst"] count]) [parts addObject:[NSString stringWithFormat:@"휴지통으로 %lu", (unsigned long)([row[@"trashes"] count] + [row[@"trashFirst"] count])]];
         if ([row[@"imageTrashes"] count]) [parts addObject:[NSString stringWithFormat:@"그림 휴지통으로 %lu", (unsigned long)[row[@"imageTrashes"] count]]];
         if ([row[@"actionHolds"] count]) [parts addObject:[NSString stringWithFormat:@"확인 필요 %lu(정리 창)", (unsigned long)[row[@"actionHolds"] count]]];
         return [parts componentsJoinedByString:@" · "];
@@ -1398,6 +1411,7 @@ static NSString *DetailText(NSDictionary *row) {
         NSMutableArray *renames = [NSMutableArray array];
         for (NSDictionary *item in row[@"renames"]) [renames addObject:[NSString stringWithFormat:@"%@ → %@", [item[@"from"] stringByDeletingPathExtension], [item[@"to"] stringByDeletingPathExtension]]];
         if (renames.count) [lines addObject:[@"이름 바꾸기: " stringByAppendingString:[renames componentsJoinedByString:@", "]]];
+        if ([row[@"trashFirst"] count]) [lines addObject:[@"macOS 휴지통으로(새 이름 자리를 먼저 비움): " stringByAppendingString:Names(row[@"trashFirst"])]];
         if ([row[@"trashes"] count]) [lines addObject:[@"macOS 휴지통으로: " stringByAppendingString:Names(row[@"trashes"])]];
         if ([row[@"imageTrashes"] count]) {   // 서버가 고아 이미지로 정리한 그림(파일 이름만)
             NSMutableArray *names = [NSMutableArray array]; for (NSDictionary *item in row[@"imageTrashes"]) [names addObject:[item[@"path"] lastPathComponent]];
@@ -1502,6 +1516,7 @@ static NSArray *RemoteActions(NSDictionary *item) {
     if ([list isEqual:kListImage]) return @[@"image"];
     if ([list isEqual:kListExternal]) return @[@"import"];
     if ([list isEqual:kListNumbered]) return @[@"removeNumbered"];
+    if ([list isEqual:kListHold] && [path hasSuffix:@".pro6"] && [item[@"detail"] hasPrefix:@"이름이 바뀐 문서"] && item[@"serverName"]) return @[@"follow"];
     if ([list isEqual:kListHold] && [path hasSuffix:@".pro6"] && [item[@"detail"] hasPrefix:@"서버 휴지통에 있음"]) return [item[@"detail"] rangeOfString:@"예배가 아직 씀"].location != NSNotFound ? @[@"untrash"] : @[@"trashMac", @"untrash"];
     return @[];
 }
@@ -1874,6 +1889,7 @@ static NSString *Bytes(unsigned long long bytes) { return [NSByteCountFormatter 
             else if ([what isEqual:@"trash"]) [self.engine trashOnServer:path];
             else if ([what isEqual:@"trashMac"]) [self.engine acceptServerTrash:path];
             else if ([what isEqual:@"untrash"]) [self.engine untrashOnServer:path];
+            else if ([what isEqual:@"follow"]) [self.engine followServerName:path];
             else if ([what isEqual:@"image"]) [self.engine fetchImage:item[@"item"]];
             else if ([what isEqual:@"removeNumbered"]) [self.engine removeNumbered:item[@"item"]];
             else if ([what isEqual:@"import"]) return [self.engine importExternal:item[@"item"]];
