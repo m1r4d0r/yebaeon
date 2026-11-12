@@ -1,0 +1,43 @@
+name: Roll back Sync 2 release
+# 교회 Mac이 [지금 설치]로 받을 Sync 2 빌드(R2 apps/sync2/latest.json)를 이미 서버에 있는 다른 빌드로 되돌린다.
+# Mac 빌드를 다시 돌리지 않고 ZIP을 다시 올리지도 않는다. 앱은 지금보다 번호가 큰 빌드만 새 버전으로 보므로,
+# 이미 그 빌드를 설치한 Mac은 내려가지 않는다(그때는 되돌린 커밋을 [verify-mac]으로 새 번호로 올린다).
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: '최신으로 가리킬 빌드 번호(서버에 apps/sync2/YebaeOn-Sync-<번호>.zip이 있어야 함)'
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: sync2-release
+  cancel-in-progress: false
+jobs:
+  rollback:
+    if: github.event.repository.private == false && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.node-version'
+          cache: npm
+      - run: npm ci
+      - name: Point latest.json at the chosen build
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BUILD: ${{ inputs.build }}
+        run: |
+          [[ "$BUILD" =~ ^[0-9]{1,6}$ ]] || { echo "빌드 번호는 숫자여야 합니다: $BUILD"; exit 1; }
+          KEY="apps/sync2/YebaeOn-Sync-$BUILD.zip"
+          npx wrangler r2 object get "pp6-library-files/$KEY" --file release.zip --remote
+          unzip -tq release.zip
+          SHA=$(sha256sum release.zip | cut -d' ' -f1); SIZE=$(stat -c %s release.zip)
+          node -e 'const [b,s,z,k]=process.argv.slice(1);process.stdout.write(JSON.stringify({build:+b,sha256:s,size:+z,key:k,notes:"되돌림: 빌드 "+b,createdAt:new Date().toISOString()}))' "$BUILD" "$SHA" "$SIZE" "$KEY" > latest.json
+          npx wrangler r2 object put "pp6-library-files/apps/sync2/latest.json" --file latest.json --content-type application/json --remote
+          cat latest.json

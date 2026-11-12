@@ -127,13 +127,41 @@
    try{const data=await(await C().api('/songbook',json('PATCH',{number:song?song.number:null,song:next},{'If-Match':`"${state.version}"`}))).json();accept(data,true);box.close();say(song?`${next.number}번을 고쳤습니다.`:`${next.number}번을 넣었습니다.`);render();}
    catch(error){message.textContent=error.message;if(error.status===409)try{await reload();render();}catch(_){}}};
   box.append(form);box.addEventListener('close',()=>box.remove());dialog.append(box);box.showModal();num.focus();}
+ // [고르기] 줄의 내용 미리보기. 가사찬양은 첫 가사 두 줄(제목뿐인 장은 건너뜀), 악보찬양과 글 없는 문서는 첫 악보 장(배경 그림만·제목 장은 건너뜀)의 작은 그림.
+ // 창에 보이는 줄의 문서만, 창이 열려 있는 동안 문서마다 한 번 받는다(Studio가 문서를 열 때 쓰는 내용 요청, 그림은 PP6Render). 누르면 앞 장 최대 4장을 줄 아래에 펼친다.
+ const titleKey=v=>String(v||'').normalize('NFC').replace(/\.pro6$/i,'').replace(/^(?:영\s*\d{1,3}[\s_.-]*|\d{1,3}[\s_.-]+)/,'').replace(/(?:[\s_-]+wide|[\s_-]*ppt|[\s_-]*피피티|-\d+|\d+)$/i,'').toLowerCase().replace(/[^0-9a-zㄱ-ㆎ가-힣]/g,'');
+ function slideText(slide){const P6=window.PP6;return P6.textElements(slide).map(e=>{try{return P6.parseRTF(P6.textNode(e)?.textContent||'').text||'';}catch(_){return '';}}).join('\n');}
+ const isTitle=(text,name)=>{const k=titleKey(text),n=titleKey(name);return !k||k===n||n.includes(k);};
+ function lyricLines(model,name){const lines=[];for(const slide of window.PP6.slides(model)){const text=slideText(slide);if(isTitle(text,name))continue;for(const l of text.split(/\n+/).map(x=>x.trim()).filter(Boolean)){lines.push(l);if(lines.length===2)return lines;}}return lines;}
+ const hasImage=slide=>Array.from(window.PP6.ivar(slide,'array','displayElements')?.children||[]).some(e=>e.tagName==='RVImageElement');
+ function scoreSlide(model,name){const slides=window.PP6.slides(model);return slides.find(hasImage)||slides.find(s=>!isTitle(slideText(s),name))||slides[0]||null;}
+ function slideCanvas(model,slide,width){const c=document.createElement('canvas');c.width=width;c.height=Math.round(width*model.height/model.width);window.PP6Render.draw(c,model,slide,new Map()).catch(()=>{});return c;}
+ function previewer(root){
+  const cache=new Map(),open=new Set(),fills=new WeakMap();
+  const watch='IntersectionObserver' in window?new IntersectionObserver(entries=>{for(const e of entries)if(e.isIntersecting){watch.unobserve(e.target);fills.get(e.target)?.();}},{root,rootMargin:'120px'}):null;
+  const load=d=>{if(!cache.has(d.id)){const p=d.available===false||!d.id?Promise.reject(Error('none')):C().api('/documents/'+encodeURIComponent(d.id)+'/content').then(r=>r.text()).then(xml=>window.PP6.parse(xml,d.name||'문서'));p.catch(()=>{});cache.set(d.id||'',p);}return cache.get(d.id||'');};
+  const panel=(d,row,model)=>{row.nextElementSibling?.classList.contains('songbook-pick-slides')&&row.nextElementSibling.remove();if(!open.has(d.id))return;
+   const slides=window.PP6.slides(model).slice(0,4),box=document.createElement('div');box.className='songbook-pick-slides';for(const slide of slides)box.append(slideCanvas(model,slide,240));row.after(box);};
+  function look(d,row){
+   const button=document.createElement('button');button.type='button';button.className='songbook-preview';button.disabled=true;button.textContent='…';
+   const fill=async()=>{
+    try{const model=await load(d),lines=d.category==='가사찬양'?lyricLines(model,d.name):[];
+     if(lines.length){const text=lines.join(' / ');button.replaceChildren(el('span','songbook-preview-text',text));button.title=text;}
+     else{const slide=scoreSlide(model,d.name);if(!slide)throw Error('none');button.replaceChildren(slideCanvas(model,slide,176));}
+     button.disabled=false;button.onclick=()=>{if(open.has(d.id))open.delete(d.id);else open.add(d.id);button.setAttribute('aria-expanded',String(open.has(d.id)));panel(d,row,model);};button.setAttribute('aria-expanded',String(open.has(d.id)));if(open.has(d.id))panel(d,row,model);}
+    catch(_){button.replaceChildren(el('span','songbook-preview-none','미리보기 없음'));button.disabled=true;}};
+   if(watch){fills.set(button,fill);watch.observe(button);}else fill();
+   return button;}
+  look.stop=()=>watch?.disconnect();
+  return look;}
  // [고르기]: 후보와 문서 검색에서 골라 [연결] 또는 [아님]. 가사·악보는 문서 카테고리를 따른다.
  function pick(song){const {el:make}=P(),box=make('dialog',{class:'library-dialog panel-dialog songbook-pick'});
   const close=make('button',{type:'button',class:'panel-close','aria-label':'닫기',onclick:()=>box.close()});close.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
   const input=make('input',{type:'search',placeholder:'문서 이름·본문','aria-label':'문서 찾기'}),list=make('div',{class:'panel-body songbook-pick-list'}),note=make('p',{class:'panel-foot',role:'status'});
   let found=[];
   const current=()=>state.songs.find(s=>s.number===song.number)||song;
-  const line=(d,actions)=>make('div',{class:'line-row songbook-pick-row'},make('span',{class:'line-title'},chip(d)||make('span',{class:'line-chip muted'},d.category||'카테고리 없음'),make('span',{},d.name.replace(/\.pro6$/i,''))),...actions);
+  const look=previewer(list);
+  const line=(d,actions)=>{const body=make('span',{class:'songbook-pick-body'},make('span',{class:'songbook-pick-name'},d.name.replace(/\.pro6$/i,''))),row=make('div',{class:'line-row songbook-pick-row'},make('span',{class:'line-title'},chip(d)||make('span',{class:'line-chip muted'},d.category||'카테고리 없음'),body),...actions);body.append(look(d,row));return row;};
   const act=(label,fn,disabled=false,cls='')=>make('button',{type:'button',class:cls,disabled,onclick:fn},label);
   async function apply(fields,text){const s=current();if(await patch(s.number,{...s,...fields})){note.textContent=text;for(const k of Object.keys(candidates))candidates[k]=candidates[k].filter(d=>!byDoc.has(d.id));draw();render();}}
   function choices(d){const s=current(),linked=s.links.includes(d.id),other=byDoc.get(d.id),not=s.nots.includes(d.id),ok=SONG.has(d.category);
@@ -150,7 +178,7 @@
    try{found=(await window.YebaeonSearch.query(q)).documents.filter(d=>d.available!==false).slice(0,30);note.textContent=found.length?'':'검색 결과가 없습니다.';}catch(error){note.textContent=error.message;}draw();}
   input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();find();}});
   box.append(make('div',{class:'panel-head'},make('h2',{},`${song.number}번 ${song.terms[0]||''}`),make('span',{class:'panel-gap'}),close),make('div',{class:'songbook-tools'},input,make('button',{type:'button',onclick:find},'검색')),list,note);
-  box.addEventListener('close',()=>box.remove());dialog.append(box);box.showModal();draw();input.focus();}
+  box.addEventListener('close',()=>{look.stop();box.remove();});dialog.append(box);box.showModal();draw();input.focus();}
  // [목록 붙여넣기]: 번호<TAB>조<TAB>검색어(/)<TAB>연결 id(,)<TAB>아님 id(,). 첫 줄이 '번호'로 시작하면 머리줄.
  function parse(text){const songs=[],labels=[],errors=[],ids=v=>String(v||'').split(',').map(x=>x.trim()).filter(Boolean);
   String(text||'').replace(/^﻿/,'').split(/\r?\n/).forEach((line,i)=>{if(!line.trim())return;if(i===0&&/^\s*번호/.test(line))return;const cols=line.split('\t'),label=`${i+1}행`;

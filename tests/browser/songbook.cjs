@@ -89,6 +89,37 @@ const assert=require('node:assert/strict');
   assert.equal(await page.locator('#playlistSongHints').textContent(),'가사 권장 1');
   const saved=await page.evaluate(async()=>{const s=YebaeonPlaylists.selectedPlaylist(),[lib,node]=s.key.split('/');return (await(await YebaeonCloud.api(`/playlists/${lib}/plan?node=${node}`)).json()).items.map(x=>x.document?.name);});
   assert.deepEqual(saved,['목록밖 노래 하나 둘.pro6','합성 찬양 하나_Wide.pro6','합성 예배순서.pro6']);
-  assert.deepEqual(errors,[]);console.log('Songbook UI passed: chips and order in search, admin-only buttons, paste preview errors and save, order hint replace-and-save');
+  // [고르기] 내용 미리보기: 가사는 첫 가사 두 줄(제목 장 건너뜀), 악보는 첫 악보 장 그림, 누르면 앞 장 펼침, 문서마다 한 번만 받음, 못 읽으면 '미리보기 없음'.
+  const preview=await page.evaluate(async()=>{const P=PP6,style={font:'NanumGothicOTF',size:80,color:'rgb(255,255,255)',align:'center'},text=t=>P.textElementXML({rect:{x:80,y:90,w:1760,h:900},rtf:P.textRTF(t,style)});
+   const xml=(category,slides)=>P.documentXML({category,groups:[{name:'기본',slides:slides.join('')}]});
+   const make=async(name,body)=>(await(await YebaeonCloud.api('/documents?'+new URLSearchParams({path:name+'.pro6'}),{method:'POST',headers:{'Content-Type':'application/xml','X-YebaeOn-Client':'studio'},body})).json()).document.id;
+   const lyrics=await make('미리보기 가사',xml('가사찬양',[P.slideXML({elements:text('미리보기 가사')}),P.slideXML({elements:text('첫째 가사 줄\n둘째 가사 줄')}),P.slideXML({elements:text('셋째 가사 줄')})]));
+   const score=await make('미리보기 악보',xml('악보찬양',[P.slideXML({background:P.backgroundCueXML({source:'file:///Users/Shared/Renewed%20Vision%20Media/Images/bg.png',name:'bg'})}),P.slideXML({elements:text('미리보기 악보')}),
+    P.slideXML({elements:P.imageElementXML({source:'file:///Users/Shared/Renewed%20Vision%20Media/YebaeOn/score.png',rect:{x:0,y:0,w:1920,h:1080}})}),P.slideXML({elements:text('넷째 장')}),P.slideXML({elements:text('다섯째 장')})]));
+   const broken=await make('미리보기 실패 곡',xml('악보찬양',[P.slideXML({elements:text('실패')})]));
+   await YebaeonCloud.api('/songbook',{method:'PATCH',headers:{'Content-Type':'application/json','If-Match':`"${YebaeonSongbook.state().version}"`},body:JSON.stringify({number:null,song:{number:9,key:'D',terms:['미리보기 실패 곡'],links:[lyrics,score],nots:[]}})});
+   return {lyrics,score,broken};});
+  const contentReads=new Map();page.on('request',r=>{const m=/\/api\/documents\/([0-9a-f-]{36})\/content/.exec(r.url());if(m)contentReads.set(m[1],(contentReads.get(m[1])||0)+1);});
+  await page.route(`**/api/documents/${preview.broken}/content**`,route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'file_unavailable',message:'문서 파일을 읽지 못했습니다.'})}));
+  await openSongbook();
+  assert.equal(contentReads.size,0,'the list window itself does not read documents');
+  await page.locator('#songbookRows [data-number="9"]').getByRole('button',{name:'고르기'}).click();
+  const pick=page.locator('.songbook-pick'),rowOf=name=>pick.locator('.songbook-pick-row',{has:page.locator('.songbook-pick-name',{hasText:name})});
+  await page.waitForFunction(()=>document.querySelectorAll('.songbook-pick .songbook-preview-text,.songbook-pick .songbook-preview canvas,.songbook-pick .songbook-preview-none').length>=3);
+  assert.equal(await rowOf('미리보기 가사').locator('.songbook-preview-text').textContent(),'첫째 가사 줄 / 둘째 가사 줄','first two lyric lines, title slide skipped');
+  assert.equal(await rowOf('미리보기 악보').locator('.songbook-preview canvas').count(),1,'score row shows a slide picture');
+  assert.equal(await rowOf('미리보기 실패 곡').locator('.songbook-preview-none').textContent(),'미리보기 없음');
+  await rowOf('미리보기 악보').locator('.songbook-preview').click();
+  assert.equal(await pick.locator('.songbook-pick-slides canvas').count(),4,'the first four slides open under the row');
+  await page.screenshot({path:'artifacts/songbook-pick-preview.png'});
+  await rowOf('미리보기 악보').locator('.songbook-preview').click();
+  assert.equal(await pick.locator('.songbook-pick-slides').count(),0,'clicking again folds them');
+  await rowOf('미리보기 가사').locator('.songbook-preview').click();
+  await rowOf('미리보기 실패 곡').getByRole('button',{name:'아님',exact:true}).click();
+  await page.waitForFunction(()=>/아님으로 두었습니다/.test(document.querySelector('.songbook-pick .panel-foot').textContent));
+  await page.waitForFunction(()=>document.querySelectorAll('.songbook-pick .songbook-pick-slides').length===1&&document.querySelectorAll('.songbook-pick .songbook-preview-text').length===1);
+  assert.deepEqual([preview.lyrics,preview.score,preview.broken].map(id=>contentReads.get(id)),[1,1,1],'each document is read once while the window is open, even after a redraw');
+  await page.locator('.songbook-pick .panel-close').click();await page.locator('#songbookDialog .panel-close').first().click();
+  assert.deepEqual(errors,[]);console.log('Songbook UI passed: chips and order in search, admin-only buttons, paste preview errors and save, order hint replace-and-save, pick-window previews');
  }finally{await browser.close();await new Promise(r=>server.close(r));await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
