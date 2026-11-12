@@ -6,7 +6,7 @@ import {archiveList,protectManagedPlaylists,managePlaylist} from './playlist-man
 const MAX = 5 * 1024 * 1024;
 const conflict = () => new HttpError(409, 'playlist_conflict', '재생목록이 먼저 변경됐습니다. 새로고침 후 다시 확인해 주세요.');
 function metadata(r) { return { id: r.id, path: r.path, version: r.current_version, sha256: r.sha256, size: r.size, updatedAt: r.updated_at, updatedBy: r.updated_by, sourceRoot: r.source_root, playlists: JSON.parse(r.catalog) }; }
-function doc(r) { return { state: r.state || 'active', id: r.id, path: r.path, name: r.path.split('/').pop(), version: r.current_version, sha256: r.sha256, size: r.size, updatedAt: r.updated_at, updatedBy: r.updated_by }; }
+function doc(r) { return { state: r.state || 'active', id: r.id, path: r.path, name: r.path.split('/').pop(), version: r.current_version, sha256: r.sha256, size: r.size, updatedAt: r.updated_at, updatedBy: r.updated_by, category: r.category ?? null }; }
 async function row(db, id) { const r = await db.prepare('SELECT * FROM yebaeon_playlists WHERE id = ?').bind(id).first(); if (!r) throw new HttpError(404, 'not_found', '재생목록을 찾지 못했습니다.'); return r; }
 async function read(request) {
   const data = await bytes(request, MAX); let xml;

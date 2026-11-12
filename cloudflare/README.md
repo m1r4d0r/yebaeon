@@ -71,6 +71,11 @@ R2에는 받은 원본 bytes를 버전별로 보존하고, D1에는 상대경로
 | `PUT /api/documents/:id` | raw XML + `If-Match: "기준버전번호"` → 새 버전 |
 | `GET/HEAD /api/documents/:id/content?version=N` | 원본 bytes, `X-Yebaeon-Version`, `X-Yebaeon-SHA256`; 버전 생략 시 현재본 |
 | `GET /api/documents/:id/versions?before=N` | 버전 내림차순 최대 50개, `next` 커서 |
+| `GET /api/songbook` | 영광임하소서 목록 `{version,songs,documents}`. `ETag: "버전"`, `If-None-Match`가 같으면 304 |
+| `PUT /api/songbook` | 관리자. JSON `{songs}` + `If-Match: "버전"` → 전체 교체. `?dryRun=1`은 검사만(`errors`, `documents`) |
+| `PATCH /api/songbook` | 관리자. JSON `{number, song}` + `If-Match` → 곡 하나 추가·수정(`song`)·삭제(`song:null`) |
+| `GET /api/songbook/candidates` | 곡마다 이름 맞추기 후보(연결·아님·다른 곡 연결 제외, 사용 중 찬양 문서) |
+| `GET /api/songbook/pairs?ids=a,b` | 목록 밖 가사찬양 문서마다 같은 곡의 사용 중 악보찬양(목록 연결 제외), 60개까지 |
 
 메타데이터: `id,path,name,version,updatedAt,updatedBy,sha256,size`. 시간은 UTC ISO 문자열이며 크기는 bytes다. 원본 내용 응답의 ETag는 `"N-hash"`이고, 수정 시 `If-Match`에는 메타데이터의 숫자 버전만 따옴표로 감싼 `"N"`을 보낸다. SHA-256은 원본 bytes 기준이다. 서버 버전을 semantic fingerprint로 대체하지 않는다.
 

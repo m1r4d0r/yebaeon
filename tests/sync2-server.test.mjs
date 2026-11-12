@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 import {Miniflare,convertV4MiniflareOptions} from 'miniflare';
+import {SCHEMA_READY} from '../cloudflare/schema.mjs';
 // Sync 2 · 서버 2단계(재설계안 7.1). 로컬 Worker 모사만 쓴다. 운영 D1에는 가지 않는다.
 const origin='https://example.test';
 const doc=(text,used='2026-10-01T00:00:00Z')=>`<RVPresentationDocument lastDateUsed="${used}"><RVTextElement><NSString rvXMLIvarName="RTFData">${Buffer.from('{\\rtf1 '+text+'}').toString('base64')}</NSString></RVTextElement></RVPresentationDocument>`;
@@ -23,7 +24,7 @@ test('Sync 2 change log follows document and node writes; node GET/PUT; manifest
  const changes=(since,limit=200)=>call(`/sync/changes?since=${since}&limit=${limit}`).then(r=>read(r));
  assert.deepEqual(await changes(0),{changes:[],next:0,head:0,more:false});
  // 요청 경로의 스키마 확인은 표시 행 하나다.
- assert.ok(await db.prepare("SELECT name FROM yebaeon_schema_migrations WHERE name='schema-ready-media-state-v1'").first());
+ assert.ok(await db.prepare("SELECT name FROM yebaeon_schema_migrations WHERE name=?").bind(SCHEMA_READY).first());
 
  // 문서 생성·수정 → 'doc' 두 줄. 같은 내용 재저장·버전 충돌은 남지 않는다.
  let d=(await read(await call('/documents?path=찬양/주님.pro6','POST',doc('하나')),201)).document;

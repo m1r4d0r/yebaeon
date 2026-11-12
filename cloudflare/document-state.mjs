@@ -1,6 +1,7 @@
 import { HttpError, bytes, json, method, sameOrigin } from './http.mjs';
 import { documentLog } from './sync2.mjs';
 import { rewriteDocumentReferences } from './playlists.mjs';
+import { documentKeys } from './song-key.mjs';
 
 // 문서의 보관함·휴지통·이름 바꾸기. 바이트·버전은 그대로 두고 상태와 경로만 바꾼다.
 // 보관(archived): 일반 검색에서 빠지고 보관함에서 꺼내 본다. Mac과는 연결하지 않는다(표시만).
@@ -45,7 +46,7 @@ export async function documentStateRoute(request, env, user, id, action, helpers
   let results;
   try {
     results = await db.batch([
-      db.prepare('UPDATE yebaeon_documents SET path=?,write_id=? WHERE id=? AND current_version=? AND path=?').bind(path, writeId, id, row.current_version, row.path),
+      db.prepare('UPDATE yebaeon_documents SET path=?,song_key=?,write_id=? WHERE id=? AND current_version=? AND path=?').bind(path, documentKeys(path).main, writeId, id, row.current_version, row.path),
       db.prepare('UPDATE yebaeon_library_catalog SET path=?,original_path=? WHERE path=? AND EXISTS(SELECT 1 FROM yebaeon_documents WHERE id=? AND write_id=?)').bind(path, path, row.path, id, writeId),
       documentLog(db, { id, writeId, action: 'renamed', author: user.author, device: user.device || null, now, previous: row.path })
     ]);

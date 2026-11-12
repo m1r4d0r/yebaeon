@@ -147,7 +147,7 @@
  function candidates(s,input){const box=el('div','bulletin-cands'),remembered=aliases[songKey(s.value)],on=c=>s.choice?.id===c.id;
   const pick=c=>{s.choice=on(c)?null:c;if(s.choice){aliases[songKey(s.value)]={id:c.id,name:c.name};try{localStorage.setItem('yebaeon.bulletin.songs',JSON.stringify(aliases));}catch{}shareChoice(s,c);}save();render();};
   YebaeonSearch.box(box,{input,itemClass:'cand',
-   decorate:d=>({tag:[d.category,remembered?.id===d.id?'지난번에 고름':'',d.matchedBy==='content'?'가사 일치':''].filter(Boolean).join(' · ')||d.path,on:on({id:d.id})}),
+   decorate:d=>({tag:[remembered?.id===d.id?'지난번에 고름':'',d.matchedBy==='content'?'가사 일치':''].filter(Boolean).join(' · ')||(d.category?'':d.path),on:on({id:d.id})}),
    onQuery:q=>{if(q!==BP.songQuery(s.value))s.query=q;save();},
    onPick:doc=>pick({id:doc.id,name:base(doc.name),...doc.category?{category:doc.category}:{}})}).run();
   box.hidden=!input.value.trim();return box;}

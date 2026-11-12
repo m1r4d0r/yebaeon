@@ -177,3 +177,17 @@ dialog.panel-dialog[open]{display:flex}
 #macReviewText{width:100%;box-sizing:border-box;margin-top:8px;font:12px/1.5 ui-monospace,Menlo,monospace}
 /* 되돌릴 수 없는 일(영구 삭제·비우기)의 단추: 빨간 채움 */
 .danger-fill{border:1px solid var(--danger);background:var(--danger);color:#fff;font-weight:600}.danger-fill:hover:not(:disabled){background:#912018;border-color:#912018}.danger-fill:disabled{background:#fff;border-color:#ebc3be;color:#c58c85;opacity:1}
+/* 영광임하소서 목록 창 */
+dialog.songbook-dialog{width:min(1000px,94vw)}.songbook-dialog .panel-head>h2{flex:none}.songbook-dialog .panel-head>button:not(.panel-close){font-size:12.5px;padding:5px 12px}
+.songbook-tools{display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid var(--line);flex:none}.songbook-tools input{flex:1;min-width:0}
+.songbook-filter button.needs-check.has-items{background:#fbe7d6;color:#97420c}.songbook-filter button.needs-check.has-items[aria-pressed=true]{background:#c0560f;color:#fff}
+.songbook-rows .songbook-row{display:grid;grid-template-columns:70px minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}.songbook-rows.with-admin .songbook-row{grid-template-columns:70px minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) 112px}
+.songbook-row.line-row{display:grid;padding-top:8px;padding-bottom:8px}.songbook-head{position:sticky;top:0;z-index:2;padding:8px 16px 8px 20px;background:#fafbfd;border-bottom:1px solid var(--line);font-size:11.5px;font-weight:600;color:var(--muted)}
+.songbook-number small{margin-left:5px}.songbook-terms strong{display:block;font-weight:600}.songbook-terms span{display:block;color:var(--muted)}.songbook-terms .songbook-candidates{display:inline-block;margin-top:3px;padding:0 7px;border-radius:9px;background:#fbe7d6;color:#97420c;font-size:11px;font-weight:600}
+.songbook-doc{display:block;overflow-wrap:anywhere}.songbook-doc.dim{opacity:.5}.songbook-doc small{margin-left:5px}.songbook-actions{display:flex;align-items:center;justify-content:flex-end;gap:2px}.songbook-actions>button:not(.line-more){font-size:12px;padding:4px 10px}
+.songbook-empty{padding:30px;text-align:center;color:var(--muted)}
+.songbook-paste-body{display:flex;flex-direction:column;gap:12px;padding:14px 20px}.songbook-paste textarea{min-height:220px;font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;white-space:pre;tab-size:10}
+.songbook-preview-sum{display:flex;flex-wrap:wrap;align-items:baseline;gap:14px}.songbook-errors{margin:6px 0 0;padding-left:18px;color:var(--danger);font-size:12px;line-height:1.6}.songbook-preview .hint{margin:0;color:var(--muted)}
+.songbook-paste-foot{display:flex;justify-content:flex-end;gap:8px;padding:10px 20px;border-top:1px solid var(--line);flex:none}
+.songbook-pick-row .line-title{font-weight:500}.songbook-pick-row button{font-size:12px;padding:4px 10px}.songbook-edit .field input{width:100%}
+@media(max-width:700px){.songbook-rows .songbook-row,.songbook-rows.with-admin .songbook-row{grid-template-columns:52px minmax(0,1fr)}.songbook-head{display:none!important}.songbook-row .songbook-docs,.songbook-row .songbook-actions{grid-column:2}.songbook-actions{justify-content:flex-start}.songbook-tools{flex-wrap:wrap;padding-inline:14px}}

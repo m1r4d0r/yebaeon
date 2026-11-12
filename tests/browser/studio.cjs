@@ -40,6 +40,7 @@ const assert=require('node:assert/strict');
  else if(/^\/api\/media\/[a-f0-9]{64}\/content$/.test(path)){await route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAEElEQVR4nGNQSDgARww4OQAdNg8BkwvKGAAAAABJRU5ErkJggg==','base64'),headers:{'Cache-Control':'private, max-age=31536000, immutable'}});return;}
  else if(path==='/api/templates'){if(method==='POST'){const b=JSON.parse(route.request().postData());sitePosts.push(b);for(const x of b.items)siteRows.push({id:require('node:crypto').randomUUID(),group:b.group,label:x.label,width:x.width,height:x.height,format:x.format,xml:x.xml,updatedBy:'시험'});data={templates:[]};}else if(method==='DELETE'){const g=u.searchParams.get('group');siteRows=siteRows.filter(r=>r.group!==g);data={group:g};}else data={templates:siteRows.map(({xml,...r})=>r)};}
  else if(path.startsWith('/api/templates/')){const row=siteRows.find(r=>r.id===path.split('/')[3]);if(method==='PATCH'){row.label=JSON.parse(route.request().postData()).label;}else siteReads++;data={template:row};}
+ else if(path==='/api/songbook')data={version:0,songs:[],documents:{},updatedBy:null,updatedAt:null};
  else throw Error('Unhandled '+path);
  await route.fulfill({json:data});});
  let templateXML='',templateReads=0;const template={id:'104',name:'성경',label:'본문',width:1920,height:1080,file:'template-aaaaaaaaaaaaaaaaaaaaaaaa.json'};

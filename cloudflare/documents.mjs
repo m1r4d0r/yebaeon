@@ -7,6 +7,7 @@ import { catalogList } from './library-catalog.mjs';
 import { searchData,searchStatement } from './document-search.mjs';
 import { usageFromXML, readStoredUsage } from './document-usage.mjs';
 import { categoryFromXML, categoryMetadata, categoryPolicy } from './document-category.mjs';
+import { documentKeys } from './song-key.mjs';
 import { XMLValidator } from 'fast-xml-parser';
 import { HttpError, bytes, headers, json, method, sameOrigin, sha256 } from './http.mjs';
 export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
@@ -98,7 +99,7 @@ export async function documentsRoute(request, env, user, id, action) {
     await env.FILES.put(key, content.data, { httpMetadata: { contentType: 'application/xml' }, sha256: content.hash });
     try {
       await db.batch([
-        db.prepare('INSERT INTO yebaeon_documents(id, path, created_at, current_version, updated_at, updated_by, sha256, size, write_id,last_used,usage_version,category,search_enabled,history_enabled,history_start,policy_revision) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?,?,1,?,?,?,?,?)').bind(newId, path, now, now, user.author, content.hash, content.size, writeId,created.lastDateUsed,p.category,p.search_enabled,p.history_enabled,p.history_start,p.policy_revision),
+        db.prepare('INSERT INTO yebaeon_documents(id, path, created_at, current_version, updated_at, updated_by, sha256, size, write_id,last_used,usage_version,category,search_enabled,history_enabled,history_start,policy_revision,song_key) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?,?,1,?,?,?,?,?,?)').bind(newId, path, now, now, user.author, content.hash, content.size, writeId,created.lastDateUsed,p.category,p.search_enabled,p.history_enabled,p.history_start,p.policy_revision,documentKeys(path).main),
         db.prepare('INSERT INTO yebaeon_versions(document_id, version, object_key, sha256, size, author, created_at) VALUES (?, 1, ?, ?, ?, ?, ?)').bind(newId, key, content.hash, content.size, user.author, now),
         ...(p.search_enabled?[searchStatement(db,newId,1,content.search)]:[]),
         ...importMediaStatements(db,importRefs,newId,1,writeId,now),
