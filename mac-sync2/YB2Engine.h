@@ -34,8 +34,7 @@
 //   "macNew"(Mac에만 있는 새 예배 → 서버에 없을 때만 추가), "actions"(서버 일지의 문서 이름 바꾸기·휴지통 → [적용] 때 실행)
 //   serverNew(서버에 새로 생긴 예배 · 기본 체크), macDeleted(Mac에서 지운 예배 · 기본 체크 꺼짐, 되살리지 않음),
 //   macDeletedDocuments(받을 문서 중 Mac에서 지운 것), macRenamed(Mac에서 바꾼 예배 이름 → 올리기), renamedFrom(서버 이름으로 바뀔 Mac 이름)
-//   actions 줄: renames[{id, from, to, adopt?}], moveSteps[{from, to, temporary?, adopt?}](적용 차례·고리는 임시 이름), trashFirst[{id, path}](이름 자리를 비켜 줄 휴지통),
-//   trashes[{id, path}], actionHolds[{path, reason}]
+//   actions 줄: renames[{id, from, to}], trashes[{id, path}], actionHolds[{path, reason}]
 //   macNewDocuments: 이 예배가 가리키는데 서버에 없는 Mac 새 문서 경로(장부 사본이 있을 때만). 같음이 될 줄은 mac(올리기 대기)이 된다.
 - (NSArray *)compare;
 @property(nonatomic, readonly) NSString *comparedPlaylistHash;
@@ -96,8 +95,6 @@
 - (void)trashOnMac:(NSString *)path;             // 강제 동작: Mac 파일을 macOS 휴지통으로(백업 사본)
 - (void)acceptServerTrash:(NSString *)path;      // 서버 휴지통 문서를 Mac에서도 지운다(Mac에서 고친 것이어도. 백업 사본)
 - (void)untrashOnServer:(NSString *)path;        // 서버 휴지통 문서를 꺼낸다(Mac에서 고쳤거나 Mac 예배가 아직 씀)
-- (NSString *)serverNameFor:(NSString *)path;     // 이름 바꾸기를 기다리는 Mac 문서의 서버 이름(없으면 nil)
-- (void)followServerName:(NSString *)path;        // [서버 이름 따르기]: 내용은 그대로, 파일 이름과 예배 cue만 서버 이름으로(PP6 종료 필요)
 - (void)receiveNewServerDocument:(NSString *)path; // 서버에만 있는 문서·연결 이미지 받기, 기존 Mac 파일은 거절(PP6가 켜져 있어도 됨)
 - (void)takeServer:(NSString *)path;             // 같은 이름 다른 내용: 서버 것으로(Mac 것은 백업·서버 보관본)
 - (void)takeMac:(NSString *)path;                // 같은 이름 다른 내용: Mac 것을 서버 새 버전으로
