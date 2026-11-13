@@ -122,6 +122,11 @@ test('영광임하소서 목록 API와 이름 맞추기 색인', { timeout: 1200
   assert.deepEqual(reverse[freeScore.id].map(d => [d.id, d.category]), [[free.id, '가사찬양']]);
   assert.deepEqual((await ok(await call('/songbook/pairs?ids=' + otherCategory.id))).pairs, {}, '찬양이 아닌 문서는 짝을 찾지 않는다');
   assert.equal((await call('/songbook/pairs?ids=nope')).status, 400);
+  // 새 악보 이름(PPT 가져오기)으로 같은 곡 가사찬양 찾기. 목록 곡 문서도 준다.
+  const byName = async name => (await ok(await call('/songbook/pairs?name=' + encodeURIComponent(name)))).matches.map(d => d.id);
+  assert.deepEqual(await byName('목록밖 합성 찬양 노래 (악보)'), [free.id]);
+  assert.deepEqual(await byName('합성 노래 하나 둘 셋_Wide'), [lyric.id], '목록 곡 가사도 준다');
+  assert.equal((await call('/songbook/pairs?name=')).status, 400);
 
   // '가사로 쓰는 곡': 관리자가 아니어도 지정·해제, 가사찬양만, 곡 목록 전체 교체(PUT) 뒤에도 남는다.
   const plainAdmin = admin; admin = '';

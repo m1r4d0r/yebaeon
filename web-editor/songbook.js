@@ -88,7 +88,7 @@
   return button;}
  // [악보 필요]: 작업된 악보가 없다는 안내와 PPT 가져오기(악보 용도·악보찬양·이름을 미리 채움).
  function needDialog(name,id){const {el:make}=P(),box=make('dialog',{class:'entry-dialog songbook-need'}),note=make('p',{class:'dialog-message',role:'status'});
-  const go=make('button',{type:'button',class:'primary',onclick:()=>{box.close();window.YebaeonPPTImport?.openFor({name:name+' (악보)',pairWith:id});}},'PPT 가져오기');
+  const go=make('button',{type:'button',class:'primary',onclick:()=>{box.close();window.YebaeonPPTImport?.openFor({name:name+' (악보)',pairWith:{id,name}});}},'PPT 가져오기');
   const keep=make('button',{type:'button',title:'이 곡은 가사로 씁니다. 악보 표시를 달지 않고, 순서 항목 메뉴에서 해제할 수 있습니다.',onclick:async()=>{keep.disabled=true;try{await setLyricsOnly(id,true);box.close();}catch(error){note.textContent=error.message;keep.disabled=false;}}},'예외 처리');
   box.append(make('h2',{},name),make('p',{class:'dialog-help'},'영광임하소서에 없는 곡이라 악보찬양을 씁니다.\n아직 악보가 없습니다.'),note,make('div',{class:'dialog-buttons'},make('button',{type:'button',onclick:()=>box.close()},'닫기'),keep,go));
   box.addEventListener('close',()=>box.remove());document.body.append(box);box.showModal();go.focus();}
@@ -119,12 +119,39 @@
   input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();find();}});
   box.append(make('div',{class:'panel-head'},make('h2',{},'짝 고르기'),make('span',{class:'songbook-pair-name'},stem(d.name)),make('span',{class:'panel-gap'}),close),make('div',{class:'songbook-tools'},input,make('button',{type:'button',onclick:find},'검색')),list,note);
   box.addEventListener('close',()=>{look.stop();box.remove();});document.body.append(box);box.showModal();draw();input.focus();}
+ // PPT 가져오기의 '짝 찬양' 줄(새 악보찬양 문서). 이름으로 찾은 가사찬양은 '자동 추천'으로만 보이고 [짝으로]를 눌러야 짝이 된다.
+ // [악보 필요]에서 열었으면 그 가사 문서가 처음부터 짝이다. 목록 곡 가사면 짝을 저장하지 않는다(목록 [고르기]에서 연결).
+ // 고른 가사에 이미 악보 짝이 있으면 '옛 악보 짝에서 빼기'(기본 켬)를 고른다. 이름이 바뀌어 잠깐 멈추면 이름마다 한 번 묻는다.
+ function pairPicker(root){
+  let chosen=null,suggested=null,asked=null,timer=null,searching=false,drop=true,generation=0,name='';
+  const {el:make}=P(),btn=(label,fn,cls='')=>make('button',{type:'button',class:cls,onclick:fn},label);
+  const label=()=>make('span',{class:'ppt-pair-label'},'짝 찬양');
+  const title=x=>{const t=make('span',{class:'ppt-pair-name'},stem(x.name));const n=songOf(x.id)?.number;if(n)t.append(el('small','song-number','영 '+n));return t;};
+  const olds=()=>chosen&&!songOf(chosen.id)?(groupOf(chosen.id)||[]).filter(id=>doc(id)?.category===SCORE):[];
+  function draw(){const rows=[];const x=chosen||suggested;
+   if(x&&songOf(x.id))rows.push(make('div',{class:'ppt-pair-row'},label(),chip({category:LYRICS}),title(x),make('span',{class:'line-meta'},'목록 곡'),btn('다른 찬양…',()=>{searching=!searching;draw();})));
+   else if(chosen){const row=make('div',{class:'ppt-pair-row chosen'},label(),chip({category:LYRICS}),title(chosen),btn('풀기',()=>{chosen=null;draw();}));rows.push(row);
+    const old=olds();if(old.length){const box=make('input',{type:'checkbox',checked:drop,onchange:()=>{drop=box.checked;}});rows.push(make('label',{class:'ppt-pair-old'},box,' 옛 악보 ',make('span',{class:'ppt-pair-oldname'},old.map(id=>stem(doc(id)?.name)).join(', ')),' 짝에서 빼기'));}}
+   else if(suggested){const t=title(suggested);t.append(make('span',{class:'ppt-pair-auto'},'자동 추천'));rows.push(make('div',{class:'ppt-pair-row suggested'},label(),chip({category:LYRICS}),t,btn('짝으로',()=>{chosen=suggested;draw();},'primary'),btn('다른 찬양…',()=>{searching=!searching;draw();})));}
+   else rows.push(make('div',{class:'ppt-pair-row'},label(),make('span',{class:'ppt-pair-name muted'},'없음'),btn('고르기…',()=>{searching=!searching;draw();})));
+   const holder=make('div',{class:'ppt-pair-search'});rows.push(holder);root.replaceChildren(...rows);
+   if(searching){const b=window.YebaeonSearch.box(holder,{value:stem(name).replace(/\s*\(악보\)$/,''),label:'짝 찬양 찾기',placeholder:'가사찬양 이름·본문',limit:8,pairs:false,only:d=>d.category===LYRICS,onPick:d=>{chosen={id:d.id,name:d.name,path:d.path};searching=false;draw();}});b.focus();}}
+  async function ask(){const n=name.trim();if(!n||n===asked||chosen)return;asked=n;const g=++generation;
+   try{await ensure();const data=await(await C().api('/songbook/pairs?'+new URLSearchParams({name:n}))).json();if(g!==generation)return;suggested=data.matches?.[0]||null;}catch(_){if(g===generation)suggested=null;}
+   if(g===generation)draw();}
+  return {
+   // 새로 열 때. preset({id, name}: 가사 문서)이 있으면 그것이 짝이다.
+   reset(preset=null){clearTimeout(timer);generation++;chosen=preset?{id:preset.id,name:preset.name||''}:null;suggested=null;asked=null;searching=false;drop=true;name='';draw();if(preset)ensure().then(draw,()=>{});},
+   name(value){name=String(value||'');clearTimeout(timer);timer=setTimeout(ask,500);},
+   // 저장할 짝: {pairWith, pairDrop}. 고르지 않았거나 목록 곡이면 null.
+   value(){return chosen&&!songOf(chosen.id)?{pairWith:chosen.id,pairDrop:drop?olds():[]}:null;}};}
  // 짝 저장(누구나): add는 그 문서들을 한 짝으로(다른 짝에 있던 문서는 옮긴다), remove는 짝에서 뺀다.
  async function saveGroup(body){const data=await(await C().api('/songbook/groups',json('POST',body))).json();accept(data,true,true);return state;}
  // PPT 가져오기로 악보찬양을 만들면(어디서 열었든) 열린 순서의 짝을 다시 물어 [악보 필요]가 [악보로]가 되게 한다.
  // [악보 필요]에서 연 가져오기면 그 가사 문서(목록 곡이 아니면)와 새 악보를 짝으로 저장한다.
  window.addEventListener('yebaeonpptimported',async e=>{const made=e.detail?.document,lyrics=e.detail?.pairWith;if(made?.category!==SCORE)return;
-  if(lyrics&&state&&!songOf(lyrics))try{await saveGroup({add:[...(groupOf(lyrics)||[lyrics]),made.id]});}catch(error){window.YebaeonEditor?.status?.('짝을 저장하지 못했습니다: '+error.message);}
+  const drop=new Set(e.detail?.pairDrop||[]);
+  if(lyrics&&state&&!songOf(lyrics))try{await saveGroup({add:[...(groupOf(lyrics)||[lyrics]).filter(id=>!drop.has(id)),made.id]});}catch(error){window.YebaeonEditor?.status?.('짝을 저장하지 못했습니다: '+error.message);}
   pairCache.clear();const items=window.YebaeonPlaylists?.items()||[];prepareOrder(items).then(ok=>{if(ok)window.dispatchEvent(new Event('yebaeonsongbook'));});});
 
  // ── 영광임하소서 목록 창 ──
@@ -310,5 +337,5 @@
 
  document.getElementById('songbookOpen')?.addEventListener('click',open);
  window.addEventListener('yebaeonsession',e=>{if(!e.detail?.authenticated){state=null;pairCache.clear();byDoc=new Map();byGroup=new Map();}});
- window.YebaeonSongbook={ensure,revalidate,reload,info,chip,tint,number,arrange,hints,switches,lyricsOnlyItem,pairItem,pairTag,summary,prepareOrder,hintElement,open,state:()=>state,parse,parseGroups};
+ window.YebaeonSongbook={ensure,revalidate,reload,info,chip,tint,number,arrange,hints,switches,lyricsOnlyItem,pairItem,pairTag,pairPicker,summary,prepareOrder,hintElement,open,state:()=>state,parse,parseGroups};
 })();

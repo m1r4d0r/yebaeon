@@ -209,8 +209,16 @@ async function candidatesRoute(request, env) {
 }
 
 // 순서의 목록 밖 찬양 행: 같은 곡의 다른 버전(가사찬양 ↔ 악보찬양) 사용 중 문서. 목록의 어느 곡에든 연결된 문서는 뺀다.
+// ?name=: 아직 없는 새 악보 이름(PPT 가져오기)에 맞는 사용 중 가사찬양. 목록 곡 문서도 준다(화면이 '목록 곡'으로 보이고 짝은 저장하지 않음).
 async function pairsRoute(request, env) {
   method(request, ['GET']);
+  const name = new URL(request.url).searchParams.get('name');
+  if (name !== null) {
+    const clean = name.normalize('NFC').trim();
+    if (!clean || clean.length > 145) throw new HttpError(400, 'invalid_name', '문서 이름을 확인해 주세요.');
+    const keys = documentKeys(clean + '.pro6');
+    return json({ matches: (await matches(env.DB, allKeys(keys), ['가사찬양'])).filter(r => sameSong(documentKeys(r.path), keys)).map(view) });
+  }
   const db = env.DB, ids = [...new Set((new URL(request.url).searchParams.get('ids') || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean))];
   if (ids.length > MAX_PAIR_IDS || ids.some(id => !UUID.test(id))) throw new HttpError(400, 'invalid_ids', '문서 id를 확인해 주세요.');
   if (!ids.length) return json({ pairs: {} });

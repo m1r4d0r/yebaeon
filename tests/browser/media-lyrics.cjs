@@ -60,6 +60,8 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
  await page.evaluate(id=>YebaeonCloud.openDocument(id),sheetId);await page.waitForFunction(()=>YebaeonEditor.ready()&&YebaeonEditor.model().name.includes('아주 먼 옛날')&&YebaeonEditor.state().key);
  assert.equal(await page.locator('#imageAdd').isEnabled(),true);assert.ok(await page.locator('#imageAdd').isVisible());
  await page.evaluate(()=>{const s=YebaeonEditor.selection;s.chosen=new Set(['0','1','2']);s.paint();});
+ // 문서를 연 뒤 그리기가 그림 경로를 묻는 요청이 끝날 때까지 기다린다(그 요청은 파일 고르기와 무관하다).
+ {let seen=-1;while(seen!==apiCalls.length){seen=apiCalls.length;await page.waitForTimeout(300);}}
  const callsBefore=apiCalls.length,[chooser]=await Promise.all([page.waitForEvent('filechooser'),page.locator('#imageAdd').click()]);assert.equal(chooser.isMultiple(),true);
  await chooser.setFiles([{name:'Slide2-alpha.png',mimeType:'image/png',buffer:Buffer.concat([fixture,Buffer.from([8,2])])},{name:'Slide1-alpha.png'.normalize('NFD'),mimeType:'image/png',buffer:Buffer.concat([fixture,Buffer.from([8,1])])},{name:'새 악보.png'.normalize('NFD'),mimeType:'image/png',buffer:Buffer.concat([fixture,Buffer.from([8,9])])}]);
  await page.locator('#imageAddDialog').waitFor();await page.waitForTimeout(300);assert.deepEqual(apiCalls.slice(callsBefore).filter(c=>!c.endsWith('/content')),[],'choosing files and the confirm dialog make no API requests');

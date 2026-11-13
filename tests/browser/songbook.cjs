@@ -193,6 +193,27 @@ const assert=require('node:assert/strict');
   assert.match(await page.locator('#songbookMessage').textContent(),/짝을 저장했습니다. 짝 2/);
   assert.deepEqual(await page.evaluate(()=>YebaeonSongbook.state().groups),[[pairs.lyrics,pairs.score],[pairs.lyrics2,ids.lateScore]]);
   await page.locator('#songbookDialog .panel-close').first().click();
+  // PPT 가져오기 '짝 찬양' 줄: 이름으로 찾은 가사는 '자동 추천'일 뿐 [짝으로]를 눌러야 짝. 옛 악보 빼기, 목록 곡은 저장 안 함.
+  await page.evaluate(()=>{const host=document.createElement('div');host.id='pairPickerTest';document.body.append(host);window.__picker=YebaeonSongbook.pairPicker(host);__picker.reset();__picker.name('합성 선포 노래 긴 제목 (악보)');});
+  const picker=page.locator('#pairPickerTest');
+  await picker.locator('.ppt-pair-auto').waitFor();
+  assert.match(await picker.locator('.ppt-pair-row').first().textContent(),/짝 찬양.*합성 선포 노래 긴 제목자동 추천/);assert.equal(await page.evaluate(()=>__picker.value()),null,'추천만으로는 짝이 아니다');
+  await picker.getByRole('button',{name:'짝으로'}).click();
+  assert.match(await picker.locator('.ppt-pair-old').textContent(),/옛 악보 선포곡 짝에서 빼기/);
+  assert.deepEqual(await page.evaluate(()=>__picker.value()),{pairWith:pairs.lyrics,pairDrop:[pairs.score]});
+  await picker.locator('.ppt-pair-old input').uncheck();assert.deepEqual(await page.evaluate(()=>__picker.value().pairDrop),[]);
+  await picker.locator('.ppt-pair-old input').check();
+  const newScore=await page.evaluate(async p=>{const made=(await(await YebaeonCloud.api('/documents?'+new URLSearchParams({path:'합성 선포 노래 새 악보.pro6'}),{method:'POST',headers:{'Content-Type':'application/xml','X-YebaeOn-Client':'studio'},body:YebaeonLibraryActions.blankDocument('악보찬양')})).json()).document;window.dispatchEvent(new CustomEvent('yebaeonpptimported',{detail:{document:made,...__picker.value()}}));return made.id;},pairs);
+  await page.waitForFunction(id=>YebaeonSongbook.state().groups.some(g=>g.includes(id)),newScore);
+  assert.deepEqual(await page.evaluate(id=>YebaeonSongbook.state().groups.find(g=>g.includes(id)),newScore),[pairs.lyrics,newScore],'옛 악보는 빠진다');
+  await page.evaluate(()=>{__picker.reset();__picker.name('합성 찬양 하나 (악보)');});
+  await picker.locator('.line-meta',{hasText:'목록 곡'}).waitFor();assert.equal(await page.evaluate(()=>__picker.value()),null,'목록 곡 가사는 짝으로 저장하지 않는다');
+  await page.evaluate(()=>{__picker.reset();__picker.name('아무것도 없는 제목 (악보)');});
+  await picker.getByRole('button',{name:'고르기…'}).waitFor();await picker.getByRole('button',{name:'고르기…'}).click();
+  await picker.locator('input[type="search"]').fill('합성 선포 둘째');await picker.getByRole('button',{name:'검색'}).click();
+  await picker.locator('.doc-search-item',{hasText:'합성 선포 둘째 가사'}).click();
+  assert.deepEqual(await page.evaluate(()=>__picker.value()),{pairWith:pairs.lyrics2,pairDrop:[ids.lateScore]});
+  await page.evaluate(()=>document.getElementById('pairPickerTest').remove());
   // [고르기] 내용 미리보기: 가사는 첫 가사 두 줄(제목 장 건너뜀), 악보는 첫 악보 장 그림, 누르면 앞 장 펼침, 문서마다 한 번만 받음, 못 읽으면 '미리보기 없음'.
   const preview=await page.evaluate(async()=>{const P=PP6,style={font:'NanumGothicOTF',size:80,color:'rgb(255,255,255)',align:'center'},text=t=>P.textElementXML({rect:{x:80,y:90,w:1760,h:900},rtf:P.textRTF(t,style)});
    const xml=(category,slides)=>P.documentXML({category,groups:[{name:'기본',slides:slides.join('')}]});

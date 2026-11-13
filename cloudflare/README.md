@@ -78,7 +78,7 @@ R2에는 받은 원본 bytes를 버전별로 보존하고, D1에는 상대경로
 | `POST /api/songbook/groups` | 누구나. JSON `{add:[id...]}`(한 짝으로, 다른 짝의 문서는 옮김) 또는 `{remove:id}` → 목록 밖 곡의 가사·악보 짝 고치기 |
 | `PUT /api/songbook/groups` | 관리자. JSON `{groups:[[id...]], labels}` + `If-Match` → 짝 전체 교체. `?dryRun=1`은 검사만 |
 | `GET /api/songbook/candidates` | 곡마다 이름 맞추기 후보(연결·아님·다른 곡 연결 제외, 사용 중 찬양 문서) |
-| `GET /api/songbook/pairs?ids=a,b` | 목록 밖 찬양 문서마다 같은 곡의 다른 버전(가사찬양 ↔ 악보찬양) 사용 중 문서(목록 연결 제외), 60개까지 |
+| `GET /api/songbook/pairs?ids=a,b` | 목록 밖 찬양 문서마다 같은 곡의 다른 버전(가사찬양 ↔ 악보찬양) 사용 중 문서(목록 연결 제외), 60개까지. `?name=`은 새 악보 이름에 맞는 사용 중 가사찬양(`matches`, 목록 곡 포함) |
 
 메타데이터: `id,path,name,version,updatedAt,updatedBy,sha256,size`. 시간은 UTC ISO 문자열이며 크기는 bytes다. 원본 내용 응답의 ETag는 `"N-hash"`이고, 수정 시 `If-Match`에는 메타데이터의 숫자 버전만 따옴표로 감싼 `"N"`을 보낸다. SHA-256은 원본 bytes 기준이다. 서버 버전을 semantic fingerprint로 대체하지 않는다.
 
