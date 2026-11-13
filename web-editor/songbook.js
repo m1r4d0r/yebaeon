@@ -53,16 +53,25 @@
  // '가사로 쓰는 곡' 지정·해제(누구나). 곡 목록은 그대로이고 짝 찾기 결과도 그대로 둔다.
  async function setLyricsOnly(id,on){const data=await(await C().api('/songbook/lyrics-only',json('POST',{id,on}))).json();accept(data,true,true);}
  function lyricsOnlyItem(item){const d=freeLyrics(item);if(!d)return null;const on=state.lyricsOnly.has(d.id);return {label:on?'예외 처리 해제':'예외 처리',action:()=>setLyricsOnly(d.id,!on).catch(error=>alert(error.message))};}
- const hints=items=>items.map(hint);
+ // 순서를 그릴 때: 아직 묻지 않은 목록 밖 찬양 문서만 한 요청(최대 60)으로 짝을 묻고, 답이 오면 다시 그린다.
+ // 순서를 연 뒤 붙여넣기·교체·초안 복구로 들어온 문서도 이것으로 잡힌다. 묻는 중인 문서는 거듭 묻지 않고, 실패한 문서는 순서를 다시 열 때까지 묻지 않는다.
+ const pairAsking=new Set(),pairFailed=new Set();
+ const unpaired=items=>[...new Set(items.map(x=>x?.kind==='document'?x.document:null).filter(d=>d&&d.state!=='trashed'&&SONG.has(d.category)&&!songOf(d.id)&&!pairCache.has(d.id)&&!pairAsking.has(d.id)&&!pairFailed.has(d.id)).map(d=>d.id))].slice(0,60);
+ function askPairs(items){if(!state)return;const ids=unpaired(items);if(!ids.length)return;for(const id of ids)pairAsking.add(id);
+  C().api('/songbook/pairs?'+new URLSearchParams({ids:ids.join(',')})).then(r=>r.json()).then(data=>{for(const id of ids)pairCache.set(id,data.pairs?.[id]||[]);},()=>{for(const id of ids)pairFailed.add(id);})
+   .finally(()=>{for(const id of ids)pairAsking.delete(id);window.dispatchEvent(new Event('yebaeonsongbook'));});}
+ const hints=items=>{askPairs(items);return items.map(hint);};
  // 순서 항목 메뉴의 악보로·가사로 바꾸기 대상(없으면 빈 목록). 찬양이 아니면 null.
  function switches(item){const d=orderDoc(item);return d?{[SCORE]:d.category===LYRICS?counterparts(d,SCORE):[],[LYRICS]:d.category===SCORE?counterparts(d,LYRICS):[]}:null;}
  // 머리줄: 찬양 행이 있으면 색 범례(행 바탕과 같은 색의 네모에 가사·악보).
  function summary(items){return items.some(x=>SONG.has(x?.document?.category))?[el('span','order-legend'),el('span','order-swatch song-lyrics','가사'),el('span','order-swatch song-score','악보')]:[];}
- // 순서를 열 때 한 번: 목록 버전을 확인하고, 목록 밖 찬양 행의 같은 곡 다른 버전을 한 요청으로 묻는다.
- async function prepareOrder(items){try{await revalidate();}catch(_){return false;}
-  const ids=[...new Set(items.map(x=>x.kind==='document'?x.document:null).filter(d=>d&&d.state!=='trashed'&&SONG.has(d.category)&&!songOf(d.id)&&!pairCache.has(d.id)).map(d=>d.id))].slice(0,60);
+ // 순서를 열 때 한 번: 목록 버전을 확인하고(실패 기록은 비운다), 목록 밖 찬양 행의 같은 곡 다른 버전을 한 요청으로 묻는다.
+ async function prepareOrder(items){pairFailed.clear();try{await revalidate();}catch(_){return false;}
+  const ids=unpaired(items);
   if(!ids.length)return true;
-  try{const data=await(await C().api('/songbook/pairs?'+new URLSearchParams({ids:ids.join(',')}))).json();for(const id of ids)pairCache.set(id,data.pairs[id]||[]);}catch(_){return false;}
+  for(const id of ids)pairAsking.add(id);
+  try{const data=await(await C().api('/songbook/pairs?'+new URLSearchParams({ids:ids.join(',')}))).json();for(const id of ids)pairCache.set(id,data.pairs[id]||[]);}catch(_){for(const id of ids)pairFailed.add(id);return false;}
+  finally{for(const id of ids)pairAsking.delete(id);}
   return true;}
  const stem=name=>String(name||'').replace(/\.pro6$/i,'');
  function hintElement(h,{disabled,onPick}){

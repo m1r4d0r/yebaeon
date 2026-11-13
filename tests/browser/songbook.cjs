@@ -23,7 +23,7 @@ const assert=require('node:assert/strict');
  try{
   await page.goto(origin);await page.locator('#entryName').fill('목록 시험');await page.locator('#entryPassword').fill('browser-only');await page.locator('#entrySubmit').click();await page.locator('#entryDialog').waitFor({state:'hidden'});
   const ids=await page.evaluate(async()=>{const make=async(name,category)=>(await(await YebaeonCloud.api('/documents?'+new URLSearchParams({path:name+'.pro6'}),{method:'POST',headers:{'Content-Type':'application/xml','X-YebaeOn-Client':'studio'},body:YebaeonLibraryActions.blankDocument(category)})).json()).document.id;
-   return {listScore:await make('합성 찬양 하나_Wide','악보찬양'),listLyrics:await make('합성 찬양 하나','가사찬양'),freeLyrics:await make('목록밖 노래 하나','가사찬양'),freeScore:await make('목록밖 노래 하나 둘','악보찬양'),order:await make('합성 예배순서','예배순서'),noScore:await make('악보 없는 노래','가사찬양'),keepLyrics:await make('가사로 쓰는 노래','가사찬양'),second:await make('둘째 합성 곡','악보찬양')};});
+   return {listScore:await make('합성 찬양 하나_Wide','악보찬양'),listLyrics:await make('합성 찬양 하나','가사찬양'),freeLyrics:await make('목록밖 노래 하나','가사찬양'),freeScore:await make('목록밖 노래 하나 둘','악보찬양'),order:await make('합성 예배순서','예배순서'),noScore:await make('악보 없는 노래','가사찬양'),keepLyrics:await make('가사로 쓰는 노래','가사찬양'),lateLyrics:await make('나중에 넣은 노래','가사찬양'),lateScore:await make('나중에 넣은 노래 악보','악보찬양'),failLyrics:await make('짝 찾기 실패 노래','가사찬양'),second:await make('둘째 합성 곡','악보찬양')};});
 
   // 관리자가 아니면 관리 버튼이 없다
   await openSongbook();
@@ -117,6 +117,19 @@ const assert=require('node:assert/strict');
   // [악보로]가 있는 곡도 지정하면 숨긴다
   await rows.nth(3).click({button:'right'});await page.getByRole('menuitem',{name:'예외 처리',exact:true}).click();
   await page.waitForFunction(()=>!document.querySelector('#playlistItems .order-item:nth-child(4) .order-tag'));
+  // 순서를 연 뒤에 넣은 문서도 다시 열지 않고 표시된다(그릴 때 아직 묻지 않은 문서만 한 번 묻는다). 짝 찾기에 실패한 문서는 되풀이해 묻지 않는다.
+  const pairAsks=[];page.on('request',r=>{if(r.url().includes('/api/songbook/pairs'))pairAsks.push(decodeURIComponent(r.url()));});
+  const append=list=>page.evaluate(async list=>{const get=async id=>(await(await YebaeonCloud.api('/documents/'+id)).json()).document;YebaeonPlaylists.appendDocuments(await Promise.all(list.map(get)));},list);
+  await append([ids.lateLyrics]);
+  await page.waitForFunction(()=>{const r=document.querySelectorAll('#playlistItems .order-item');return r.length===6&&r[5].querySelector('.order-tag.go');});
+  assert.equal(pairAsks.filter(u=>u.includes(ids.lateLyrics)).length,1,'새로 들어온 문서만 한 번 묻는다');
+  await page.route('**/api/songbook/pairs**',route=>route.fulfill({status:503,contentType:'application/json',body:'{"message":"잠시 실패"}'}));
+  await append([ids.failLyrics]);
+  await page.waitForFunction(id=>performance.getEntriesByType('resource').some(e=>e.name.includes('/api/songbook/pairs')&&decodeURIComponent(e.name).includes(id)),ids.failLyrics);
+  await append([ids.order]);await page.waitForTimeout(300);
+  assert.equal(await rows.nth(6).locator('.order-tag').count(),0,'짝을 묻지 못한 문서에는 아무것도 달지 않는다');
+  assert.equal(pairAsks.filter(u=>u.includes(ids.failLyrics)).length,1,'실패한 문서는 다시 묻지 않는다');
+  await page.unroute('**/api/songbook/pairs**');
   // [고르기] 내용 미리보기: 가사는 첫 가사 두 줄(제목 장 건너뜀), 악보는 첫 악보 장 그림, 누르면 앞 장 펼침, 문서마다 한 번만 받음, 못 읽으면 '미리보기 없음'.
   const preview=await page.evaluate(async()=>{const P=PP6,style={font:'NanumGothicOTF',size:80,color:'rgb(255,255,255)',align:'center'},text=t=>P.textElementXML({rect:{x:80,y:90,w:1760,h:900},rtf:P.textRTF(t,style)});
    const xml=(category,slides)=>P.documentXML({category,groups:[{name:'기본',slides:slides.join('')}]});
