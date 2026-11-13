@@ -9,6 +9,18 @@
   const contexts=new Map(); let openSequence=0, documents=[], activityNext=null, activityScope='mine';
   // Verified originals only. Recheck metadata on every open; never cache authorization.
   const originals=new Map();let originalBytes=0;
+  // 문서 정보와 서버 원본. 이 탭에 원본이 있으면 정보만 묻고 버전이 같으면 다시 받지 않는다(reuse가 false면 늘 받는다).
+  // 없으면 정보와 지금 버전 원본을 함께 요청하고, 그사이 버전이 바뀌었으면 정보의 버전으로 다시 받는다. 원본은 정보의 sha256과 맞춘다.
+  async function current(id,reuse=true){
+    const cached=reuse?originals.get(id):null,content=cached?null:api(`/documents/${id}/content`).catch(error=>({error}));
+    const {document:doc}=await(await api('/documents/'+id)).json();
+    if(cached?.version===doc.version&&cached.sha256===doc.sha256){rememberOriginal(doc,cached.xml);return {doc,xml:cached.xml};}
+    let response=content&&await content;
+    if(!response||response.error||response.headers.get('X-Yebaeon-Version')!==String(doc.version)){response?.body?.cancel?.().catch(()=>{});response=await api(`/documents/${id}/content?version=${doc.version}`);}
+    const bytes=await response.arrayBuffer(),hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
+    if(hash!==doc.sha256)throw new Error('받은 문서의 내용 확인에 실패했습니다.');
+    const xml=new TextDecoder('utf-8',{fatal:true}).decode(bytes);rememberOriginal(doc,xml);return {doc,xml};
+  }
   function rememberOriginal(doc,xml){const old=originals.get(doc.id);if(old)originalBytes-=old.xml.length*2;originals.delete(doc.id);if(xml.length*2<=16*1024*1024){originals.set(doc.id,{version:doc.version,sha256:doc.sha256,xml});originalBytes+=xml.length*2;}while(originalBytes>24*1024*1024||originals.size>24){const first=originals.keys().next().value;originalBytes-=originals.get(first).xml.length*2;originals.delete(first);}}
   const select=new YebaeonSelection.Selection($('documentsPane'),{kind:'documents',undo:redo=>editor.undo(redo),open:()=>openCloud(select.cursor,false,documents.find(d=>d.id===select.cursor)),copy:()=>YebaeonSelection.copy({kind:'documents',documents:documents.filter(d=>select.chosen.has(d.id))})});
   let activitySequence=0;
@@ -120,13 +132,7 @@
     try {
       await checkpointDraft();
       if(known?.available===false){if(token!==openSequence||window.YebaeonSave?.busy())return false;if(linked)contexts.set(linked.id,{linked:{...linked},baseXML,draftID,mark:draftMark});editor.unavailable(known);update();window.dispatchEvent(new CustomEvent('yebaeonclouddocument',{detail:{doc:known,fromPlaylist}}));editor.status('원본 미업로드 · 순서 추가 가능, 텍스트 편집 불가');return true;}
-      const {document:doc}=await(await api('/documents/'+id)).json();
-      const original=originals.get(id);let serverXML;
-      if(original?.version===doc.version&&original.sha256===doc.sha256){serverXML=original.xml;rememberOriginal(doc,serverXML);}
-      else{const bytes=await(await api(`/documents/${id}/content?version=${doc.version}`)).arrayBuffer();
-        const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');
-        if(hash!==doc.sha256)throw new Error('받은 문서의 내용 확인에 실패했습니다.');
-        serverXML=new TextDecoder('utf-8',{fatal:true}).decode(bytes);rememberOriginal(doc,serverXML);}
+      const {doc,xml:serverXML}=await current(id);
       const record=resume?.draftID?(await drafts.all()).find(r=>r.id===resume.draftID&&r.kind==='document'&&r.base?.id===id&&r.author===user?.name&&typeof r.xml==='string'&&typeof r.baseXML==='string'):null;
       if(token!==openSequence||window.YebaeonSave?.busy()||resume&&!resume.isCurrent())return false;
       if(record&&!editor.isDirty(id))place(record.base,record.baseXML,record.xml,record.id,record.bulletin||null);
@@ -206,13 +212,7 @@
       chooser.onclose = () => resolve(value); chooser.inert = false; chooser.showModal();
     });
   }
-  async function verified(id) {
-    const doc = (await (await api('/documents/' + id)).json()).document;
-    const data = await (await api(`/documents/${id}/content?version=${doc.version}`)).arrayBuffer();
-    const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', data)), n => n.toString(16).padStart(2, '0')).join('');
-    if (hash !== doc.sha256) throw new Error('받은 문서의 내용 확인에 실패했습니다.');
-    const xml = new TextDecoder('utf-8', {fatal:true}).decode(data); rememberOriginal(doc, xml); return {doc, xml};
-  }
+  async function verified(id) { return current(id, false); }
   // 이 탭의 미저장 편집을 버린다. 열려 있던 문서면 next(없으면 서버 최신)를 연다.
   async function dropEdit(record, next = null) {
     try { await drafts.remove(record.draftID); } catch (error) { drafts.report(error); }

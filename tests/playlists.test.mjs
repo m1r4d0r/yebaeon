@@ -48,6 +48,9 @@ test('playlist server, linked edits, structural edits, history and conflicts', {
     const put=async name=>(await ok(await call('/documents?path='+encodeURIComponent(name+'.pro6'),'POST',`<RVPresentationDocument><text>${name}</text></RVPresentationDocument>`),201)).document;
     song=await put('찬양');word=await put('말씀');other=await put('새곡');
     plan=await ok(await call(`/playlists/${library.id}/plan?node=A`));assert.equal(plan.ready,true);assert.equal(plan.documents.length,2);assert.equal(plan.items[0].document.id,song.id);assert.deepEqual(plan.items[0].sharedWith,['수요']);
+    // 같은 버전을 다시 열면 Worker 메모리의 해석 결과를 써서 R2 원본을 다시 읽지 않는다. 원본을 잠시 치워도 열린다.
+    {const db=await mf.getD1Database('DB'),bucket=await mf.getR2Bucket('FILES'),key=(await db.prepare('SELECT v.object_key FROM yebaeon_playlist_versions v JOIN yebaeon_playlists p ON p.id=v.library_id AND v.version=p.current_version WHERE p.id=?').bind(library.id).first()).object_key,kept=await (await bucket.get(key)).arrayBuffer();
+     await bucket.delete(key);try{assert.equal((await ok(await call(`/playlists/${library.id}/plan?node=A`))).fingerprint,plan.fingerprint);}finally{await bucket.put(key,kept);}}
     assert.equal((await ok(await call('/playlists'))).libraries[0].id,library.id);
     assert.equal(await (await call(`/playlists/${library.id}/content?version=1`)).text(),xml);
   });

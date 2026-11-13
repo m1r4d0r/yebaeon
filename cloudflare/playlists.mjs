@@ -14,6 +14,20 @@ async function read(request) {
   return { data, xml, parsed: parsePlaylist(xml), hash: await sha256(data) };
 }
 export async function loadPlaylist(env, r) { return load(env, r); }
+// 읽기 전용 해석 결과를 Worker 메모리에 잠깐 둔다. 같은 목록·버전·sha256이면 원본이 같으므로 R2를 다시 읽지 않는다.
+// 돌려준 값은 고치지 않는다. 고치는 쪽(저장·편집·관리)은 load를 쓴다.
+const parsedCache = new Map(), snapshotCache = new WeakMap(); let parsedChars = 0;
+export async function readPlaylist(env, r) {
+  const key = `${r.id}:${r.current_version}:${r.sha256}`, hit = parsedCache.get(key);
+  if (hit) { parsedCache.delete(key); parsedCache.set(key, hit); return hit.parsed; }
+  const parsed = await load(env, r), size = parsed.xml.length;
+  if (size <= 4 * 1024 * 1024 && !parsedCache.has(key)) {
+    parsedCache.set(key, { parsed, size }); parsedChars += size;
+    while (parsedChars > 12 * 1024 * 1024 || parsedCache.size > 8) { const [oldest, value] = parsedCache.entries().next().value; parsedCache.delete(oldest); parsedChars -= value.size; }
+  }
+  return parsed;
+}
+function snapshotsOf(parsed) { if (!snapshotCache.has(parsed)) snapshotCache.set(parsed, nodeSnapshots(parsed).catch(error => { snapshotCache.delete(parsed); throw error; })); return snapshotCache.get(parsed); }
 async function load(env, r) {
   const v = await env.DB.prepare('SELECT * FROM yebaeon_playlist_versions WHERE library_id = ? AND version = ?').bind(r.id, r.current_version).first();
   const object = v && await env.FILES.get(v.object_key); if (!object) throw new HttpError(503, 'file_unavailable', '재생목록 원본을 읽지 못했습니다.');
@@ -23,7 +37,7 @@ async function nodeSnapshots(parsed) {
   return Promise.all(parsed.playlists.map(async p=>{const xml=parsed.xml.slice(p.node.start,p.node.end);return {id:p.id,name:p.name,xml,sha256:await sha256(new TextEncoder().encode(xml))};}));
 }
 async function enriched(env,r) {
-  const result=metadata(r),nodes=await nodeSnapshots(await load(env,r)),versions=(await env.DB.prepare('SELECT n.* FROM yebaeon_playlist_node_versions n WHERE library_id=? AND version=(SELECT MAX(version) FROM yebaeon_playlist_node_versions WHERE library_id=n.library_id AND node_id=n.node_id)').bind(r.id).all()).results;
+  const result=metadata(r),nodes=await snapshotsOf(await readPlaylist(env,r)),versions=(await env.DB.prepare('SELECT n.* FROM yebaeon_playlist_node_versions n WHERE library_id=? AND version=(SELECT MAX(version) FROM yebaeon_playlist_node_versions WHERE library_id=n.library_id AND node_id=n.node_id)').bind(r.id).all()).results;
   result.playlists=result.playlists.map(p=>{const v=versions.find(v=>v.node_id===p.id);return {...p,sha256:nodes.find(n=>n.id===p.id)?.sha256,version:v?.version||1,updatedBy:v?.author||r.updated_by,updatedAt:v?.created_at||r.updated_at};});return result;
 }
 function nodeInsert(db,r,n,fileVersion,author,at,guard=false) {
@@ -120,17 +134,19 @@ export async function playlistsRoute(request, env, user, id, action) {
     return new Response(request.method === 'HEAD' ? null : object.body,{headers:{...headers,'Content-Type':'application/xml; charset=utf-8','Content-Disposition':`attachment; filename*=UTF-8''${encodeURIComponent(r.path)}`,'X-Yebaeon-Version':String(number),'X-Yebaeon-SHA256':version.sha256}});
   }
   if (action === 'plan') {
-    method(request,['GET']); const parsed = await load(env,r), playlist = parsed.playlists.find(p => p.id === url.searchParams.get('node'));
+    method(request,['GET']); const parsed = await readPlaylist(env,r), playlist = parsed.playlists.find(p => p.id === url.searchParams.get('node'));
     if (!playlist) throw new HttpError(404,'not_found','순서를 찾지 못했습니다.');
     const paths = [...new Set(playlist.items.filter(x => x.kind === 'document').map(x => referencePath(x.sourcePath,r.source_root)).filter(Boolean))], map = new Map();
-    for (let offset=0;offset<paths.length;offset+=80) {
-      const slice=paths.slice(offset,offset+80), rows=(await db.prepare(`SELECT * FROM yebaeon_documents WHERE path IN (${slice.map(()=>'?').join(',')})`).bind(...slice).all()).results;
-      for (const value of rows) map.set(value.path,doc(value));
-    }
-    const indexed=new Map();
-    if(url.searchParams.get('includeIndexed')==='1'){
-      for(let offset=0;offset<paths.length;offset+=80){const slice=paths.slice(offset,offset+80);const rows=(await db.prepare(`SELECT * FROM yebaeon_library_catalog WHERE path IN (${slice.map(()=>'?').join(',')})`).bind(...slice).all()).results;for(const value of rows)indexed.set(value.path,catalogDocument(value));}
-    }
+    // 문서·이름 인덱스·순서 이력·목록 버전 재확인을 한 batch(D1 왕복 한 번)로 읽는다.
+    const slices=[];for(let offset=0;offset<paths.length;offset+=80)slices.push(paths.slice(offset,offset+80));
+    const withIndex=url.searchParams.get('includeIndexed')==='1',inList=(table,slice)=>db.prepare(`SELECT * FROM ${table} WHERE path IN (${slice.map(()=>'?').join(',')})`).bind(...slice);
+    const results=await db.batch([...slices.map(slice=>inList('yebaeon_documents',slice)),...(withIndex?slices.map(slice=>inList('yebaeon_library_catalog',slice)):[]),
+      db.prepare('SELECT version,author,created_at FROM yebaeon_playlist_node_versions WHERE library_id=? AND node_id=? ORDER BY version DESC LIMIT 1').bind(id,playlist.id),
+      db.prepare('SELECT current_version FROM yebaeon_playlists WHERE id=?').bind(id)]);
+    const latest=results.pop().results[0],nodeVersion=results.pop().results[0]||null,indexed=new Map();
+    results.slice(0,slices.length).forEach(result=>{for(const value of result.results)map.set(value.path,doc(value));});
+    results.slice(slices.length).forEach(result=>{for(const value of result.results)indexed.set(value.path,catalogDocument(value));});
+    if (latest?.current_version!==r.current_version) throw conflict();
     const items = playlist.items.map(item => {
       const path = item.kind === 'document' ? referencePath(item.sourcePath,r.source_root) : null;
       const document = path ? map.get(path) || null : null;
@@ -138,10 +154,8 @@ export async function playlistsRoute(request, env, user, id, action) {
       return {id:item.id,raw:parsed.xml.slice(item.node.start,item.node.end),kind:item.kind,name:item.name,sourcePath:item.sourcePath,path,document,...(indexed.has(path)&&!document?{indexedDocument:indexed.get(path)}:{}),sharedWith,issue:document?.state==='trashed' ? 'trashed' : item.kind==='unsupported' ? 'unsupported' : item.kind==='document' && !document ? (path ? 'missing' : 'unmapped') : null};
     });
     const documents = [...new Map(items.filter(x=>x.document&&x.document.state!=='trashed').map(x=>[x.document.id,x.document])).values()];
-    const nodeVersion=await db.prepare('SELECT version,author,created_at FROM yebaeon_playlist_node_versions WHERE library_id=? AND node_id=? ORDER BY version DESC LIMIT 1').bind(id,playlist.id).first();
     const nodeXml = parsed.xml.slice(playlist.node.start,playlist.node.end), nodeHash = await sha256(new TextEncoder().encode(nodeXml));
     const fingerprint = await sha256(new TextEncoder().encode(JSON.stringify([r.id,playlist.id,nodeHash,items.map(x=>[x.id,x.path,x.issue,x.document?.version,x.document?.sha256])])));
-    if ((await row(db,id)).current_version!==r.current_version) throw conflict();
     // `applicable`: the node can be installed on a Mac. A reference without a server original is not a blocker —
     // the Mac keeps its own file for that cue. Only unsupported cues and unmapped paths block installation.
     const missing=items.filter(x=>x.issue==='missing').length;

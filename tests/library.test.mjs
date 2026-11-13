@@ -208,6 +208,9 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     const before = await (await call('/status', { cookie })).json();
     const totals = await db.prepare('SELECT COUNT(*) AS count, SUM(size) AS size FROM yebaeon_documents').first();
     assert.equal(before.storage,undefined);assert.equal(before.workers,undefined);
+    // 최근 문서의 사용일은 서버 값이 그 버전 것이면 함께 와서, 현황판이 문서마다 다시 묻지 않는다.
+    const fresh=(await db.prepare('SELECT id,last_used FROM yebaeon_documents WHERE usage_version=current_version ORDER BY updated_at DESC, path LIMIT 20').all()).results;
+    assert.ok(fresh.length);for(const f of fresh){const r=before.recent.find(x=>x.id===f.id);if(r)assert.equal(r.lastDateUsed,f.last_used);}
     assert.equal(before.documents, totals.count); assert.equal(before.bytes, totals.size); assert.ok(before.recent.length <= 20); assert.deepEqual(before.images, { count: 0, bytes: 0 }); assert.ok(Array.isArray(before.studio) && Array.isArray(before.syncEvents));
     const native = { 'User-Agent': 'YebaeOn-Sync/0.3 (macOS)' };
     await code(await call('/session', { cookie, headers: native }), 200);
@@ -220,7 +223,10 @@ test('private document library with real Worker, D1 and R2 bindings', { timeout:
     await code(await mf.dispatchFetch(origin + '/resources%2fcatalog.json'), 401, 'login_required');
     const allowed = await mf.dispatchFetch(origin + '/resources/catalog.json', { headers: { Cookie: cookie } });
     assert.equal(allowed.status, 200); assert.equal(await allowed.text(), 'private resource');
-    assert.equal(allowed.headers.get('Cache-Control'), 'private, no-store');
+    assert.equal(allowed.headers.get('Cache-Control'), 'private, no-cache');
+    const font = await mf.dispatchFetch(origin + '/resources/69d729ee31f97dbc.woff2', { headers: { Cookie: cookie } });
+    assert.equal(font.status, 200); await font.arrayBuffer(); assert.equal(font.headers.get('Cache-Control'), 'private, max-age=31536000, immutable');
+    await code(await mf.dispatchFetch(origin + '/resources/69d729ee31f97dbc.woff2'), 401, 'login_required');
   });
   await t.test('logout, expiration and password rotation invalidate server sessions', async () => {
     await code(await call('/session', { cookie, method: 'DELETE' }), 200);

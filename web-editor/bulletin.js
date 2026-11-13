@@ -26,7 +26,7 @@
   const from=redo?editHistory.future:editHistory.past,to=redo?editHistory.past:editHistory.future,entry=from.pop();if(!entry){historyControls();return;}
   to.push({data:editHistory.current,step:entry.step,svc:entry.svc,active:entry.active});restoring=true;
   try{Object.assign(work,JSON.parse(entry.data),{step:entry.step,svc:entry.svc,results:null,reviewInput:null});ui.active=entry.active&&work.slots[entry.active]?entry.active:null;ui.fresh=false;ui.openLine=null;
-   reviewOps=null;staged=null;previewKey=null;editHistory.current=entry.data;editHistory.group=null;render();
+   reviewOps=null;staged=null;previewKey=null;previewGen++;previewing=false;editHistory.current=entry.data;editHistory.group=null;render();
   }finally{restoring=false;}save();historyControls();
   const input=$('bulletin-'+ui.active)||$(id);if(input?.matches('input,textarea')&&!input.disabled){input.focus();if(typeof caret==='number')input.setSelectionRange(Math.min(caret,input.value.length),Math.min(caret,input.value.length));}revealSource();
   message(redo?'주보 편집을 다시 실행했습니다.':'주보 편집을 실행취소했습니다.');
@@ -76,7 +76,7 @@
    if(r.groups.length){for(const G of M.groups)for(const id of groupSlots(G))delete work.slots[id];M.groups=makeGroups(r.groups,work.summary);}say('설교 노트를 이 칸에서 다시 읽었습니다.');}
   if(kind==='summary'){work.summary=key;let filled=0;points.forEach((p,i)=>{syncBlanks(p);p.blanks.forEach((id,k)=>{const x=r[i]?.[k],s=get(id);s.zone=key;if(x?.value){Object.assign(s,{value:x.value,src:x.src,sug:true,skip:false});filled++;}});});say(filled?`빈칸 ${filled}개를 이 칸에서 찾았습니다.`:'이 칸에서 빈칸 답을 찾지 못했습니다. 낱말을 눌러 채우세요.');}
   if(kind==='weekday'){if(!r.length){message('이 칸에 글이 없습니다.');return;}for(const W of work.weekday)for(const id of [W.series,W.title,W.ref])delete work.slots[id];work.weekday=makeWeekday(r);say('주중예배를 이 칸에서 다시 읽었습니다.');}
-  ui.active=null;reviewOps=null;staged=null;save();render();message(said);}
+  ui.active=null;reviewOps=null;staged=null;previewKey=null;previewGen++;previewing=false;save();render();message(said);}
  function playlists(){return L.libraries().flatMap(l=>l.playlists.map(p=>({key:l.id+'/'+p.id,library:l.id,node:p.id,name:String(p.name).normalize('NFC')})));}
  function pickTargets(){const all=playlists(),names=all.map(p=>p.name);work.targets=[0,1,2].map(i=>all.find(p=>p.name===PL.playlistFor(i,work.date,names))?.key||'');}
  const target=i=>playlists().find(p=>p.key===work.targets[i]);
@@ -207,24 +207,30 @@
  async function extraDoc(E){const found=await findDoc(E.doc);return found.length===1?found[0]:null;}
  let reviewOps=null;
  // 검토·적용: 들어오면 바로 미리 보기를 만든다(항목마다 체크·바뀌는 것·전후 비교가 한 칸). 체크나 날짜를 바꾸면 다시 만든다. ‘적용’이 Studio로 넘긴다.
- let previewKey=null;
+ // 미리 보기는 창을 잠그지 않고 뒤에서 만든다. ‘적용’은 미리 보기가 끝났든 아니든 누를 수 있고, 누르면 만들던 미리 보기는 버린다.
+ let previewKey=null,previewGen=0,previewing=false;
+ // 응답 없는 요청에 묶이지 않게 바뀌는 것 계산과 항목마다 시간 제한을 둔다. 늦게 끝난 결과는 쓰지 않는다.
+ let limit=40000;
+ function within(promise,label){let timer;return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Object.assign(Error(`${label}: ${Math.round(limit/1000)}초 넘게 서버 응답이 없어 멈췄습니다. ‘적용’을 다시 누르세요.`),{timeout:true})),limit);})]).finally(()=>clearTimeout(timer));}
+ // 계산이 실패하거나 시간을 넘기면 결과를 비워 다음에 다시 계산한다.
+ function reviewList(){if(!reviewOps){const p=within(operations(),'바뀌는 것 계산');reviewOps=p;p.catch(()=>{if(reviewOps===p){reviewOps=null;previewKey=null;}});}return reviewOps;}
  function refreshReview(){const key=JSON.stringify([work.date,work.targets,work.main,work.extra,work.weekday,Object.values(work.slots).map(s=>[s.id,s.value,s.skip,s.locked,s.choice])]);
   if(work.reviewInput===key)return;
   work.includeManual??=Object.fromEntries(Object.keys(work.include).map(k=>[k,true]));
   for(const k of Object.keys(work.include))if(!work.includeManual[k])delete work.include[k];
   if(work.reviewInput)work.results=null;
-  work.reviewInput=key;reviewOps=null;staged=null;previewKey=null;save();
+  work.reviewInput=key;reviewOps=null;staged=null;previewKey=null;previewGen++;previewing=false;save();
  }
 
  function stepReview(root){refreshReview();const inputKey=work.reviewInput,reviewWork=work;
-  if(work.results){const g=group('적용 결과');const ul=el('ul','bulletin-results');for(const r of work.results)ul.append(el('li',r.ok?'ok':'bad',`${r.label} · ${r.text}`));g.append(ul);if(work.results.some(r=>!r.ok))g.append(el('p','bulletin-note','실패한 항목만 다시 미리 보기를 만들어 적용할 수 있습니다. 적용한 항목은 Studio에서 ‘서버 저장’을 눌러야 서버에 갑니다.'));root.append(g);}
-  root.append(el('p','bulletin-note','바뀌는 모습을 확인하고 ‘적용’을 누르면 Studio에 저장 필요 상태로 넘기고 창을 닫습니다. 서버 저장은 Studio에서 합니다. 빼고 싶은 항목은 체크를 끄세요. 아직 Studio에도 서버에도 넘기지 않았습니다.'));
+  if(work.results){const g=group('적용 결과');const ul=el('ul','bulletin-results');for(const r of work.results)ul.append(el('li',r.ok?'ok':'bad',`${r.label} · ${r.text}`));g.append(ul);if(work.results.some(r=>!r.ok))g.append(el('p','bulletin-note','‘적용’을 다시 누르면 실패한 항목만 다시 합니다. 적용한 항목은 Studio에서 ‘서버 저장’을 눌러야 서버에 갑니다.'));root.append(g);}
+  root.append(el('p','bulletin-note','바뀌는 모습을 확인하고 ‘적용’을 누르면 Studio에 저장 필요 상태로 넘기고 창을 닫습니다. 미리 보기가 끝나지 않았거나 실패해도 ‘적용’할 수 있습니다(적용할 때 서버 최신 내용으로 다시 만듭니다). 서버 저장은 Studio에서 합니다. 빼고 싶은 항목은 체크를 끄세요. 아직 Studio에도 서버에도 넘기지 않았습니다.'));
   const list=el('div','bulletin-review');root.append(list);list.append(el('p','bulletin-note','바뀌는 것을 계산하는 중…'));
-  (reviewOps||(reviewOps=operations())).then(ops=>{if(work!==reviewWork||work.step!=='review'||work.reviewInput!==inputKey||!list.isConnected)return;list.replaceChildren();for(const o of ops){if(!(o.key in work.include))work.include[o.key]=!o.skip&&!o.lines.some(l=>l[0]==='bad');const r=staged?.get(o.key),d=el('div','bulletin-op'+(work.include[o.key]?'':' off')+(r&&!r.ok?' bad':'')),lab=el('label'),cb=el('input');cb.type='checkbox';cb.checked=work.include[o.key];cb.disabled=busy||o.lines.some(l=>l[0]==='bad')||o.kind==='error';cb.onchange=()=>{work.include[o.key]=cb.checked;work.includeManual[o.key]=true;save();render();};
+  reviewList().then(ops=>{if(work!==reviewWork||work.step!=='review'||work.reviewInput!==inputKey||!list.isConnected)return;list.replaceChildren();for(const o of ops){if(!(o.key in work.include))work.include[o.key]=!o.skip&&!o.lines.some(l=>l[0]==='bad');const r=staged?.get(o.key),d=el('div','bulletin-op'+(work.include[o.key]?'':' off')+(r&&!r.ok?' bad':'')),lab=el('label'),cb=el('input');cb.type='checkbox';cb.checked=work.include[o.key];cb.disabled=busy||o.lines.some(l=>l[0]==='bad')||o.kind==='error';cb.onchange=()=>{work.include[o.key]=cb.checked;work.includeManual[o.key]=true;save();render();};
     lab.append(cb,o.label,el('small',null,o.sub||''));d.append(lab);for(const [c,t] of o.lines.filter(l=>l[0]==='bad'||l[0]==='wait'))d.append(el('small','bulletin-op-note '+c,t));
     if(r&&work.include[o.key]){d.classList.add('bulletin-staged');d.append(el('small','bulletin-staged-note',r.text));if(r.ok)d.append(preview(r));}else if(work.include[o.key]&&!work.results?.some(x=>x.key===o.key&&x.ok))d.append(el('small','bulletin-staged-note','미리 보기 만드는 중…'));
     list.append(d);}foot();
-   const missing=ops.filter(o=>work.include[o.key]&&!staged?.has(o.key)&&!work.results?.some(x=>x.key===o.key&&x.ok)).map(o=>o.key),key=JSON.stringify([work.date,missing]);if(missing.length&&!busy&&previewKey!==key){previewKey=key;run(apply);}}).catch(e=>{list.replaceChildren(el('p','bulletin-note bad',e.message));});}
+   const missing=ops.filter(o=>work.include[o.key]&&!staged?.has(o.key)&&!work.results?.some(x=>x.key===o.key&&x.ok)).map(o=>o.key),key=JSON.stringify([work.date,missing]);if(missing.length&&!busy&&!previewing&&previewKey!==key){previewKey=key;makePreview();}}).catch(e=>{if(work===reviewWork&&list.isConnected)list.replaceChildren(el('p','bulletin-note bad',e.message));});}
  // 적용은 두 단계다. ‘미리 보기’는 바뀐 문서와 순서를 이 창에서만 만들어 보여 주고, ‘적용’은 그것을 Studio의 미저장 문서·순서(브라우저 초안)로 넘긴다.
  // 서버에는 쓰지 않는다. 서버에는 Studio에서 재생목록을 열어 ‘서버 저장’을 누를 때 간다.
  // 적용할 때는 서버의 최신 버전을 다시 읽어 같은 변경을 만든다. 같은 문서를 여러 항목이 고치면 chain으로 앞 항목의 결과 위에 잇는다.
@@ -245,18 +251,27 @@
  function stageOp(o,need,chain){if(o.kind==='prayer')return rewrite(o.doc,(xml,name)=>D.prayer(xml,name,o.person),'side',chain);if(o.kind==='sermon')return rewrite(o.doc,async(xml,name)=>D.sermon(xml,name,o.data,await need()),'stack',chain);if(o.kind==='simple')return rewrite(o.doc,async(xml,name)=>D.titlePassage(xml,name,o.data,await need(),{made:!!o.weekday}),'side',chain);return applyPlaylist(o);}
  // 문서마다 그 문서가 든 재생목록 키들. 그 목록에 ‘저장 필요’를 붙인다.
  async function docMarks(){const m=new Map();for(const [k,p] of plans){let data;try{data=await p;}catch{continue;}for(const x of data.items)if(docId(x)){if(!m.has(docId(x)))m.set(docId(x),new Set());m.get(docId(x)).add(k);}}return m;}
- async function todoOps(){const ops=await reviewOps;const todo=ops.filter(o=>work.include[o.key]&&!work.results?.some(r=>r.key===o.key&&r.ok));if(!todo.length)throw Error('적용할 항목이 없습니다.');return [...todo.filter(o=>o.kind!=='playlist'),...todo.filter(o=>o.kind==='playlist')];}
- async function apply(){const todo=(await todoOps()).filter(o=>!staged?.has(o.key));
-  let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const next=new Map(staged||[]),chain=new Map();
-  for(const [n,o] of todo.entries()){message(`${n+1}/${todo.length} ${o.label} 만드는 중…`);
-   try{next.set(o.key,{key:o.key,label:o.label,ok:true,op:o,...await stageOp(o,need,chain)});}catch(e){next.set(o.key,{key:o.key,label:o.label,ok:false,text:e.message});}}
-  staged=next;message(chosen().every(r=>r.ok)?'바뀐 내용을 확인하고 ‘적용’을 누르세요. 적용해도 서버에는 Studio에서 ‘서버 저장’을 누를 때 갑니다.':'만들지 못한 항목이 있습니다. 나머지는 확인한 뒤 적용할 수 있습니다.');render();}
- async function commit(){const results=(work.results||[]).filter(r=>r.ok);
-  let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const chain=new Map(),docs=[],lists=[];
-  const ready=chosen();for(const [n,r] of ready.entries()){if(!r.ok){results.push({key:r.key,label:r.label,ok:false,text:r.text});continue;}message(`${n+1}/${ready.length} ${r.label} 만드는 중…`);
-   try{if(r.op.kind==='playlist')plans.delete(r.op.target);const fresh=await stageOp(r.op,need,chain);(r.op.kind==='playlist'?lists:docs).push({r,fresh});}catch(e){results.push({key:r.key,label:r.label,ok:false,text:e.message});}}
-  const marks=await docMarks(),failed=new Map();
-  for(const [id,c] of chain){try{await C.stageDocument(c.doc,c.original,c.xml,[...(marks.get(id)||[])]);}catch(e){failed.set(id,e.message);}}
+ async function todoOps(){const ops=await reviewList();const todo=ops.filter(o=>work.include[o.key]&&!work.results?.some(r=>r.key===o.key&&r.ok));if(!todo.length)throw Error('적용할 항목이 없습니다.');return [...todo.filter(o=>o.kind!=='playlist'),...todo.filter(o=>o.kind==='playlist')];}
+ // 미리 보기: 창을 잠그지 않는다. 다른 미리 보기나 ‘적용’이 시작되면(previewGen이 바뀌면) 그 자리에서 그만두고 결과를 버린다.
+ // 다른 단계에서 입력하는 중에는 화면을 다시 그리지 않는다. 검토로 돌아오면 쌓인 결과를 그린다.
+ async function makePreview(){const gen=++previewGen,current=()=>gen===previewGen,show=()=>{if(work?.step==='review'&&dialog.open)render();};previewing=true;foot();
+  try{const todo=(await todoOps()).filter(o=>!staged?.has(o.key));
+   let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const next=new Map(staged||[]),chain=new Map();
+   for(const [n,o] of todo.entries()){if(!current())return;if(work.step==='review')message(`${n+1}/${todo.length} ${o.label} 미리 보기 만드는 중… 기다리지 않고 ‘적용’해도 됩니다.`);
+    try{next.set(o.key,{key:o.key,label:o.label,ok:true,op:o,...await within(stageOp(o,need,chain),o.label)});}catch(e){next.set(o.key,{key:o.key,label:o.label,ok:false,text:e.message});}
+    if(!current())return;staged=new Map(next);show();}
+   if(current()&&work.step==='review')message(chosen().every(r=>r.ok)?'바뀐 내용을 확인하고 ‘적용’을 누르세요. 적용해도 서버에는 Studio에서 ‘서버 저장’을 누를 때 갑니다.':'미리 보기를 만들지 못한 항목이 있습니다. ‘적용’하면 서버 최신 내용으로 다시 만들어 넘깁니다.');}
+  catch(e){if(current())message(e.message);}
+  finally{if(current()){previewing=false;show();}}}
+ // 적용: 체크한 항목 가운데 아직 적용하지 않은 것을 서버 최신 내용으로 다시 만들어 Studio로 넘긴다. 미리 보기 결과에 기대지 않는다.
+ async function commit(){previewGen++;previewing=false;const results=(work.results||[]).filter(r=>r.ok);
+  let materials=null;const need=()=>materials||(materials=YebaeonResources.bulletinMaterials());const chain=new Map(),docs=[],lists=[],late=new Set();
+  const todo=await todoOps();for(const [n,o] of todo.entries()){message(`${n+1}/${todo.length} ${o.label} 적용하는 중…`);
+   try{if(o.kind==='playlist')plans.delete(o.target);const fresh=await within(stageOp(o,need,chain),o.label);(o.kind==='playlist'?lists:docs).push({r:{key:o.key,label:o.label,op:o},fresh});}
+   catch(e){if(e.timeout&&o.doc)late.add(o.doc);results.push({key:o.key,label:o.label,ok:false,text:e.message});}}
+  // 시간을 넘긴 문서는 늦게 끝나도 넘기지 않는다. 같은 문서를 잇는 다른 항목도 함께 실패로 둔다.
+  const marks=await docMarks(),failed=new Map([...late].map(id=>[id,'같은 문서의 앞 항목이 응답 없이 멈춰 넘기지 않았습니다. ‘적용’을 다시 누르세요.']));
+  for(const [id,c] of chain){if(late.has(id))continue;try{await C.stageDocument(c.doc,c.original,c.xml,[...(marks.get(id)||[])]);}catch(e){failed.set(id,e.message);}}
   for(const {r,fresh} of docs)results.push(failed.has(r.op.doc)?{key:r.key,label:r.label,ok:false,text:failed.get(r.op.doc)}:{key:r.key,label:r.label,ok:true,text:fresh.text+' · 저장 필요'});
   for(const {r,fresh} of lists){try{results.push({key:r.key,label:r.label,ok:true,text:await fresh.stage()});}catch(e){results.push({key:r.key,label:r.label,ok:false,text:e.message});}}
   staged=null;work.results=results;resetHistory();save();await L.refreshPending();
@@ -274,7 +289,7 @@
   if(id!=='review'){const left=Object.values(work.slots).filter(s=>s.step===id&&!s.locked&&!s.skip&&(s.kind==='song'?s.value&&!s.choice:!s.value.trim())).length;b.append(el('span','n'+(left?' left':''),left?String(left):'✓'));}
   b.onclick=()=>{work.step=id;ui.active=null;save();render();};nav.append(b);}}
  function foot(){historyControls();const prev=$('bulletinPrev'),next=$('bulletinNext');if(!work){prev.hidden=next.hidden=true;return;}prev.hidden=next.hidden=false;const i=STEPS.findIndex(s=>s[0]===work.step);prev.disabled=busy||i===0&&work.svc===0;
-  next.disabled=busy;if(work.step==='review'){const done=work.results&&work.results.every(r=>r.ok);const usable=chosen().some(r=>r.ok);next.textContent=done?'닫기':usable?'적용':busy?'미리 보기 만드는 중…':'미리 보기 다시 만들기';}else next.textContent=i===3?'검토하기':'다음';}
+  next.disabled=busy;if(work.step==='review'){const done=work.results&&work.results.every(r=>r.ok);next.textContent=done?'닫기':busy?'적용하는 중…':'적용';}else next.textContent=i===3?'검토하기':'다음';}
  // 화면을 다시 그리는 동안 포커스된 입력칸이 빠지면 change가 다시 render를 부른다. 끝난 뒤 한 번 더 그린다.
  let rendering=false,again=false;
  function render(){if(rendering){again=true;return;}rendering=true;try{draw();}finally{rendering=false;}if(again){again=false;render();}}
@@ -286,14 +301,14 @@
  function save(group=null){if(!work||restoring)return;for(const g of work.main.groups)for(const p of g.points)syncBlanks(p);remember(group);try{sessionStorage.setItem(recoveryKey,JSON.stringify({author:C.worker(),work,seq}));}catch{message('브라우저에 작업을 보존하지 못했습니다. 이 창을 닫으면 다시 채워야 합니다.');}}
  function lock(value){busy=value;dialog.setAttribute('aria-busy',String(value));for(const e of dialog.querySelectorAll('button,input,select'))e.disabled=value;if(!value)render();}
  async function run(fn){if(busy)return;lock(true);try{await fn();}catch(e){message(e.message);}finally{lock(false);}}
- async function loadFile(file){if(!/\.hwp$/i.test(file.name))throw Error('HWP 5 파일을 선택하세요.');if(file.size>16*1024*1024)throw Error('16MB 이내 주보를 선택하세요.');const parsed=BP.parse(await file.arrayBuffer());plans.clear();YebaeonSearch.clear();reviewOps=null;staged=null;previewKey=null;ui.active=null;build(parsed,file.name);resetHistory();save();render();message(file.name+(parsed.date?'':' · 주보 날짜를 찾지 못했습니다. 파일 이름 옆에 날짜를 입력하세요.'));}
+ async function loadFile(file){if(!/\.hwp$/i.test(file.name))throw Error('HWP 5 파일을 선택하세요.');if(file.size>16*1024*1024)throw Error('16MB 이내 주보를 선택하세요.');const parsed=BP.parse(await file.arrayBuffer());plans.clear();YebaeonSearch.clear();reviewOps=null;staged=null;previewKey=null;previewGen++;previewing=false;ui.active=null;build(parsed,file.name);resetHistory();save();render();message(file.name+(parsed.date?'':' · 주보 날짜를 찾지 못했습니다. 파일 이름 옆에 날짜를 입력하세요.'));}
  button.onclick=()=>{if(!C.needUser())return;if(!work){try{const saved=JSON.parse(sessionStorage.getItem(recoveryKey)||'null');if(saved?.author===C.worker()&&saved.work&&confirm('이 탭의 주보 준비 작업을 이어서 할까요?')){work=saved.work;seq=saved.seq||0;resetHistory();}}catch{message('보존한 주보 작업을 읽지 못했습니다. 주보를 다시 여세요.');}}render();dialog.showModal();};
  $('bulletinClose').onclick=()=>{if(!busy)dialog.close();};dialog.addEventListener('cancel',e=>{if(busy)e.preventDefault();});$('bulletinScrim').onclick=closeSheet;
  $('bulletinPrev').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(work.step==='song'&&work.svc>0)work.svc--;else if(i>0){work.step=STEPS[i-1][0];if(work.step==='song')work.svc=2;}else return;ui.active=null;save();render();};
- $('bulletinNext').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(work.step!=='review'){if(work.step==='song'&&work.svc<2)work.svc++;else work.step=STEPS[i+1][0];ui.active=null;save();render();return;}if(work.results&&work.results.every(r=>r.ok)){dialog.close();return;}if(chosen().some(r=>r.ok)){run(commit);return;}staged=null;run(apply);};
+ $('bulletinNext').onclick=()=>{const i=STEPS.findIndex(s=>s[0]===work.step);if(work.step!=='review'){if(work.step==='song'&&work.svc<2)work.svc++;else work.step=STEPS[i+1][0];ui.active=null;save();render();return;}if(work.results&&work.results.every(r=>r.ok)){dialog.close();return;}run(commit);};
  $('bulletinUndo').onclick=()=>undoEdit();$('bulletinRedo').onclick=()=>undoEdit(true);
  dialog.addEventListener('keydown',e=>{if(e.isComposing||e.keyCode===229||e.altKey||!(e.ctrlKey||e.metaKey)||!['KeyZ','KeyY'].includes(e.code))return;e.preventDefault();e.stopPropagation();undoEdit(e.code==='KeyY'||e.shiftKey);});
  dialog.addEventListener('beforeinput',e=>{if(!['historyUndo','historyRedo'].includes(e.inputType))return;e.preventDefault();undoEdit(e.inputType==='historyRedo');});
- window.addEventListener('yebaeonsession',e=>{if(!e.detail.authenticated){work=null;resetHistory();staged=null;plans.clear();YebaeonSearch.clear();reviewOps=null;dialog.close();}});
- window.YebaeonBulletin={loadFile,state:()=>work,go(step){work.step=step;ui.active=null;render();}};render();
+ window.addEventListener('yebaeonsession',e=>{if(!e.detail.authenticated){work=null;resetHistory();staged=null;previewGen++;previewing=false;plans.clear();YebaeonSearch.clear();reviewOps=null;dialog.close();}});
+ window.YebaeonBulletin={loadFile,state:()=>work,timeout(ms){limit=ms;},go(step){work.step=step;ui.active=null;render();}};render();
 })();
