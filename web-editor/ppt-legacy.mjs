@@ -8,6 +8,8 @@ import {readShapeProperties} from 'ppt-codec/drawing/properties';
 import {readDrawingShapes} from 'ppt-codec/drawing/shapes';
 import {readBlipStore} from 'ppt-codec/drawing/blips';
 const u32=(r,at)=>new DataView(r.data.buffer,r.data.byteOffset,r.data.byteLength).getUint32(at,true);
+// 그림 원본 바이트. PPTX와 같이 공통 배경 판정·용량 표시에 쓴다.
+const decode=b64=>{const s=atob(b64),out=new Uint8Array(s.length);for(let i=0;i<s.length;i++)out[i]=s.charCodeAt(i);return out;};
 const rgb=n=>'#'+[n&255,(n>>>8)&255,(n>>>16)&255].map(n=>n.toString(16).padStart(2,'0')).join('');
 export function legacy(bytes){
  const cfb=CFB.read(bytes,{type:'array'}),stream=name=>{const e=CFB.find(cfb,name);if(!e)throw Error('PPT 필수 스트림이 없습니다: '+name);return new Uint8Array(e.content);};
@@ -37,7 +39,7 @@ export function legacy(bytes){
    shape.fillOpacity=Math.max(0,Math.min(1,get(p,386,65536)/65536));
    shape.flipH=!!(identity&&(u32(identity,4)&64));shape.flipV=!!(identity&&(u32(identity,4)&128));
    const image=shape.blocks.find(b=>b.kind==='image');
-   if(image)slide.images.push({name:'이미지 '+(j+1),url:`data:image/${image.format};base64,${image.base64}`,x:f.xPt,y:f.yPt,w:f.widthPt,h:f.heightPt,rotation:shape.rotationDeg||0,flipH:shape.flipH,flipV:shape.flipV,crop:{top:get(p,256,0)/65536,bottom:get(p,257,0)/65536,left:get(p,258,0)/65536,right:get(p,259,0)/65536}});
+   if(image)slide.images.push({name:'이미지 '+(j+1),bytes:decode(image.base64),type:'image/'+image.format,url:`data:image/${image.format};base64,${image.base64}`,x:f.xPt,y:f.yPt,w:f.widthPt,h:f.heightPt,rotation:shape.rotationDeg||0,flipH:shape.flipH,flipV:shape.flipV,crop:{top:get(p,256,0)/65536,bottom:get(p,257,0)/65536,left:get(p,258,0)/65536,right:get(p,259,0)/65536}});
    if(!shape.blocks.length&&get(p,260,0))slide.warnings.push('표시할 수 없는 이미지가 있습니다. PPTX 또는 이미지로 다시 저장해 주세요.');
    if(shape.blocks.some(b=>!['image','paragraph','table'].includes(b.kind)))slide.warnings.push('일부 개체는 정지 화면으로 변환되지 않습니다.');
   });
