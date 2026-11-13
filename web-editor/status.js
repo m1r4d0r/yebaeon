@@ -32,7 +32,7 @@ function eventText(e){
 }
 // 같은 이름 장치가 여럿이면 장치 번호 앞 6자리로 구분한다.
 const deviceLabel=(e,devices)=>devices?.length>1&&e.device?e.device+(e.code&&devices.filter(d=>d.name===e.device).length>1?` (${e.code})`:'')+' · ':'';
-async function refresh(){if(busy||document.hidden)return;busy=true;try{const s=await request('/api/status');$('login').hidden=true;$('dashboard').hidden=false;
+async function refresh(){if(busy||document.hidden)return;busy=true;try{const catalogLoad=catalog?null:request('/resources/catalog.json').catch(()=>null),s=await request('/api/status');$('login').hidden=true;$('dashboard').hidden=false;
  $('count').textContent=fmt(s.documents);$('bytes').textContent=size(s.bytes);$('imageCount').textContent=fmt(s.images?.count);$('imageBytes').textContent=size(s.images?.bytes);
  $('imageSummary').textContent=`원본 ${fmt(s.images?.count)}개 · ${size(s.images?.bytes)}`;$('observed').textContent='마지막 확인 '+time(s.observedAt);
  rows('studio',s.studio||[],x=>[x.author,time(x.at),studioLine(x)],['','dim','']);
@@ -42,7 +42,7 @@ async function refresh(){if(busy||document.hidden)return;busy=true;try{const s=a
  Array.from($('recent').children).forEach((row,i)=>{if(s.recent[i])window.YebaeonUsage.show(row.lastChild,s.recent[i],false);});
  if(s.storage)details(s.storage,s.observedAt);
  $('message').textContent='서버 기록을 확인했습니다.';$('message').hidden=true;
- if(!catalog){try{catalog=await request('/resources/catalog.json');}catch(_){}}
+ if(!catalog)catalog=await catalogLoad;
  if(catalog){$('baseline').textContent=`이름 인덱스 ${fmt(s.catalogDocuments)}개 · 원본 미업로드 ${fmt(s.unavailableDocuments)}개`;
   const facts=[['폰트',`${(catalog.fonts||[]).length}종${catalog.storage?' · '+size(catalog.storage.fontBytes):''}`],['템플릿',`${catalog.templateFiles||0}개 파일 · ${catalog.templates||0}개 슬라이드`],['성경',catalog.bible?`${catalog.bible.name} ${fmt(catalog.bible.verses)}절`:'없음'],['배포 이미지',`금요예배 ${(catalog.media||[]).length}개${catalog.storage?' · '+size(catalog.storage.mediaBytes):''}`]];
   $('resources').replaceChildren(...facts.flatMap(([k,v])=>[el('dt','',k),el('dd','',v)]));}

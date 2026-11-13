@@ -1,5 +1,6 @@
 import {HttpError,json,method,sameOrigin,bytes,sha256} from './http.mjs';
-import {referencePath,parsePlaylist} from './playlist-format.mjs';
+import {referencePath} from './playlist-format.mjs';
+import {readPlaylist} from './playlists.mjs';
 export function observationState(observation,hash){
   if(!observation||observation.status==='unknown')return 'unknown';
   if(observation.status==='conflict')return 'conflict';
@@ -34,9 +35,9 @@ export async function syncObservationsRoute(request,env,user){
   const ids=[...new Set(targets.filter(t=>t.kind==='document').map(t=>t.id))];
   for(const d of await selectIn('SELECT id,path,sha256 FROM yebaeon_documents WHERE id IN ($IN)',ids))documents.set(d.id,d);
   const playlistIDs=[...new Set(targets.filter(t=>t.kind==='playlist').map(t=>t.id))];
-  const libraries=await selectIn('SELECT p.id,p.source_root,v.object_key FROM yebaeon_playlists p JOIN yebaeon_playlist_versions v ON v.library_id=p.id AND v.version=p.current_version WHERE p.id IN ($IN)',playlistIDs);
+  const libraries=await selectIn('SELECT id,source_root,current_version,sha256 FROM yebaeon_playlists WHERE id IN ($IN)',playlistIDs);
   const paths=new Set();
-  for(const l of libraries){const object=await env.FILES.get(l.object_key);if(!object)continue;const parsed=parsePlaylist(await object.text());for(const n of parsed.playlists){if(!targets.some(t=>t.kind==='playlist'&&t.id===l.id&&t.node===n.id))continue;const key='playlist/'+l.id+'/'+n.id;hashes.set(key,await sha256(new TextEncoder().encode(parsed.xml.slice(n.node.start,n.node.end))));const refs=n.items.filter(i=>i.kind==='document').map(i=>referencePath(i.sourcePath,l.source_root)||'');links.set(key,refs);refs.forEach(p=>{if(p)paths.add(p);});}}
+  for(const l of libraries){let parsed;try{parsed=await readPlaylist(env,l);}catch{continue;}for(const n of parsed.playlists){if(!targets.some(t=>t.kind==='playlist'&&t.id===l.id&&t.node===n.id))continue;const key='playlist/'+l.id+'/'+n.id;hashes.set(key,await sha256(new TextEncoder().encode(parsed.xml.slice(n.node.start,n.node.end))));const refs=n.items.filter(i=>i.kind==='document').map(i=>referencePath(i.sourcePath,l.source_root)||'');links.set(key,refs);refs.forEach(p=>{if(p)paths.add(p);});}}
   for(const d of await selectIn('SELECT id,path,sha256 FROM yebaeon_documents WHERE path IN ($IN)',[...paths]))documents.set(d.id,d);
   for(const d of documents.values()){const key='document/'+d.id+'/';hashes.set(key,d.sha256);documentPaths.set(d.path,key);}
   for(const [key,refs] of links)links.set(key,refs.map(p=>documentPaths.get(p)||''));

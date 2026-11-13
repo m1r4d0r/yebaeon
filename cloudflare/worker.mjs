@@ -89,7 +89,8 @@ export default {
         method(request, ['GET', 'HEAD']);
         const response = await env.ASSETS.fetch(request);
         const secured = new Response(response.body, response);
-        secured.headers.set('Cache-Control', 'private, no-store');
+        // 내용 해시 이름의 폰트는 바뀌지 않으므로 브라우저에 오래 둔다. 나머지(목록·성경·템플릿·이름 고정 폰트)는 쓸 때마다 ETag로 바뀌었는지 묻는다.
+        secured.headers.set('Cache-Control', response.ok && /^\/resources\/[0-9a-f]{16}\.woff2$/.test(pathname) ? 'private, max-age=31536000, immutable' : 'private, no-cache');
         return secured;
       }
       if (pathname === '/api/activity') return await activityRoute(request, env, user);

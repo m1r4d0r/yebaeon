@@ -12,22 +12,35 @@ export async function recordSync(request, env, user, kind) {
 export async function statusRoute(request, env) {
   method(request, ['GET']);
   const detailed = new URL(request.url).searchParams.get('details') === '1';
+  // 조회를 한 batch로 보내 D1 왕복을 한 번으로 줄인다. R2의 최신 Sync 빌드는 함께 기다린다.
+  const queries=[
+    ['documents-summary',`SELECT COUNT(*) AS documents, COALESCE(SUM(size),0) AS bytes,
+    MAX(updated_at) AS latestUploadAt FROM yebaeon_documents`,true],
+    ['playlists-summary','SELECT COUNT(*) AS count, COALESCE(SUM(size),0) AS bytes FROM yebaeon_playlists',true],
+    ['catalog-summary',`SELECT COUNT(*) AS catalogDocuments, COALESCE(SUM(d.id IS NULL),0) AS unavailableDocuments FROM yebaeon_library_catalog c LEFT JOIN yebaeon_documents d ON d.path=c.path`,true],
+    ['recent',`SELECT id, path, current_version AS version, updated_by AS author,
+    updated_at AS updatedAt, size, last_used AS lastUsed, usage_version AS usageVersion, usage_error AS usageError FROM yebaeon_documents ORDER BY updated_at DESC, path LIMIT 20`],
+    ['media-summary','SELECT COUNT(*) AS count, COALESCE(SUM(size),0) AS bytes FROM yebaeon_media_assets',true],
+    ['devices',"SELECT id,name,status_at AS statusAt,last_seen_at AS lastSeenAt,json_extract(status,'$.build') AS build FROM yebaeon_sync_devices WHERE revoked_at IS NULL"],
+    // 최근 서버 쓰기 300줄만 읽어 Studio 작업(device_id 없음)과 Mac 올리기(장치 열쇠로 쓴 줄)로 나눈다. 이름이 같아도 섞이지 않는다.
+    ['sync-log',`SELECT seq,kind,entity,action,path,name,author,device_id AS deviceId,at FROM yebaeon_sync_log ORDER BY seq DESC LIMIT 300`],
+    ['sync-events',`SELECT device_id AS deviceId,kind,summary,at FROM yebaeon_sync_events ORDER BY seq DESC LIMIT 30`],
+    ['sync-commands',`SELECT device_id AS deviceId,action,args,author,created_at AS at,state FROM yebaeon_sync_commands ORDER BY created_at DESC LIMIT 20`],
+    ...(detailed?[
+      ['document-history',`SELECT COUNT(*) AS count, COALESCE(SUM(v.size),0) AS bytes FROM yebaeon_versions v JOIN yebaeon_documents d ON d.id=v.document_id WHERE v.version<>d.current_version`,true],
+      ['playlist-history',`SELECT COUNT(*) AS count, COALESCE(SUM(v.size),0) AS bytes FROM yebaeon_playlist_versions v JOIN yebaeon_playlists p ON p.id=v.library_id WHERE v.version<>p.current_version`,true],
+      // 이미지: 바이트는 sha 하나에 한 번(중복 경로는 한 번만), 폴더별은 경로 수와 그 경로들이 가리키는 크기.
+      ['media-folders',`SELECT CASE WHEN path>='/Users/Shared/Renewed Vision Media/Images/' AND path<'/Users/Shared/Renewed Vision Media/Images0' THEN 'Images' WHEN path>='/Users/Shared/Renewed Vision Media/ImportedImages/' AND path<'/Users/Shared/Renewed Vision Media/ImportedImages0' THEN 'ImportedImages' WHEN path>='/Users/Shared/Renewed Vision Media/YebaeOn/' AND path<'/Users/Shared/Renewed Vision Media/YebaeOn0' THEN 'YebaeOn' ELSE 'other' END AS folder, COUNT(*) AS count, COALESCE(SUM(size),0) AS bytes FROM yebaeon_media_paths WHERE state='active' GROUP BY folder ORDER BY folder`]
+    ]:[])
+  ];
+  const [results,syncApp]=await Promise.all([env.DB.batch(queries.map(([,sql])=>env.DB.prepare(sql))),latestBuild(env)]);
   // Log only aggregate billing metadata, never document paths or content.
-  const costs=[];
-  async function query(label,sql,first=false){const result=await env.DB.prepare(sql).all();costs.push({query:label,rowsRead:result.meta?.rows_read||0,rowsWritten:result.meta?.rows_written||0});return first?result.results[0]:result.results;}
-  const totals = await query('documents-summary',`SELECT COUNT(*) AS documents, COALESCE(SUM(size),0) AS bytes,
-    MAX(updated_at) AS latestUploadAt FROM yebaeon_documents`,true);
-  const playlists = await query('playlists-summary','SELECT COUNT(*) AS count, COALESCE(SUM(size),0) AS bytes FROM yebaeon_playlists',true);
-  const catalog=await query('catalog-summary',`SELECT COUNT(*) AS catalogDocuments, COALESCE(SUM(d.id IS NULL),0) AS unavailableDocuments FROM yebaeon_library_catalog c LEFT JOIN yebaeon_documents d ON d.path=c.path`,true);
-  const recent = await query('recent',`SELECT id, path, current_version AS version, updated_by AS author,
-    updated_at AS updatedAt, size FROM yebaeon_documents ORDER BY updated_at DESC, path LIMIT 20`);
-  const images = await query('media-summary','SELECT COUNT(*) AS count, COALESCE(SUM(size),0) AS bytes FROM yebaeon_media_assets',true);
-  const devices = await query('devices',"SELECT id,name,status_at AS statusAt,last_seen_at AS lastSeenAt,json_extract(status,'$.build') AS build FROM yebaeon_sync_devices WHERE revoked_at IS NULL");
+  const costs=[],rows={};
+  queries.forEach(([label,,first],i)=>{const r=results[i];costs.push({query:label,rowsRead:r.meta?.rows_read||0,rowsWritten:r.meta?.rows_written||0});rows[label]=first?r.results[0]:r.results;});
+  const totals=rows['documents-summary'],playlists=rows['playlists-summary'],catalog=rows['catalog-summary'],images=rows['media-summary'],devices=rows.devices,log=rows['sync-log'],applied=rows['sync-events'],commands=rows['sync-commands'];
+  // 최근 사용일은 서버 값이 그 버전 것일 때만 준다. 아니면 화면이 문서별로 다시 묻는다.
+  const recent=rows.recent.map(({lastUsed,usageVersion,usageError,...r})=>({...r,...(usageVersion===r.version?{lastDateUsed:lastUsed,usageError}:{})}));
   const deviceNames = new Set(devices.map(d => d.name));
-  // 최근 서버 쓰기 300줄만 읽어 Studio 작업(device_id 없음)과 Mac 올리기(장치 열쇠로 쓴 줄)로 나눈다. 이름이 같아도 섞이지 않는다.
-  const log = await query('sync-log',`SELECT seq,kind,entity,action,path,name,author,device_id AS deviceId,at FROM yebaeon_sync_log ORDER BY seq DESC LIMIT 300`);
-  const applied = await query('sync-events',`SELECT device_id AS deviceId,kind,summary,at FROM yebaeon_sync_events ORDER BY seq DESC LIMIT 30`);
-  const commands = await query('sync-commands',`SELECT device_id AS deviceId,action,args,author,created_at AS at,state FROM yebaeon_sync_commands ORDER BY created_at DESC LIMIT 20`);
   const studio = studioWork(log.filter(r => !r.deviceId));
   const syncEvents = deviceEvents(log.filter(r => r.deviceId), applied, commands, devices);
   // 최근 문서의 Mac/Studio 표시도 그 문서의 마지막 일지 줄로 정한다. 300줄 밖이면 이름으로 짐작한다.
@@ -36,14 +49,11 @@ export async function statusRoute(request, env) {
   for (const r of recent) r.device = lastWriter.has(r.id) ? lastWriter.get(r.id) : deviceNames.has(r.author);
   let storage;
   if(detailed){
-    const documentHistory=await query('document-history',`SELECT COUNT(*) AS count, COALESCE(SUM(v.size),0) AS bytes FROM yebaeon_versions v JOIN yebaeon_documents d ON d.id=v.document_id WHERE v.version<>d.current_version`,true);
-    const playlistHistory=await query('playlist-history',`SELECT COUNT(*) AS count, COALESCE(SUM(v.size),0) AS bytes FROM yebaeon_playlist_versions v JOIN yebaeon_playlists p ON p.id=v.library_id WHERE v.version<>p.current_version`,true);
-    // 이미지: 바이트는 sha 하나에 한 번(중복 경로는 한 번만), 폴더별은 경로 수와 그 경로들이 가리키는 크기.
-    const folders=await query('media-folders',`SELECT CASE WHEN path>='/Users/Shared/Renewed Vision Media/Images/' AND path<'/Users/Shared/Renewed Vision Media/Images0' THEN 'Images' WHEN path>='/Users/Shared/Renewed Vision Media/ImportedImages/' AND path<'/Users/Shared/Renewed Vision Media/ImportedImages0' THEN 'ImportedImages' WHEN path>='/Users/Shared/Renewed Vision Media/YebaeOn/' AND path<'/Users/Shared/Renewed Vision Media/YebaeOn0' THEN 'YebaeOn' ELSE 'other' END AS folder, COUNT(*) AS count, COALESCE(SUM(size),0) AS bytes FROM yebaeon_media_paths WHERE state='active' GROUP BY folder ORDER BY folder`);
+    const documentHistory=rows['document-history'],playlistHistory=rows['playlist-history'],folders=rows['media-folders'];
     storage={currentDocuments:{count:totals.documents,bytes:totals.bytes},currentPlaylists:playlists,documentHistory,playlistHistory,images,imageFolders:folders,trackedBytes:totals.bytes+playlists.bytes+documentHistory.bytes+playlistHistory.bytes+images.bytes};
   }
   console.log(JSON.stringify({event:'d1-read-cost',route:detailed?'status-details':'status',queries:costs}));
-  return json({ ...totals,...catalog,playlists:playlists.count,images,...(storage?{storage}:{}),recent,studio,syncEvents,devices:devices.map(({id,name,statusAt,lastSeenAt,build})=>({name,code:String(id||'').slice(0,6),statusAt,lastSeenAt,build:Number.isSafeInteger(build)?build:null})),syncApp:await latestBuild(env),observedAt:new Date().toISOString() });
+  return json({ ...totals,...catalog,playlists:playlists.count,images,...(storage?{storage}:{}),recent,studio,syncEvents,devices:devices.map(({id,name,statusAt,lastSeenAt,build})=>({name,code:String(id||'').slice(0,6),statusAt,lastSeenAt,build:Number.isSafeInteger(build)?build:null})),syncApp,observedAt:new Date().toISOString() });
 }
 
 // 서버에 게시된 최신 Sync 2 빌드(R2 latest.json, D1 읽기 없음). 없거나 읽지 못하면 null.

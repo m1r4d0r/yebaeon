@@ -56,7 +56,7 @@ R2에는 받은 원본 bytes를 버전별로 보존하고, D1에는 상대경로
 
 ## API 계약
 
-공개 편집기 파일과 `/api/health`, 입장 API를 제외한 자료 API는 유효한 쿠키가 필요하다. 변경 요청은 `Origin` 헤더가 사이트의 origin과 정확히 같아야 한다. 네이티브 Sync도 이 헤더를 설정해야 하며, CORS 우회나 R2 키 배포는 하지 않는다. JSON 오류에는 `error`와 `message`가 있다. 응답은 `Cache-Control: no-store`다.
+공개 편집기 파일과 `/api/health`, 입장 API를 제외한 자료 API는 유효한 쿠키가 필요하다. 변경 요청은 `Origin` 헤더가 사이트의 origin과 정확히 같아야 한다. 네이티브 Sync도 이 헤더를 설정해야 하며, CORS 우회나 R2 키 배포는 하지 않는다. JSON 오류에는 `error`와 `message`가 있다. 응답은 `Cache-Control: no-store`다. `/resources/*`는 입장 확인 뒤 내용 해시 이름의 폰트(`<16자리 hex>.woff2`)만 `private, max-age=31536000, immutable`, 나머지(목록·성경·템플릿·이름 고정 폰트)는 `private, no-cache`(ETag로 바뀌었는지 확인)로 준다.
 
 | 요청 | 동작 |
 |---|---|
