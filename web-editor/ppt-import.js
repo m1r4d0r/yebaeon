@@ -87,7 +87,8 @@
  function candidates(){const root=$('pptCandidates');root.replaceChildren();for(const c of CANDIDATES){const b=document.createElement('button');b.type='button';b.className='ppt-candidate';b.textContent=c.label;b.setAttribute('aria-pressed',String(c.names.includes(target?.name)));b.onclick=()=>choose(c.names);root.append(b);}
   const other=document.createElement('button');other.type='button';other.className='ppt-candidate ppt-candidate-other';other.id='pptOther';const custom=target&&!CANDIDATES.some(c=>c.names.includes(target.name));other.textContent=custom?target.name:'다른 문서 고르기…';other.setAttribute('aria-pressed',String(!!custom));other.onclick=()=>{$('pptSearch').hidden=false;search.focus();};root.append(other);}
  async function choose(names){if(busy){if(rendering){pendingTarget=names;invalidate(false);}return;}lock(true);try{const list=[].concat(names);for(const [i,name] of list.entries()){try{await findTarget(name);break;}catch(e){if(i===list.length-1)throw e;}}$('pptSearch').hidden=true;invalidate();}catch(e){message(e.message);}finally{candidates();lock(false);if(previewQueued)requestPreview();}}
- const search=YebaeonSearch.box($('pptSearch'),{label:'교체할 문서 검색',placeholder:'교체할 문서 이름',limit:8,onPick:d=>choose(YebaeonSearch.stem(d.name))});
+ // 교체 대상: 슬라이드를 그림으로 바꾸는 곳이라 가사찬양은 빼고, 짝 악보를 잇지 않는다.
+ const search=YebaeonSearch.box($('pptSearch'),{label:'교체할 문서 검색',placeholder:'교체할 문서 이름',limit:8,pairs:false,only:d=>d.category!=='가사찬양',onPick:d=>choose(YebaeonSearch.stem(d.name))});
  async function read(file){if(!file)return;if(busy){if(rendering){pendingFile=file;invalidate(false);}return;}if(prepared){message('먼저 이전 저장을 다시 시도하거나 준비본을 버려 주세요.');return;}
   const kind=/\.pdf$/i.test(file.name)?'pdf':/\.pptx?$/i.test(file.name)?'ppt':null;if(!kind){message('PPT·PPTX·PDF 파일을 선택해 주세요.');return;}
   if(file.size>(kind==='pdf'?PDF_MAX:PPT_MAX)){message(kind==='pdf'?'60MB 이하 PDF를 선택해 주세요.':'40MB 이하 PPT를 선택해 주세요.');return;}

@@ -143,7 +143,7 @@ const assert=require('node:assert/strict');
   await pairBox.waitFor();assert.match(await pairRow('합성 선포 노래 긴 제목').textContent(),/이 문서/);
   await pairBox.locator('input[type="search"]').fill('선포');await pairBox.getByRole('button',{name:'검색'}).click();
   await pairRow('선포곡').waitFor();
-  assert.equal(await pairRow('합성 선포 둘째 가사').getByRole('button',{name:'짝으로'}).isDisabled(),true,'가사끼리는 묶지 않는다');
+  assert.equal(await pairRow('합성 선포 둘째 가사').count(),0,'가사 문서의 짝을 고를 때는 악보만 보인다');
   await page.screenshot({path:'artifacts/songbook-pair.png'});
   await pairRow('선포곡').getByRole('button',{name:'짝으로'}).click();
   await page.waitForFunction(()=>/짝으로 두었습니다/.test(document.querySelector('.songbook-pair .panel-foot').textContent));
@@ -165,6 +165,10 @@ const assert=require('node:assert/strict');
   assert.deepEqual(found.slice(at,at+2),[['합성 선포 노래 긴 제목',''],['선포곡','가사로 찾음']],JSON.stringify(found));
   assert.equal(found.filter(([n])=>n==='선포곡').length,1);
   await page.screenshot({path:'artifacts/songbook-search-pair.png',clip:{x:0,y:0,width:420,height:320}});
+  // 같은 검색 상자를 쓰는 곳마다 고른다: PPT 교체 대상처럼 가사찬양을 빼고 짝을 잇지 않으면 가사도 짝 악보도 나오지 않는다.
+  const boxed=await page.evaluate(async()=>{const names=async opts=>{const host=document.createElement('div');document.body.append(host);const b=YebaeonSearch.box(host,{value:'합성 선포 노래',...opts});await b.run();const out=[...host.querySelectorAll('.doc-search-item .nm')].map(x=>x.firstChild.textContent);host.remove();return out;};
+   return {plain:await names({}),target:await names({pairs:false,only:d=>d.category!=='가사찬양'})};});
+  assert.deepEqual(boxed.plain.slice(0,2),['합성 선포 노래 긴 제목','선포곡']);assert.ok(!boxed.target.includes('합성 선포 노래 긴 제목')&&!boxed.target.includes('선포곡'),JSON.stringify(boxed));
   const arranged=await page.evaluate(p=>{const d=(id,name,category)=>({id,name:name+'.pro6',path:name+'.pro6',category});return YebaeonSongbook.arrange([d(p.score,'선포곡','악보찬양'),d('x','다른 문서','예배순서'),d(p.lyrics,'합성 선포 노래 긴 제목','가사찬양')]).map(x=>[x.name,x.matchedBy||'']);},pairs);
   assert.deepEqual(arranged,[['합성 선포 노래 긴 제목.pro6',''],['선포곡.pro6',''],['다른 문서.pro6','']],'앞에 있던 악보 자리로 가사를 올리고 악보를 잇는다');
   // 짝에 든 문서는 이름 맞추기를 묻지 않는다. [악보 필요]에서 연 PPT 가져오기로 악보를 만들면 가사와 짝으로 저장한다.

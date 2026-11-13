@@ -94,7 +94,7 @@
   box.addEventListener('close',()=>box.remove());document.body.append(box);box.showModal();go.focus();}
  // 순서 항목 메뉴 '짝 고르기…': 목록 밖 찬양 행만.
  function pairItem(item){const d=orderDoc(item);return d&&!songOf(d.id)?{label:'짝 고르기…',action:()=>pairDialog(d)}:null;}
- // [짝 고르기] 창: 위에 지금 짝(없으면 이름 맞추기 후보), 아래에 문서 검색(본문 포함). [짝으로]는 이 문서의 짝에 더하고(그 문서가 다른 짝에 있으면 두 짝을 합친다), [빼기]는 짝에서 뺀다.
+ // [짝 고르기] 창: 위에 지금 짝(없으면 이름 맞추기 후보), 아래에 문서 검색(본문 포함, 이 문서와 다른 쪽 카테고리만: 가사면 악보, 악보면 가사). [짝으로]는 이 문서의 짝에 더하고(그 문서가 다른 짝에 있으면 두 짝을 합친다), [빼기]는 짝에서 뺀다.
  // 줄 모양과 미리보기는 목록 [고르기]와 같다. 목록 곡에 연결된 문서는 고를 수 없다.
  function pairDialog(d){const {el:make}=P(),box=make('dialog',{class:'library-dialog panel-dialog songbook-pick songbook-pair'});
   const close=make('button',{type:'button',class:'panel-close','aria-label':'닫기',onclick:()=>box.close()});close.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
@@ -115,7 +115,7 @@
    if(rest.length)sections.push(['찾은 문서',rest.map(x=>line(x,choices(x)))]);
    list.replaceChildren(...sections.flatMap(([title,rows])=>[make('div',{class:'line-day'},title),...rows]));}
   async function find(){const q=input.value.trim();if(!q){found=[];draw();return;}note.textContent='찾는 중…';
-   try{found=(await window.YebaeonSearch.query(q)).documents.filter(x=>x.available!==false&&SONG.has(x.category)).slice(0,30);note.textContent=found.length?'':'검색 결과가 없습니다.';}catch(error){note.textContent=error.message;}draw();}
+   try{found=(await window.YebaeonSearch.query(q)).documents.filter(x=>x.available!==false&&x.category===(d.category===LYRICS?SCORE:LYRICS)).slice(0,30);note.textContent=found.length?'':'검색 결과가 없습니다.';}catch(error){note.textContent=error.message;}draw();}
   input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();find();}});
   box.append(make('div',{class:'panel-head'},make('h2',{},'짝 고르기'),make('span',{class:'songbook-pair-name'},stem(d.name)),make('span',{class:'panel-gap'}),close),make('div',{class:'songbook-tools'},input,make('button',{type:'button',onclick:find},'검색')),list,note);
   box.addEventListener('close',()=>{look.stop();box.remove();});document.body.append(box);box.showModal();draw();input.focus();}

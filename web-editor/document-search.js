@@ -12,7 +12,8 @@
  const clear=()=>cache.clear();
  // 작은 검색창: [검색어][검색] 아래 결과 단추. extras는 결과 앞에 둘 단추(예: 지금 이 자리), decorate(doc)는 {tag,on}을 돌려준다.
  // input을 주면 그 바깥 입력칸이 검색창이 되고 여기에는 결과만 보인다(치는 동안 잠깐 멈추면 찾는다).
- function box(container,{value='',placeholder='문서 이름·본문',label='문서 검색',limit=30,itemClass='',input:outer=null,extras=()=>[],decorate=()=>({}),onPick,onQuery}={}){
+ // pairs는 가사찬양 다음에 짝 악보를 잇는지(songbook.js arrange), only(doc)는 결과에 남길 문서를 고른다.
+ function box(container,{value='',placeholder='문서 이름·본문',label='문서 검색',limit=30,itemClass='',input:outer=null,extras=()=>[],decorate=()=>({}),pairs=true,only=()=>true,onPick,onQuery}={}){
   const root=el('div','doc-search'),list=el('div','doc-search-list'),input=outer||el('input');
   if(!outer){const row=el('div','doc-search-row'),go=el('button',null,'검색');input.type='search';input.value=value;input.placeholder=placeholder;input.setAttribute('aria-label',label);go.type='button';go.onclick=()=>run();row.append(input,go);root.append(row);}
   root.append(list);container.replaceChildren(root);
@@ -20,7 +21,7 @@
   const item=(doc,info={})=>{const SB=window.YebaeonSongbook,song=SB?.chip(doc),number=SB?.number(doc),b=el('button','doc-search-item'+(itemClass?' '+itemClass:'')+(info.on?' on':''));b.type='button';const tint=SB?.tint(doc);if(tint)b.classList.add(tint);const nm=el('span','nm',stem(doc.name));if(number)nm.append(number);const paired=SB?.pairTag(doc);if(paired)nm.append(paired);b.append(nm);if(song)b.append(song);b.append(el('span','tag',[song?'':doc.category,info.tag??(doc.matchedBy==='content'?'본문 일치':'')].filter(Boolean).join(' · ')));b.onclick=()=>onPick?.(doc,info);return b;};
   let generation=0;
   async function run(){const q=input.value.trim(),g=++generation;onQuery?.(q);list.replaceChildren(...extras().map(x=>item(x.doc,x)));if(!q)return;list.append(el('p','hint','찾는 중…'));
-   try{const SB=window.YebaeonSongbook,[found]=await Promise.all([query(q),SB?.ensure().catch(()=>null)]),available=found.documents.filter(d=>d.available!==false),docs=SB?SB.arrange(available):available;if(g!==generation)return;list.querySelector('.hint')?.remove();
+   try{const SB=window.YebaeonSongbook,[found]=await Promise.all([query(q),SB?.ensure().catch(()=>null)]),available=found.documents.filter(d=>d.available!==false&&only(d)),docs=SB&&pairs?SB.arrange(available):available;if(g!==generation)return;list.querySelector('.hint')?.remove();
     for(const d of docs.slice(0,limit))list.append(item(d,decorate(d)));
     if(!docs.length)list.append(el('p','hint','검색 결과가 없습니다. 검색어를 고쳐 보세요.'));else if(docs.length>limit)list.append(el('p','hint','결과가 많습니다. 검색어를 더 구체적으로 입력하세요.'));}
    catch(e){if(g===generation){list.querySelector('.hint')?.remove();list.append(el('p','hint bad',e.message));}}}
