@@ -123,4 +123,3 @@
 .ppt-review-tile canvas{display:block;width:100%;height:auto;background:#111}.ppt-review-tile small{display:block;padding:4px 7px;font-size:11px;color:#657185}
 #pptReviewLargeImage canvas{display:block;width:100%;height:auto}
 @media(max-width:600px){.ppt-compare{gap:24px}.ppt-compare>section{padding:8px}.ppt-review-tiles{grid-template-columns:minmax(0,1fr);gap:10px}.ppt-steps{padding:0 10px}.ppt-compare h3{font-size:12px}}
-.ppt-composite.white{background-color:#fff;background-image:none}

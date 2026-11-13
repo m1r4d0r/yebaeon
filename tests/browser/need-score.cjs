@@ -1,5 +1,5 @@
 // [악보 필요] → PPT 가져오기(악보 용도) 전체 흐름: 실제 Worker(Miniflare)·빌드된 Studio(dist)·합성 PPTX.
-// 새 악보는 흰 바탕(배경 없음), 첫 장 배경은 미디어에서 골라 첫 장에만 Background cue, 가사와 짝 저장, 열린 순서의 가사 항목을 새 악보로 바꿔 저장.
+// 미리보기는 투명 격자, 저장한 악보는 흰 바탕. 첫 장 배경은 즐겨찾기에서 골라 첫 장에만 Background cue, 가사와 짝 저장, 열린 순서의 가사 항목을 새 악보로 바꿔 저장.
 const {chromium}=require('playwright'),{createServer}=require('node:http');
 const {readFile}=require('node:fs/promises'),{resolve,extname,sep}=require('node:path');
 const assert=require('node:assert/strict');
@@ -20,13 +20,14 @@ const assert=require('node:assert/strict');
  const page=await browser.newPage({viewport:{width:1440,height:960}}),errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
  try{
   await page.goto(origin);await page.locator('#entryName').fill('악보 시험');await page.locator('#entryPassword').fill('browser-only');await page.locator('#entrySubmit').click();await page.locator('#entryDialog').waitFor({state:'hidden'});
-  // 합성 자료: 가사 문서, 미디어 그림 하나(첫 장 배경 후보)
+  // 합성 자료: 가사 문서, 즐겨찾기한 미디어 그림 하나(첫 장 배경 후보)
   const lyrics=await page.evaluate(async()=>(await(await YebaeonCloud.api('/documents?'+new URLSearchParams({path:'합성 새 노래 제목.pro6'}),{method:'POST',headers:{'Content-Type':'application/xml','X-YebaeOn-Client':'studio'},body:YebaeonLibraryActions.blankDocument('가사찬양')})).json()).document);
   const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=800;c.height=450;const x=c.getContext('2d');x.fillStyle='black';for(let y=100;y<200;y+=12)x.fillRect(30,y,730,3);return c.toDataURL().split(',')[1];});
   await page.evaluate(async()=>{const c=document.createElement('canvas');c.width=160;c.height=90;const x=c.getContext('2d');x.fillStyle='#2a3f8f';x.fillRect(0,0,160,90);const blob=await new Promise(r=>c.toBlob(r,'image/png'));
    const sha=[...new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer()))].map(b=>b.toString(16).padStart(2,'0')).join('');
    await YebaeonCloud.api('/media/'+sha+'/content',{method:'PUT',headers:{'Content-Type':'image/png','X-Yebaeon-SHA256':sha},body:blob});
-   await YebaeonCloud.api('/media/paths',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'봄 들판',ext:'png',items:[{sha256:sha}]})});});
+   const path=(await(await YebaeonCloud.api('/media/paths',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'봄 들판',ext:'png',items:[{sha256:sha}]})})).json()).paths[0].path;
+   await YebaeonCloud.api('/favorites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'media',key:sha,label:path,on:true})});});
   await page.locator('#studioPlaylistPicker').click();await page.locator('#playlistNew').click();await page.locator('#newPlaylistName').fill('시험 예배');await page.locator('#newPlaylistSubmit').click();await page.locator('#newPlaylistDialog').waitFor({state:'hidden'});
   await page.evaluate(async d=>{YebaeonPlaylists.appendDocuments([d]);await YebaeonPlaylists.save();const s=YebaeonPlaylists.selectedPlaylist();const [lib,node]=s.key.split('/');await YebaeonPlaylists.openNode(lib,node);},lyrics);
   await page.locator('#playlistItems .order-tag.need').click();await page.locator('.songbook-need').getByRole('button',{name:'PPT 가져오기'}).click();
@@ -39,11 +40,11 @@ const assert=require('node:assert/strict');
   await page.waitForFunction(()=>!YebaeonPPTImport.state().busy&&YebaeonPPTImport.state().outputs.length===2,null,{timeout:60000});
   assert.match(await page.locator('#pptPair').textContent(),/짝 찬양.*합성 새 노래 제목.*풀기/,'[악보 필요]의 가사가 처음부터 짝');
   assert.equal(await page.locator('#pptBackground .import-background-label').textContent(),'첫 장 배경');
-  assert.equal(await page.locator('#pptSlides .ppt-composite.white').count(),2,'악보 미리보기는 흰 바탕');
-  // 첫 장 배경: 미디어에서 고르기
-  await page.locator('#pptBackground').getByRole('button',{name:'미디어에서 고르기…'}).click();
-  const picker=page.locator('.import-media-pick');await picker.locator('.import-media-item').first().waitFor();
-  await picker.locator('.import-media-item',{hasText:'봄 들판'}).click();await picker.getByRole('button',{name:'고르기'}).click();await picker.waitFor({state:'detached'});
+  assert.ok(await page.locator('#pptSlides .ppt-composite').first().evaluate(e=>getComputedStyle(e).backgroundImage.includes('conic-gradient')),'미리보기는 투명 격자로 보인다');
+  assert.equal(await page.locator('#pptBackground').getByRole('button',{name:'미디어에서 고르기…'}).count(),0);
+  // 첫 장 배경: 즐겨찾기에서 고르기
+  await page.locator('#pptBackground').getByRole('button',{name:'배경 추가',exact:true}).click();
+  await page.locator('#pptBackground .import-background-pick',{hasText:'봄 들판'}).click();
   assert.equal(await page.evaluate(()=>YebaeonPPTImport.state().outputs.length>0),true);
   await page.locator('#pptSave').click();
   await page.waitForFunction(()=>!document.querySelector('#pptDialog').open,null,{timeout:60000});
@@ -56,7 +57,7 @@ const assert=require('node:assert/strict');
   const slides=xml.match(/<RVDisplaySlide [\s\S]*?<\/RVDisplaySlide>/g);
   assert.equal(slides.length,2);for(const s of slides){assert.match(s,/^<RVDisplaySlide [^>]*backgroundColor="1 1 1 1"/);assert.match(s,/^<RVDisplaySlide [^>]*drawingBackgroundColor="true"/);}
   assert.match(slides[0],/<RVMediaCue [^>]*behavior="1"/,'첫 장 배경은 Background cue');assert.doesNotMatch(slides[1],/<RVMediaCue /,'둘째 장에는 cue가 없다');
-  assert.ok(xml.includes(encodeURIComponent('봄 들판')),'고른 미디어 그림이 첫 장 배경');
-  assert.deepEqual(errors,[]);console.log('Need-score flow passed: need button to PPT import, pair row preset, white score slides, first-slide background from media (behavior 1), pair saved, order item replaced and saved');
+  assert.ok(xml.includes(encodeURIComponent('봄 들판')),'고른 즐겨찾기 그림이 첫 장 배경');
+  assert.deepEqual(errors,[]);console.log('Need-score flow passed: need button to PPT import, pair row preset, checker preview, white saved slides, first-slide background from favorites (behavior 1), pair saved, order item replaced and saved');
  }finally{await browser.close();await new Promise(r=>server.close(r));await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
