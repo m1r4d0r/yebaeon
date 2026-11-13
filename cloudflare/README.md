@@ -71,10 +71,12 @@ R2에는 받은 원본 bytes를 버전별로 보존하고, D1에는 상대경로
 | `PUT /api/documents/:id` | raw XML + `If-Match: "기준버전번호"` → 새 버전 |
 | `GET/HEAD /api/documents/:id/content?version=N` | 원본 bytes, `X-Yebaeon-Version`, `X-Yebaeon-SHA256`; 버전 생략 시 현재본 |
 | `GET /api/documents/:id/versions?before=N` | 버전 내림차순 최대 50개, `next` 커서 |
-| `GET /api/songbook` | 영광임하소서 목록 `{version,songs,documents}`. `ETag: "버전"`, `If-None-Match`가 같으면 304 |
+| `GET /api/songbook` | 영광임하소서 목록 `{version,songs,lyricsOnly,groups,documents}`(연결·짝 문서 정보 포함). `ETag: "버전"`, `If-None-Match`가 같으면 304 |
 | `PUT /api/songbook` | 관리자. JSON `{songs}` + `If-Match: "버전"` → 전체 교체. `?dryRun=1`은 검사만(`errors`, `documents`) |
 | `PATCH /api/songbook` | 관리자. JSON `{number, song}` + `If-Match` → 곡 하나 추가·수정(`song`)·삭제(`song:null`) |
 | `POST /api/songbook/lyrics-only` | 누구나. JSON `{id, on}` → '가사로 쓰는 곡'(가사찬양 문서 id) 지정·해제. 응답은 목록과 같은 모양 |
+| `POST /api/songbook/groups` | 누구나. JSON `{add:[id...]}`(한 짝으로, 다른 짝의 문서는 옮김) 또는 `{remove:id}` → 목록 밖 곡의 가사·악보 짝 고치기 |
+| `PUT /api/songbook/groups` | 관리자. JSON `{groups:[[id...]], labels}` + `If-Match` → 짝 전체 교체. `?dryRun=1`은 검사만 |
 | `GET /api/songbook/candidates` | 곡마다 이름 맞추기 후보(연결·아님·다른 곡 연결 제외, 사용 중 찬양 문서) |
 | `GET /api/songbook/pairs?ids=a,b` | 목록 밖 찬양 문서마다 같은 곡의 다른 버전(가사찬양 ↔ 악보찬양) 사용 중 문서(목록 연결 제외), 60개까지 |
 
