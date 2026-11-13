@@ -5,9 +5,10 @@ import { SONG_CATEGORIES, allKeys, documentKeys, matchQuery, sameSong, termKeys 
 // 영광임하소서 목록: 곡마다 {number, key, terms, links, nots}. 작은 표 하나에 JSON 한 행(버전·저장자·저장 시각)으로 둔다.
 // 읽기는 1행, 쓰기는 If-Match(버전)로 충돌을 막는다. 표는 처음 쓸 때 만든다(스키마 버전과 무관한 추가 표).
 // 문서 id로 잇고, 목록은 자동으로 고치지 않는다(연결 문서가 휴지통·보관함이어도 그대로 둔다).
+// 같은 행에 목록 밖 곡의 짝(groups: 같은 곡 문서 id 묶음)과 예외 처리(lyricsOnly)도 둔다.
 const ready = new WeakSet();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const MAX_SONGS = 999, MAX_BODY = 512 * 1024, MAX_PAIR_IDS = 60;
+const MAX_SONGS = 999, MAX_BODY = 512 * 1024, MAX_PAIR_IDS = 60, MAX_GROUPS = 3000, MAX_GROUP_SIZE = 20;
 // 요청마다 감싼 DB(measuredDB)가 새로 생기므로 원래 바인딩으로 기억한다.
 async function table(db) {
   const raw = db.rawDB || db;
@@ -17,9 +18,9 @@ async function table(db) {
 }
 async function current(db) {
   const row = await db.prepare('SELECT version,data,updated_by,updated_at FROM yebaeon_songbook WHERE id=1').first();
-  // data: {songs, lyricsOnly}. 예전 행은 곡 배열만 있다.
-  const data = row ? JSON.parse(row.data) : null, songs = Array.isArray(data) ? data : data?.songs || [], lyricsOnly = Array.isArray(data) ? [] : data?.lyricsOnly || [];
-  return row ? { version: row.version, songs, lyricsOnly, updatedBy: row.updated_by, updatedAt: row.updated_at } : { version: 0, songs: [], lyricsOnly: [], updatedBy: null, updatedAt: null };
+  // data: {songs, lyricsOnly, groups}. 예전 행은 곡 배열만 있거나 groups가 없다.
+  const data = row ? JSON.parse(row.data) : null, songs = Array.isArray(data) ? data : data?.songs || [], lyricsOnly = Array.isArray(data) ? [] : data?.lyricsOnly || [], groups = Array.isArray(data) ? [] : data?.groups || [];
+  return row ? { version: row.version, songs, lyricsOnly, groups, updatedBy: row.updated_by, updatedAt: row.updated_at } : { version: 0, songs: [], lyricsOnly: [], groups: [], updatedBy: null, updatedAt: null };
 }
 const etag = version => `"${version}"`;
 function baseVersion(request) {
@@ -76,6 +77,7 @@ async function documentsOf(db, ids) {
   return out;
 }
 const songIds = songs => [...new Set(songs.flatMap(s => [...s.links, ...s.nots]))];
+const groupIds = groups => [...new Set(groups.flat())];
 // 서버 문서와 대조: 없는 id, 찬양이 아닌 카테고리의 연결.
 function documentErrors(songs, docs, only = null) {
   const errors = [];
@@ -90,13 +92,25 @@ function invalid(errors) {
   const error = new HttpError(400, 'invalid_songbook', shown);
   return error;
 }
-async function write(db, user, base, songs, lyricsOnly = []) {
-  const now = new Date().toISOString(), data = JSON.stringify({ songs, lyricsOnly }), next = base + 1;
+// 행 전체를 쓴다. 바꾸지 않는 칸은 지금 상태(state)에서 가져온다.
+async function write(db, user, base, state, changes) {
+  const { songs, lyricsOnly, groups } = { songs: state.songs, lyricsOnly: state.lyricsOnly, groups: state.groups, ...changes };
+  const now = new Date().toISOString(), data = JSON.stringify({ songs, lyricsOnly, groups }), next = base + 1;
   const result = base === 0
     ? await db.prepare('INSERT OR IGNORE INTO yebaeon_songbook(id,version,data,updated_by,updated_at) VALUES (1,1,?,?,?)').bind(data, user.author, now).run()
     : await db.prepare('UPDATE yebaeon_songbook SET version=?,data=?,updated_by=?,updated_at=? WHERE id=1 AND version=?').bind(next, data, user.author, now, base).run();
   if (result.meta.changes !== 1) throw conflict();
-  return { version: next, songs, lyricsOnly, updatedBy: user.author, updatedAt: now };
+  return { version: next, songs, lyricsOnly, groups, updatedBy: user.author, updatedAt: now };
+}
+
+// 짝 하나가 쓸 만한지: 문서 2개 이상, 가사찬양과 악보찬양이 하나 이상씩. docs에 없는 문서(지워진 문서)는 세지 않는다.
+const groupOK = (group, docs) => group.length >= 2 && group.some(id => docs[id]?.category === '가사찬양') && group.some(id => docs[id]?.category === '악보찬양');
+// 목록 곡에 연결된 문서는 짝에서 뺀다. 그 때문에 규칙에 맞지 않게 된 짝만 지운다(그 밖의 짝은 자동으로 고치지 않는다).
+async function dropLinked(db, groups, songs) {
+  const linked = new Set(songs.flatMap(s => s.links)), touched = groups.filter(g => g.some(id => linked.has(id)));
+  if (!touched.length) return groups;
+  const left = touched.map(g => g.filter(id => !linked.has(id))), docs = await documentsOf(db, groupIds(left));
+  return groups.flatMap(g => { if (!touched.includes(g)) return [g]; const rest = g.filter(id => !linked.has(id)); return groupOK(rest, docs) ? [rest] : []; });
 }
 
 export async function songbookRoute(request, env, user, action) {
@@ -105,13 +119,14 @@ export async function songbookRoute(request, env, user, action) {
   if (action === 'pairs') return pairsRoute(request, env);
   if (action === 'candidates') return candidatesRoute(request, env);
   if (action === 'lyrics-only') return lyricsOnlyRoute(request, env, user);
+  if (action === 'groups') return groupsRoute(request, env, user);
   if (action) throw new HttpError(404, 'not_found', '없는 요청입니다.');
   method(request, ['GET', 'PUT', 'PATCH']);
   if (request.method === 'GET') {
     // 버전이 같으면 304(1행 읽기). 다르면 목록과 연결 문서의 이름·카테고리·상태를 함께 준다.
     const state = await current(db);
     if (request.headers.get('If-None-Match') === etag(state.version)) return new Response(null, { status: 304, headers: { 'Cache-Control': 'no-store', ETag: etag(state.version) } });
-    return json({ ...state, documents: await documentsOf(db, songIds(state.songs)) }, 200, { ETag: etag(state.version) });
+    return json({ ...state, documents: await documentsOf(db, [...new Set([...songIds(state.songs), ...groupIds(state.groups)])]) }, 200, { ETag: etag(state.version) });
   }
   sameOrigin(request);
   await requireAdmin(request, env, user);
@@ -125,7 +140,8 @@ export async function songbookRoute(request, env, user, action) {
     if (dryRun) return json({ errors, documents: docs });
     const base = baseVersion(request);
     if (errors.length) throw invalid(errors);
-    const state = await write(db, user, base, songs, (await current(db)).lyricsOnly);
+    const before = await current(db), groups = await dropLinked(db, before.groups, songs);
+    const state = await write(db, user, base, before, { songs, groups });
     return json({ ...state, documents: docs }, 200, { ETag: etag(state.version) });
   }
   // PATCH: 곡 하나. {number: 지금 번호(새 곡이면 null), song: 바뀐 곡(지우면 null)}
@@ -144,7 +160,7 @@ export async function songbookRoute(request, env, user, action) {
   const docs = added.length && !errors.length ? await documentsOf(db, added) : {};
   if (changed && !errors.length) errors.push(...documentErrors([changed], docs, new Set(added)));
   if (errors.length) throw invalid(errors);
-  const saved = await write(db, user, base, songs, state.lyricsOnly);
+  const saved = await write(db, user, base, state, { songs, groups: await dropLinked(db, state.groups, songs) });
   return json({ ...saved, documents: docs }, 200, { ETag: etag(saved.version) });
 }
 
@@ -164,7 +180,7 @@ async function lyricsOnlyRoute(request, env, user) {
     const state = await current(db), set = new Set(state.lyricsOnly);
     if (body.on ? set.has(id) : !set.has(id)) return json({ ...state, documents: {} }, 200, { ETag: etag(state.version) });
     if (body.on) { if (set.size >= 2000) throw new HttpError(400, 'invalid_lyrics_only', '가사로 쓰는 곡은 2,000개까지입니다.'); set.add(id); } else set.delete(id);
-    try { const saved = await write(db, user, state.version, state.songs, [...set]); return json({ ...saved, documents: {} }, 200, { ETag: etag(saved.version) }); }
+    try { const saved = await write(db, user, state.version, state, { lyricsOnly: [...set] }); return json({ ...saved, documents: {} }, 200, { ETag: etag(saved.version) }); }
     catch (error) { if (error?.code !== 'songbook_conflict') throw error; }
   }
   throw conflict();
@@ -210,4 +226,67 @@ async function pairsRoute(request, env) {
     if (found.length) pairs[s.id] = found.map(view);
   }
   return json({ version: state.version, pairs });
+}
+
+// 목록 밖 곡의 짝: 같은 곡의 가사찬양·악보찬양 문서 id 묶음. 한 문서는 한 짝에만, 목록 곡에 연결된 문서는 넣지 않는다.
+function cleanIds(list, at) {
+  if (!Array.isArray(list) || list.some(x => typeof x !== 'string')) { at('문서 id 목록을 확인해 주세요.'); return []; }
+  const ids = [...new Set(list.map(x => x.trim().toLowerCase()).filter(Boolean))];
+  for (const id of ids) if (!UUID.test(id)) { at(`문서 id ‘${id.slice(0, 40)}’ 형식이 아닙니다.`); return []; }
+  if (ids.length < 2 || ids.length > MAX_GROUP_SIZE) at(`짝은 문서 2~${MAX_GROUP_SIZE}개입니다.`);
+  return ids;
+}
+// 짝 하나를 서버 문서·목록과 대조한다.
+function groupErrors(group, docs, linked, at) {
+  for (const id of group) {
+    const d = docs[id];
+    if (!d) at(`없는 문서 ${id}`);
+    else if (!SONG_CATEGORIES.includes(d.category)) at(`찬양 아닌 문서 ‘${d.name}’(${d.category || '카테고리 없음'})`);
+    else if (linked.has(id)) at(`목록 곡 문서 ‘${d.name}’(영 ${linked.get(id)})`);
+  }
+  if (group.every(id => SONG_CATEGORIES.includes(docs[id]?.category)) && !groupOK(group, docs)) at('가사찬양과 악보찬양이 하나 이상씩 있어야 합니다.');
+}
+const linkedMap = songs => new Map(songs.flatMap(s => s.links.map(id => [id, s.number])));
+
+async function groupsRoute(request, env, user) {
+  method(request, ['POST', 'PUT']); sameOrigin(request);
+  if (user.device) throw new HttpError(403, 'device_forbidden', 'Studio에서 해 주세요.');
+  const db = env.DB;
+  if (request.method === 'PUT') {
+    // 관리자 전체 교체(짝 붙여넣기). dryRun이면 쓰지 않고 검사 결과와 문서 정보만 돌려준다.
+    await requireAdmin(request, env, user);
+    const body = await bodyJSON(request, MAX_BODY), dryRun = new URL(request.url).searchParams.get('dryRun') === '1';
+    const input = Array.isArray(body?.groups) ? body.groups : null, labels = Array.isArray(body?.labels) ? body.labels.map(String) : [];
+    if (!input || input.length > MAX_GROUPS) throw new HttpError(400, 'invalid_groups', `짝은 ${MAX_GROUPS}개까지입니다.`);
+    const errors = [], groups = input.map((list, i) => cleanIds(list, text => errors.push(`${labels[i] || `${i + 1}번째 짝`}: ${text}`)));
+    const owner = new Map();
+    groups.forEach((g, i) => { for (const id of g) { if (owner.has(id)) errors.push(`${labels[i] || `${i + 1}번째 짝`}: 두 짝에 들어간 문서 ${id}(${owner.get(id)}와 겹침)`); else owner.set(id, labels[i] || `${i + 1}번째 짝`); } });
+    const state = await current(db), linked = linkedMap(state.songs), docs = await documentsOf(db, groupIds(groups));
+    groups.forEach((g, i) => groupErrors(g, docs, linked, text => errors.push(`${labels[i] || `${i + 1}번째 짝`}: ${text}`)));
+    if (dryRun) return json({ errors, documents: docs });
+    const base = baseVersion(request);
+    if (state.version !== base) throw conflict();
+    if (errors.length) throw invalid(errors);
+    const saved = await write(db, user, base, state, { groups });
+    return json({ ...saved, documents: docs }, 200, { ETag: etag(saved.version) });
+  }
+  // POST(누구나): {add:[id...]}는 그 문서들을 한 짝으로(다른 짝에 있던 문서는 옮기고, 그래서 규칙에 맞지 않게 된 짝은 지운다).
+  // {remove:id}는 그 문서를 짝에서 뺀다(남은 짝이 규칙에 맞지 않으면 지운다). 다른 쓰기와 겹치면 다시 읽어 세 번까지 쓴다.
+  const body = await bodyJSON(request), errors = [], at = text => errors.push(text);
+  const add = body?.add != null ? cleanIds(body.add, at) : null, remove = typeof body?.remove === 'string' ? body.remove.trim().toLowerCase() : null;
+  if ((add === null) === (remove === null) || (remove !== null && !UUID.test(remove))) throw new HttpError(400, 'invalid_groups', '짝으로 묶을 문서나 뺄 문서를 확인해 주세요.');
+  if (errors.length) throw new HttpError(400, 'invalid_groups', errors[0]);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const state = await current(db), moving = new Set(add || [remove]);
+    const touched = state.groups.filter(g => g.some(id => moving.has(id)));
+    if (remove !== null && !touched.length) return json({ ...state, documents: {} }, 200, { ETag: etag(state.version) });
+    const docs = await documentsOf(db, [...new Set([...moving, ...groupIds(touched)])]);
+    if (add) { groupErrors(add, docs, linkedMap(state.songs), at); if (errors.length) throw invalid(errors); }
+    const groups = state.groups.flatMap(g => { if (!touched.includes(g)) return [g]; const rest = g.filter(id => !moving.has(id)); return groupOK(rest, docs) ? [rest] : []; });
+    if (add) groups.push(add);
+    if (groups.length > MAX_GROUPS) throw new HttpError(400, 'invalid_groups', `짝은 ${MAX_GROUPS}개까지입니다.`);
+    try { const saved = await write(db, user, state.version, state, { groups }); return json({ ...saved, documents: docs }, 200, { ETag: etag(saved.version) }); }
+    catch (error) { if (error?.code !== 'songbook_conflict') throw error; }
+  }
+  throw conflict();
 }

@@ -139,9 +139,56 @@ test('영광임하소서 목록 API와 이름 맞추기 색인', { timeout: 1200
   marked = await ok(await lyricsOnly(free.id, false));
   assert.deepEqual(marked.lyricsOnly, []);
   admin = plainAdmin;
+  // 목록 밖 짝(groups): 누구나 묶고 뺀다. 가사·악보가 하나 이상씩, 목록 곡 문서·찬양 아닌 문서는 거부, 다른 짝의 문서는 옮긴다.
+  admin = '';
+  const group = body => call('/songbook/groups', 'POST', JSON.stringify(body));
+  const freeTwo = await create('목록밖 둘째 합성 노래', '가사찬양');
+  let grouped = await ok(await group({ add: [free.id, freeScore.id] }));
+  assert.deepEqual(grouped.groups, [[free.id, freeScore.id]]); assert.equal(grouped.documents[freeScore.id].category, '악보찬양');
+  const refused = async (body, pattern) => { const r = await group(body); assert.equal(r.status, 400); assert.match((await r.json()).message, pattern); };
+  await refused({ add: [freeScore.id, freeLong.id] }, /가사찬양과 악보찬양/);
+  await refused({ add: [lyric.id, freeLong.id] }, /목록 곡 문서/);
+  await refused({ add: [otherCategory.id, freeLong.id] }, /찬양 아닌 문서/);
+  await refused({ add: [free.id] }, /2~20개/);
+  await refused({ add: [free.id, 'nope'] }, /형식이 아닙니다/);
+  await refused({ add: [free.id, '00000000-0000-4000-8000-000000000000'] }, /없는 문서/);
+  assert.equal((await call('/songbook/groups', 'POST', JSON.stringify({ add: [free.id, freeLong.id] }), { Origin: 'https://evil.test' })).status, 403);
+  grouped = await ok(await group({ add: [free.id, freeLong.id] }));
+  assert.deepEqual(grouped.groups, [[free.id, freeLong.id]], '옮겨서 악보만 남은 짝은 지운다');
+  grouped = await ok(await group({ add: [freeTwo.id, freeScore.id] }));
+  assert.deepEqual(grouped.groups, [[free.id, freeLong.id], [freeTwo.id, freeScore.id]]);
+  let fetched = await ok(await call('/songbook'));
+  assert.deepEqual(fetched.groups, grouped.groups); assert.equal(fetched.documents[freeTwo.id].name, '목록밖 둘째 합성 노래', 'GET은 짝 문서 정보도 준다');
+  assert.deepEqual((await ok(await group({ remove: lyric.id }))).groups, grouped.groups, '짝에 없는 문서 빼기는 그대로');
+  grouped = await ok(await group({ remove: freeScore.id }));
+  assert.deepEqual(grouped.groups, [[free.id, freeLong.id]], '빼서 가사만 남은 짝은 지운다');
+  await ok(await lyricsOnly(free.id, true)); await ok(await lyricsOnly(free.id, false));
+  assert.deepEqual((await ok(await call('/songbook'))).groups, [[free.id, freeLong.id]], '예외 처리는 짝을 지우지 않는다');
+  // 짝 붙여넣기(관리자 전체 교체): 미리 검사는 줄마다 오류를 돌려주고 쓰지 않는다.
+  assert.equal((await call('/songbook/groups', 'PUT', JSON.stringify({ groups: [[free.id, freeLong.id]] }), { 'If-Match': `"${fetched.version}"` })).status, 403);
+  admin = plainAdmin;
+  const dry = await ok(await call('/songbook/groups?dryRun=1', 'PUT', JSON.stringify({ groups: [[free.id, freeLong.id], [freeTwo.id, freeScore.id, free.id], [lyric.id, score2.id], [otherCategory.id, freeScore.id], [freeTwo.id, '00000000-0000-4000-8000-000000000000']], labels: ['1줄', '2줄', '4줄', '5줄', '6줄'] })));
+  const joined = dry.errors.join('\n');
+  assert.match(joined, /2줄: 두 짝에 들어간 문서/); assert.match(joined, /4줄: 목록 곡 문서 ‘합성 노래 하나 둘 셋’\(영 58\)/); assert.match(joined, /5줄: 찬양 아닌 문서/); assert.match(joined, /6줄: 없는 문서/);
+  assert.equal(dry.documents[freeTwo.id].category, '가사찬양');
+  fetched = await ok(await call('/songbook'));
+  assert.deepEqual(fetched.groups, [[free.id, freeLong.id]]);
+  assert.equal((await call('/songbook/groups', 'PUT', JSON.stringify({ groups: [[free.id, freeScore.id]] }))).status, 428);
+  assert.equal((await call('/songbook/groups', 'PUT', JSON.stringify({ groups: [[lyric.id, freeScore.id]] }), { 'If-Match': `"${fetched.version}"` })).status, 400);
+  fetched = await ok(await call('/songbook/groups', 'PUT', JSON.stringify({ groups: [[free.id, freeScore.id, freeLong.id], [freeTwo.id, score2.id]] }), { 'If-Match': `"${fetched.version}"` }));
+  assert.deepEqual(fetched.groups, [[free.id, freeScore.id, freeLong.id], [freeTwo.id, score2.id]]);
+  // 목록 곡에 연결하면 그 문서는 짝에서 빠지고, 규칙에 맞지 않게 된 짝은 지운다. 목록 전체 교체는 짝을 그대로 둔다.
+  const song221 = fetched.songs.find(s => s.number === 221);
+  fetched = await ok(await call('/songbook', 'PATCH', JSON.stringify({ number: 221, song: { ...song221, links: [freeScore.id] } }), { 'If-Match': `"${fetched.version}"` }));
+  assert.deepEqual(fetched.groups, [[free.id, freeLong.id], [freeTwo.id, score2.id]]);
+  fetched = await ok(await call('/songbook', 'PUT', JSON.stringify({ songs: fetched.songs.map(s => s.number === 221 ? { ...s, links: [freeScore.id, freeTwo.id] } : s) }), { 'If-Match': `"${fetched.version}"` }));
+  assert.deepEqual(fetched.groups, [[free.id, freeLong.id]], '가사가 목록 곡으로 간 짝은 지운다');
+  assert.deepEqual((await ok(await call('/songbook'))).groups, [[free.id, freeLong.id]]);
   // 비용: 목록 GET 304는 1행, 전체 GET은 1행 + 연결 문서 수
   const measure = async headers => { const DB = measuredDB(db); await songbookRoute(new Request(origin + '/api/songbook', { headers }), { DB }, { author: 'fixture' }); return DB.metrics().reduce((n, q) => n + q.rowsRead, 0); };
   const latest = (await ok(await call('/songbook'))).version;
   assert.equal(await measure({ 'If-None-Match': `"${latest}"` }), 1);
-  const full = await measure({}); assert.ok(full <= 1 + 2 * 3, String(full));
+  const last = await ok(await call('/songbook')), shown = Object.keys(last.documents).length;
+  assert.equal(shown, 7, '연결·아님 문서 5 + 짝 문서 2');
+  const full = await measure({}); assert.ok(full <= 1 + 2 * shown, String(full));
 });
