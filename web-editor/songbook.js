@@ -30,7 +30,10 @@
  function info(d){if(!d||!SONG.has(d.category))return null;if(!state)return {category:d.category,recommended:null,number:null};const song=songOf(d.id);return {category:d.category,recommended:recommended(song)===d.category,number:song?.number??null};}
  const el=(tag,cls,text)=>{const x=document.createElement(tag);if(cls)x.className=cls;if(text!=null)x.textContent=text;return x;};
  const kind=category=>category===LYRICS?'lyrics':'score';
- function chip(d){const i=info(d);if(!i)return null;const c=el('span','doc-category song-chip '+kind(i.category)+(i.recommended?' rec':''),i.category);c.title=i.recommended===null?i.category:i.recommended?'권장 버전':'권장 버전이 아님';return c;}
+ // 카테고리 칩: 두 글자로 줄이고(마우스를 올리면 전체 이름), 찬양은 색으로 칠한다. 행 바탕도 같은 색(tint)으로 칠한다.
+ const SHORT={'가사찬양':'가사','악보찬양':'악보','예배순서':'예배','특별순서':'특별'};
+ function chip(d){if(!d?.category)return null;const c=el('span','doc-category song-chip '+(SONG.has(d.category)?kind(d.category):'other'),SHORT[d.category]||d.category);c.title=d.category;return c;}
+ const tint=d=>SONG.has(d?.category)?(d.category===LYRICS?'song-lyrics':'song-score'):'';
  function number(d){const i=info(d);return i?.number?el('small','song-number','영 '+i.number):null;}
  // 검색 결과 순서는 그대로 두되, 목록에 있는 같은 곡의 가사·악보 문서가 함께 나오면 가사를 그 악보 바로 앞에 둔다.
  function arrange(list){if(!state)return list;let out=[...list];
@@ -41,24 +44,38 @@
 
  // ── 재생목록 순서 ──
  const asDocument=(id,d)=>({id,path:d.path,name:d.path.split('/').pop(),category:d.category,state:'active',available:true});
- function hint(item){const d=item?.kind==='document'?item.document:null;if(!state||!d||d.state==='trashed'||!SONG.has(d.category))return null;
-  const song=songOf(d.id);
-  if(song){const want=recommended(song);if(want===d.category)return null;const targets=song.links.filter(id=>id!==d.id&&usable(id,want)).map(id=>asDocument(id,doc(id)));return targets.length?{want,targets}:null;}
-  if(d.category!==LYRICS)return null;const targets=(pairCache.get(d.id)||[]).map(x=>asDocument(x.id,x));return targets.length?{want:SCORE,targets}:null;}
+ // 같은 곡의 다른 버전 사용 중 문서: 목록 곡은 연결로, 목록 밖 곡은 순서를 열 때 물은 이름 맞추기 짝으로.
+ function counterparts(d,want){const song=songOf(d.id);if(song)return song.links.filter(id=>id!==d.id&&usable(id,want)).map(id=>asDocument(id,doc(id)));return (pairCache.get(d.id)||[]).filter(x=>x.category===want).map(x=>asDocument(x.id,x));}
+ const orderDoc=item=>{const d=item?.kind==='document'?item.document:null;return state&&d&&d.state!=='trashed'&&SONG.has(d.category)?d:null;};
+ // 목록 밖 곡의 가사찬양 행만: 같은 곡 악보가 있으면 [악보로], 짝을 물었는데 없으면 [악보 필요].
+ function hint(item){const d=orderDoc(item);if(!d||d.category!==LYRICS||songOf(d.id)||!pairCache.has(d.id))return null;const targets=counterparts(d,SCORE);return targets.length?{want:SCORE,targets}:{need:true,name:d.name};}
  const hints=items=>items.map(hint);
- function summary(list){const n=w=>list.filter(h=>h?.want===w).length,parts=[];if(n(SCORE))parts.push('악보 권장 '+n(SCORE));if(n(LYRICS))parts.push('가사 권장 '+n(LYRICS));return parts.join(' · ');}
- // 순서를 열 때 한 번: 목록 버전을 확인하고, 목록 밖 가사찬양 행의 같은 곡 악보찬양을 한 요청으로 묻는다.
+ // 순서 항목 메뉴의 악보로·가사로 바꾸기 대상(없으면 빈 목록). 찬양이 아니면 null.
+ function switches(item){const d=orderDoc(item);return d?{[SCORE]:d.category===LYRICS?counterparts(d,SCORE):[],[LYRICS]:d.category===SCORE?counterparts(d,LYRICS):[]}:null;}
+ // 머리줄: [악보로 n] [악보 필요 n]과, 찬양 행이 있으면 색 범례(가사·악보).
+ function summary(items,list){const go=list.filter(h=>h?.want).length,need=list.filter(h=>h?.need).length,parts=[];
+  if(go)parts.push(el('span','order-tag go','악보로 '+go));if(need)parts.push(el('span','order-tag need','악보 필요 '+need));
+  if(items.some(x=>SONG.has(x?.document?.category)))parts.push(el('span','order-legend'),chip({category:LYRICS}),chip({category:SCORE}));return parts;}
+ // 순서를 열 때 한 번: 목록 버전을 확인하고, 목록 밖 찬양 행의 같은 곡 다른 버전을 한 요청으로 묻는다.
  async function prepareOrder(items){try{await revalidate();}catch(_){return false;}
-  const ids=[...new Set(items.map(x=>x.kind==='document'?x.document:null).filter(d=>d&&d.state!=='trashed'&&d.category===LYRICS&&!songOf(d.id)&&!pairCache.has(d.id)).map(d=>d.id))].slice(0,60);
+  const ids=[...new Set(items.map(x=>x.kind==='document'?x.document:null).filter(d=>d&&d.state!=='trashed'&&SONG.has(d.category)&&!songOf(d.id)&&!pairCache.has(d.id)).map(d=>d.id))].slice(0,60);
   if(!ids.length)return true;
   try{const data=await(await C().api('/songbook/pairs?'+new URLSearchParams({ids:ids.join(',')}))).json();for(const id of ids)pairCache.set(id,data.pairs[id]||[]);}catch(_){return false;}
   return true;}
- function hintElement(h,{disabled,onPick}){const box=el('div','order-song-hint'),label=h.want===SCORE?'악보찬양 있음':'가사찬양 있음';
-  box.append(el('span',kind(h.want),label));
-  const button=el('button',kind(h.want),h.want===SCORE?'악보로 바꾸기':'가사로 바꾸기');button.type='button';button.disabled=!!disabled;
-  button.title=h.targets.length===1?h.targets[0].name.replace(/\.pro6$/i,''):`${h.targets.length}개 중 고르기`;
-  button.onclick=e=>{e.stopPropagation();if(h.targets.length===1)onPick(h.targets[0]);else window.YebaeonSelection.menu(e,h.targets.map(t=>({label:t.name.replace(/\.pro6$/i,''),action:()=>onPick(t)})));};
-  box.append(button);return box;}
+ const stem=name=>String(name||'').replace(/\.pro6$/i,'');
+ function hintElement(h,{disabled,onPick}){
+  if(h.need){const b=el('button','order-tag need','악보 필요');b.type='button';b.onclick=e=>{e.stopPropagation();needDialog(stem(h.name));};return b;}
+  const button=el('button','order-tag go','악보로');button.type='button';button.disabled=!!disabled;
+  button.title=h.targets.length===1?stem(h.targets[0].name):`${h.targets.length}개 중 고르기`;
+  button.onclick=e=>{e.stopPropagation();if(h.targets.length===1)onPick(h.targets[0]);else window.YebaeonSelection.menu(e,h.targets.map(t=>({label:stem(t.name),action:()=>onPick(t)})));};
+  return button;}
+ // [악보 필요]: 작업된 악보가 없다는 안내와 PPT 가져오기(악보 용도·악보찬양·이름을 미리 채움).
+ function needDialog(name){const {el:make}=P(),box=make('dialog',{class:'entry-dialog songbook-need'});
+  const go=make('button',{type:'button',class:'primary',onclick:()=>{box.close();window.YebaeonPPTImport?.openFor({name:name+' (악보)'});}},'PPT 가져오기');
+  box.append(make('h2',{},name),make('p',{class:'dialog-help'},'영광임하소서에 없는 곡이라 악보찬양을 씁니다.\n아직 악보가 없습니다.'),make('div',{class:'dialog-buttons'},make('button',{type:'button',onclick:()=>box.close()},'닫기'),go));
+  box.addEventListener('close',()=>box.remove());document.body.append(box);box.showModal();go.focus();}
+ // PPT 가져오기로 악보찬양을 만들면(어디서 열었든) 열린 순서의 짝을 다시 물어 [악보 필요]가 [악보로]가 되게 한다.
+ window.addEventListener('yebaeonpptimported',e=>{if(e.detail?.document?.category!==SCORE)return;pairCache.clear();const items=window.YebaeonPlaylists?.items()||[];prepareOrder(items).then(ok=>{if(ok)window.dispatchEvent(new Event('yebaeonsongbook'));});});
 
  // ── 영광임하소서 목록 창 ──
  let dialog=null,admin=false,candidates={},filter='all',query='';
@@ -215,5 +232,5 @@
 
  document.getElementById('songbookOpen')?.addEventListener('click',open);
  window.addEventListener('yebaeonsession',e=>{if(!e.detail?.authenticated){state=null;pairCache.clear();byDoc=new Map();}});
- window.YebaeonSongbook={ensure,revalidate,reload,info,chip,number,arrange,hints,summary,prepareOrder,hintElement,open,state:()=>state,parse};
+ window.YebaeonSongbook={ensure,revalidate,reload,info,chip,tint,number,arrange,hints,switches,summary,prepareOrder,hintElement,open,state:()=>state,parse};
 })();

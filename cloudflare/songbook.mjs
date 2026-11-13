@@ -167,18 +167,21 @@ async function candidatesRoute(request, env) {
   return json({ version: state.version, candidates });
 }
 
-// 순서의 목록 밖 가사찬양 행: 같은 곡의 사용 중 악보찬양 문서. 목록의 어느 곡에든 연결된 문서는 뺀다.
+// 순서의 목록 밖 찬양 행: 같은 곡의 다른 버전(가사찬양 ↔ 악보찬양) 사용 중 문서. 목록의 어느 곡에든 연결된 문서는 뺀다.
 async function pairsRoute(request, env) {
   method(request, ['GET']);
   const db = env.DB, ids = [...new Set((new URL(request.url).searchParams.get('ids') || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean))];
   if (ids.length > MAX_PAIR_IDS || ids.some(id => !UUID.test(id))) throw new HttpError(400, 'invalid_ids', '문서 id를 확인해 주세요.');
   if (!ids.length) return json({ pairs: {} });
   const state = await current(db), linked = new Set(state.songs.flatMap(s => s.links));
-  const sources = (await db.prepare('SELECT d.id,d.path FROM json_each(?) j JOIN yebaeon_documents d ON d.id=j.value').bind(JSON.stringify(ids)).all()).results.map(r => ({ id: r.id, keys: documentKeys(r.path) }));
-  const rows = await matches(db, sources.flatMap(s => allKeys(s.keys)), ['악보찬양']);
+  const sources = (await db.prepare('SELECT d.id,d.path,d.category FROM json_each(?) j JOIN yebaeon_documents d ON d.id=j.value').bind(JSON.stringify(ids)).all()).results
+    .filter(r => SONG_CATEGORIES.includes(r.category)).map(r => ({ id: r.id, keys: documentKeys(r.path), want: r.category === '가사찬양' ? '악보찬양' : '가사찬양' }));
+  if (!sources.length) return json({ version: state.version, pairs: {} });
+  const wanted = [...new Set(sources.map(s => s.want))];
+  const rows = await matches(db, sources.flatMap(s => allKeys(s.keys)), wanted);
   const pairs = {};
   for (const s of sources) {
-    const found = rows.filter(r => r.id !== s.id && !linked.has(r.id) && sameSong(documentKeys(r.path), s.keys));
+    const found = rows.filter(r => r.id !== s.id && r.category === s.want && !linked.has(r.id) && sameSong(documentKeys(r.path), s.keys));
     if (found.length) pairs[s.id] = found.map(view);
   }
   return json({ version: state.version, pairs });

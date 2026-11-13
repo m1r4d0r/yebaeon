@@ -117,6 +117,10 @@ test('영광임하소서 목록 API와 이름 맞추기 색인', { timeout: 1200
   const pairs = (await ok(await call('/songbook/pairs?ids=' + [free.id, lyric.id].join(',')))).pairs;
   assert.deepEqual(pairs[free.id].map(d => d.id).sort(), [freeScore.id, freeLong.id].sort());
   assert.ok(!pairs[lyric.id].some(d => d.id === linkedElsewhere.id || d.id === trashed.id));
+  // 악보 행은 같은 곡의 가사를 찾는다(순서 항목 메뉴의 '가사로 바꾸기')
+  const reverse = (await ok(await call('/songbook/pairs?ids=' + freeScore.id))).pairs;
+  assert.deepEqual(reverse[freeScore.id].map(d => [d.id, d.category]), [[free.id, '가사찬양']]);
+  assert.deepEqual((await ok(await call('/songbook/pairs?ids=' + otherCategory.id))).pairs, {}, '찬양이 아닌 문서는 짝을 찾지 않는다');
   assert.equal((await call('/songbook/pairs?ids=nope')).status, 400);
 
   // 비용: 목록 GET 304는 1행, 전체 GET은 1행 + 연결 문서 수

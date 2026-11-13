@@ -18,7 +18,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   else if(path.startsWith('/api/documents/')){const id=path.split('/')[3],d=docs.get(id);if(!d){await route.fulfill({status:404,json:{message:'없음'}});return;}
    if(path.endsWith('/content')){contentReads.push(id);await route.fulfill({body:d.xml,contentType:'application/xml'});return;}
    if(req.method()==='PUT'){assert.equal(req.headers()['if-match'],`"${d.version}"`);d.xml=req.postData();d.version++;puts.push(d.path);}data={document:meta(id)};}
-  else if(path==='/api/questions')data={admin:false,author:'',questions:[]};else if(path==='/api/songbook')data={version:0,songs:[],documents:{}};else throw Error('Unexpected '+path);await route.fulfill({json:data});});
+  else if(path==='/api/questions')data={admin:false,author:'',questions:[]};else if(path==='/api/songbook/pairs')data={version:0,pairs:{}};else if(path==='/api/songbook')data={version:0,songs:[],documents:{}};else throw Error('Unexpected '+path);await route.fulfill({json:data});});
  await page.route('**/resources/**',async route=>{const name=new URL(route.request().url()).pathname.split('/').pop();await route.fulfill({json:name==='catalog.json'?{fonts:[],media:[]}:name==='templates.json'?[{id:'104',name:'말씀',label:'본문',width:1920,height:1080,xml:template}]:bible});});
  try{await page.goto(`http://127.0.0.1:${server.address().port}`);await page.waitForFunction(()=>window.YebaeonBulletin&&YebaeonCloud.authenticated());
   const made=await page.evaluate(()=>{const make=slides=>{const m=PP6.parse(YebaeonLibraryActions.blankDocument('예배순서'),'x'),first=PP6.slides(m)[0],holder=first.parentNode,proto=first.cloneNode(true);first.remove();
@@ -85,7 +85,7 @@ const {chromium}=require('playwright');const {createServer}=require('node:http')
   assert.equal(await page.locator('.bulletin-op>label',{hasText:'1부 예배(품성)'}).locator('input').isChecked(),false);
   await page.locator('#bulletinSteps button',{hasText:'찬양'}).click();
   // Songs: candidates only; nothing is replaced until the user picks a document.
-  await slot('찬양 1').click();await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor();assert.match(await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 악보'}).textContent(),/악보찬양/);
+  await slot('찬양 1').click();await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor();assert.equal(await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 악보'}).locator('.song-chip').getAttribute('title'),'악보찬양');
   assert.equal(await page.locator('.bulletin-cands input').count(),0,'the slot box is the search box; candidates show results only');
   const songBox=slot('찬양 1').locator('[id^=bulletin-]');await songBox.fill('악보');await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor({state:'detached'});assert.equal(await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 악보'}).count(),1,'typing in the slot box searches again');
   await songBox.fill('100 주');await songBox.press('Enter');await page.locator('.bulletin-cands .cand',{hasText:'100 주 이름 가사'}).waitFor();

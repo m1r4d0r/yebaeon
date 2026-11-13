@@ -16,8 +16,8 @@
   const root=el('div','doc-search'),list=el('div','doc-search-list'),input=outer||el('input');
   if(!outer){const row=el('div','doc-search-row'),go=el('button',null,'검색');input.type='search';input.value=value;input.placeholder=placeholder;input.setAttribute('aria-label',label);go.type='button';go.onclick=()=>run();row.append(input,go);root.append(row);}
   root.append(list);container.replaceChildren(root);
-  // 찬양 문서는 카테고리 글 대신 권장 버전 칩과 영광임하소서 번호를 단다(songbook.js). decorate의 tag는 카테고리를 빼고 준다.
-  const item=(doc,info={})=>{const SB=window.YebaeonSongbook,song=SB?.chip(doc),number=SB?.number(doc),b=el('button','doc-search-item'+(itemClass?' '+itemClass:'')+(info.on?' on':''));b.type='button';const nm=el('span','nm',stem(doc.name));if(number)nm.append(number);b.append(nm);if(song)b.append(song);b.append(el('span','tag',[song?'':doc.category,info.tag??(doc.matchedBy==='content'?'본문 일치':'')].filter(Boolean).join(' · ')));b.onclick=()=>onPick?.(doc,info);return b;};
+  // 카테고리는 두 글자 칩(찬양은 색, 행 바탕도 같은 색)과 영광임하소서 번호로 단다(songbook.js). decorate의 tag는 카테고리를 빼고 준다.
+  const item=(doc,info={})=>{const SB=window.YebaeonSongbook,song=SB?.chip(doc),number=SB?.number(doc),b=el('button','doc-search-item'+(itemClass?' '+itemClass:'')+(info.on?' on':''));b.type='button';const tint=SB?.tint(doc);if(tint)b.classList.add(tint);const nm=el('span','nm',stem(doc.name));if(number)nm.append(number);b.append(nm);if(song)b.append(song);b.append(el('span','tag',[song?'':doc.category,info.tag??(doc.matchedBy==='content'?'본문 일치':'')].filter(Boolean).join(' · ')));b.onclick=()=>onPick?.(doc,info);return b;};
   let generation=0;
   async function run(){const q=input.value.trim(),g=++generation;onQuery?.(q);list.replaceChildren(...extras().map(x=>item(x.doc,x)));if(!q)return;list.append(el('p','hint','찾는 중…'));
    try{const SB=window.YebaeonSongbook,[found]=await Promise.all([query(q),SB?.ensure().catch(()=>null)]),available=found.documents.filter(d=>d.available!==false),docs=SB?SB.arrange(available):available;if(g!==generation)return;list.querySelector('.hint')?.remove();

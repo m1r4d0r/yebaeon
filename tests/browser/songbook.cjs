@@ -23,7 +23,7 @@ const assert=require('node:assert/strict');
  try{
   await page.goto(origin);await page.locator('#entryName').fill('목록 시험');await page.locator('#entryPassword').fill('browser-only');await page.locator('#entrySubmit').click();await page.locator('#entryDialog').waitFor({state:'hidden'});
   const ids=await page.evaluate(async()=>{const make=async(name,category)=>(await(await YebaeonCloud.api('/documents?'+new URLSearchParams({path:name+'.pro6'}),{method:'POST',headers:{'Content-Type':'application/xml','X-YebaeOn-Client':'studio'},body:YebaeonLibraryActions.blankDocument(category)})).json()).document.id;
-   return {listScore:await make('합성 찬양 하나_Wide','악보찬양'),listLyrics:await make('합성 찬양 하나','가사찬양'),freeLyrics:await make('목록밖 노래 하나','가사찬양'),freeScore:await make('목록밖 노래 하나 둘','악보찬양'),order:await make('합성 예배순서','예배순서'),second:await make('둘째 합성 곡','악보찬양')};});
+   return {listScore:await make('합성 찬양 하나_Wide','악보찬양'),listLyrics:await make('합성 찬양 하나','가사찬양'),freeLyrics:await make('목록밖 노래 하나','가사찬양'),freeScore:await make('목록밖 노래 하나 둘','악보찬양'),order:await make('합성 예배순서','예배순서'),noScore:await make('악보 없는 노래','가사찬양'),second:await make('둘째 합성 곡','악보찬양')};});
 
   // 관리자가 아니면 관리 버튼이 없다
   await openSongbook();
@@ -59,36 +59,54 @@ const assert=require('node:assert/strict');
   assert.match(await page.locator('#songbookRows [data-number="7"]').textContent(),/둘째 합성 곡/);
   await page.locator('#songbookDialog .panel-close').first().click();
 
-  // 검색 결과 칩: 목록 곡은 가사 칠함·악보 테두리, 목록 밖은 반대. 같은 곡의 가사를 악보 바로 앞에
+  // 검색 결과: 카테고리 칩은 두 글자로 칠하고(마우스를 올리면 전체 이름), 찬양 행은 같은 색. 같은 곡의 가사를 악보 바로 앞에
   await search('합성 찬양 하나');
-  const listed=await page.locator('#libraryList .document-item').evaluateAll(rows=>rows.map(r=>({name:r.querySelector('strong').firstChild.textContent,number:r.querySelector('.song-number')?.textContent||'',chip:r.querySelector('.song-chip')?.className||''})));
+  const listed=await page.locator('#libraryList .document-item').evaluateAll(rows=>rows.map(r=>({name:r.querySelector('strong').firstChild.textContent,number:r.querySelector('.song-number')?.textContent||'',chip:r.querySelector('.song-chip')?.className||'',label:r.querySelector('.song-chip')?.textContent,title:r.querySelector('.song-chip')?.title,row:r.className})));
   assert.deepEqual(listed.map(x=>x.name),['합성 찬양 하나','합성 찬양 하나_Wide'],'가사를 같은 곡 악보 바로 앞에');
-  assert.match(listed[0].chip,/lyrics rec/);assert.match(listed[1].chip,/score/);assert.doesNotMatch(listed[1].chip,/rec/);
+  assert.deepEqual(listed.map(x=>[x.label,x.title]),[['가사','가사찬양'],['악보','악보찬양']]);
+  assert.match(listed[0].chip,/lyrics/);assert.match(listed[0].row,/song-lyrics/);assert.match(listed[1].chip,/score/);assert.match(listed[1].row,/song-score/);
   assert.deepEqual(listed.map(x=>x.number),['영 58','영 58']);await page.screenshot({path:'artifacts/songbook-search.png',clip:{x:0,y:0,width:420,height:320}});
-  await search('목록밖 노래 하나');
-  const free=await page.locator('#libraryList .document-item').evaluateAll(rows=>rows.map(r=>({name:r.querySelector('strong').textContent,chip:r.querySelector('.song-chip')?.className||''})));
-  assert.match(free.find(x=>x.name==='목록밖 노래 하나').chip,/lyrics/);assert.doesNotMatch(free.find(x=>x.name==='목록밖 노래 하나').chip,/rec/);
-  assert.match(free.find(x=>x.name==='목록밖 노래 하나 둘').chip,/score rec/);
-  await search('합성 예배순서');assert.equal(await page.locator('#libraryList .song-chip').count(),0,'다른 카테고리에는 표시하지 않는다');
+  await search('합성 예배순서');
+  const other=page.locator('#libraryList .document-item').first();
+  assert.equal(await other.locator('.song-chip').textContent(),'예배');assert.equal(await other.locator('.song-chip').getAttribute('title'),'예배순서');assert.doesNotMatch(await other.getAttribute('class'),/song-/,'다른 카테고리 행은 칠하지 않는다');
 
-  // 순서: 목록 밖 가사 → '악보찬양 있음' → [악보로 바꾸기]가 그 자리를 바꾸고 바로 저장. 목록 곡 악보 → '가사찬양 있음'
+  // 순서: 찬양 행을 칠하고, 목록 밖 가사 행에만 [악보로](같은 곡 악보 있음) 또는 [악보 필요]. 머리줄에 개수와 색 범례.
   await openPlaylists();await page.locator('#playlistNew').click();await page.locator('#newPlaylistName').fill('권장 예배');await page.locator('#newPlaylistSubmit').click();await page.locator('#newPlaylistDialog').waitFor({state:'hidden'});await page.waitForFunction(()=>YebaeonPlaylists.selectedPlaylist()?.name==='권장 예배');
-  await page.evaluate(async ids=>{const get=async id=>(await(await YebaeonCloud.api('/documents/'+id)).json()).document;YebaeonPlaylists.appendDocuments([await get(ids.freeLyrics),await get(ids.listScore),await get(ids.order)]);await YebaeonPlaylists.save();const s=YebaeonPlaylists.selectedPlaylist();const [lib,node]=s.key.split('/');await YebaeonPlaylists.openNode(lib,node);},ids);
-  await page.locator('#playlistItems .order-song-hint').nth(1).waitFor();
-  assert.equal(await page.locator('#playlistSongHints').textContent(),'악보 권장 1 · 가사 권장 1');
+  await page.evaluate(async ids=>{const get=async id=>(await(await YebaeonCloud.api('/documents/'+id)).json()).document;YebaeonPlaylists.appendDocuments([await get(ids.freeLyrics),await get(ids.listScore),await get(ids.order),await get(ids.noScore)]);await YebaeonPlaylists.save();const s=YebaeonPlaylists.selectedPlaylist();const [lib,node]=s.key.split('/');await YebaeonPlaylists.openNode(lib,node);},ids);
+  await page.locator('#playlistItems .order-tag.need').waitFor();
+  const summaryText=()=>page.locator('#playlistSongHints').textContent();
+  assert.equal(await summaryText(),'악보로 1악보 필요 1가사악보');
   const rows=page.locator('#playlistItems .order-item');
-  assert.match(await rows.nth(0).locator('.order-song-hint').textContent(),/악보찬양 있음악보로 바꾸기/);
-  assert.match(await rows.nth(1).locator('.order-song-hint').textContent(),/가사찬양 있음가사로 바꾸기/);
-  assert.equal(await rows.nth(2).locator('.order-song-hint').count(),0);
+  assert.deepEqual(await rows.evaluateAll(list=>list.map(r=>(r.className.match(/song-(lyrics|score)/)||[''])[0])),['song-lyrics','song-score','','song-lyrics']);
+  assert.equal(await rows.nth(0).locator('.order-tag').textContent(),'악보로');assert.equal(await rows.nth(1).locator('.order-tag').count(),0,'목록 곡 악보에는 버튼을 달지 않는다');
+  assert.equal(await rows.nth(1).locator('.song-number').textContent(),'영 58');assert.equal(await rows.nth(3).locator('.order-tag').textContent(),'악보 필요');
+  // 항목 메뉴: 바꿀 수 있으면 켜고, 아니면 회색
+  await rows.nth(1).click({button:'right'});
+  assert.equal(await page.getByRole('menuitem',{name:'가사로 바꾸기'}).isDisabled(),false);assert.equal(await page.getByRole('menuitem',{name:'악보로 바꾸기'}).isDisabled(),true);
+  await page.keyboard.press('Escape');
   await page.screenshot({path:'artifacts/songbook-order.png'});
+  // [악보 필요] → 안내 창 → PPT 가져오기(악보 용도·이름 미리 채움, 순서에 넣기 끔)
+  await rows.nth(3).locator('.order-tag').click();
+  await page.locator('.songbook-need[open]').waitFor();
+  assert.equal(await page.locator('.songbook-need h2').textContent(),'악보 없는 노래');
+  await page.screenshot({path:'artifacts/songbook-need.png'});
+  await page.locator('.songbook-need').getByRole('button',{name:'PPT 가져오기'}).click();
+  await page.locator('#pptDialog[open]').waitFor();
+  assert.equal(await page.locator('#pptName').inputValue(),'악보 없는 노래 (악보)');
+  assert.equal(await page.locator('#pptPurpose [data-purpose="score"]').getAttribute('aria-pressed'),'true');assert.equal(await page.locator('#pptAppend').isChecked(),false);
+  await page.locator('#pptClose').click();
+  // 악보 용도로 악보찬양을 만들면(어디서 열었든) 열린 순서의 짝을 다시 물어 [악보 필요]가 [악보로]가 된다.
+  await page.evaluate(async()=>{const made=(await(await YebaeonCloud.api('/documents?'+new URLSearchParams({path:'악보 없는 노래 (악보).pro6'}),{method:'POST',headers:{'Content-Type':'application/xml','X-YebaeOn-Client':'studio'},body:YebaeonLibraryActions.blankDocument('악보찬양')})).json()).document;window.dispatchEvent(new CustomEvent('yebaeonpptimported',{detail:{document:made}}));});
+  await page.waitForFunction(()=>!document.querySelector('#playlistItems .order-tag.need'));
+  assert.equal(await summaryText(),'악보로 2가사악보');
   const before=await page.evaluate(()=>YebaeonPlaylists.items()[0].id);
-  await rows.nth(0).getByRole('button',{name:'악보로 바꾸기'}).click();
+  await rows.nth(0).getByRole('button',{name:'악보로'}).click();
   await page.waitForFunction(id=>YebaeonPlaylists.items()[0]?.document?.id===id&&!YebaeonPlaylists.state().dirty&&!YebaeonPlaylists.state().busy,ids.freeScore);
   assert.equal(await page.evaluate(()=>YebaeonPlaylists.items()[0].id),before,'같은 자리(같은 항목)를 바꾼다');
   assert.equal(await page.locator('#playlistState').textContent(),'서버 저장됨');
-  assert.equal(await page.locator('#playlistSongHints').textContent(),'가사 권장 1');
+  assert.equal(await summaryText(),'악보로 1가사악보');
   const saved=await page.evaluate(async()=>{const s=YebaeonPlaylists.selectedPlaylist(),[lib,node]=s.key.split('/');return (await(await YebaeonCloud.api(`/playlists/${lib}/plan?node=${node}`)).json()).items.map(x=>x.document?.name);});
-  assert.deepEqual(saved,['목록밖 노래 하나 둘.pro6','합성 찬양 하나_Wide.pro6','합성 예배순서.pro6']);
+  assert.deepEqual(saved,['목록밖 노래 하나 둘.pro6','합성 찬양 하나_Wide.pro6','합성 예배순서.pro6','악보 없는 노래.pro6']);
   // [고르기] 내용 미리보기: 가사는 첫 가사 두 줄(제목 장 건너뜀), 악보는 첫 악보 장 그림, 누르면 앞 장 펼침, 문서마다 한 번만 받음, 못 읽으면 '미리보기 없음'.
   const preview=await page.evaluate(async()=>{const P=PP6,style={font:'NanumGothicOTF',size:80,color:'rgb(255,255,255)',align:'center'},text=t=>P.textElementXML({rect:{x:80,y:90,w:1760,h:900},rtf:P.textRTF(t,style)});
    const xml=(category,slides)=>P.documentXML({category,groups:[{name:'기본',slides:slides.join('')}]});
@@ -120,6 +138,6 @@ const assert=require('node:assert/strict');
   await page.waitForFunction(()=>document.querySelectorAll('.songbook-pick .songbook-pick-slides').length===1&&document.querySelectorAll('.songbook-pick .songbook-preview-text').length===1);
   assert.deepEqual([preview.lyrics,preview.score,preview.broken].map(id=>contentReads.get(id)),[1,1,1],'each document is read once while the window is open, even after a redraw');
   await page.locator('.songbook-pick .panel-close').click();await page.locator('#songbookDialog .panel-close').first().click();
-  assert.deepEqual(errors,[]);console.log('Songbook UI passed: chips and order in search, admin-only buttons, paste preview errors and save, order hint replace-and-save, pick-window previews');
+  assert.deepEqual(errors,[]);console.log('Songbook UI passed: chips and order in search, admin-only buttons, paste preview errors and save, order tint and score buttons, need dialog to PPT import, re-pairing after a score import, row menu switches, pick-window previews');
  }finally{await browser.close();await new Promise(r=>server.close(r));await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
