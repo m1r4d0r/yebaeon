@@ -8,7 +8,7 @@
  let state=null,loading=null,byDoc=new Map();
  const pairCache=new Map();
  function index(){byDoc=new Map();for(const s of state.songs)for(const id of s.links)byDoc.set(id,s);}
- function accept(data,merge=false){state={version:data.version,songs:data.songs,updatedBy:data.updatedBy,updatedAt:data.updatedAt,documents:{...(merge&&state?state.documents:{}),...(data.documents||{})}};index();pairCache.clear();window.dispatchEvent(new Event('yebaeonsongbook'));}
+ function accept(data,merge=false,keepPairs=false){state={version:data.version,songs:data.songs,lyricsOnly:new Set(data.lyricsOnly||[]),updatedBy:data.updatedBy,updatedAt:data.updatedAt,documents:{...(merge&&state?state.documents:{}),...(data.documents||{})}};index();if(!keepPairs)pairCache.clear();window.dispatchEvent(new Event('yebaeonsongbook'));}
  async function get(etag){
   const response=await fetch('/api/songbook',{credentials:'same-origin',cache:'no-store',headers:etag?{'If-None-Match':etag}:{}});
   if(response.status===304)return null;
@@ -47,15 +47,17 @@
  // 같은 곡의 다른 버전 사용 중 문서: 목록 곡은 연결로, 목록 밖 곡은 순서를 열 때 물은 이름 맞추기 짝으로.
  function counterparts(d,want){const song=songOf(d.id);if(song)return song.links.filter(id=>id!==d.id&&usable(id,want)).map(id=>asDocument(id,doc(id)));return (pairCache.get(d.id)||[]).filter(x=>x.category===want).map(x=>asDocument(x.id,x));}
  const orderDoc=item=>{const d=item?.kind==='document'?item.document:null;return state&&d&&d.state!=='trashed'&&SONG.has(d.category)?d:null;};
- // 목록 밖 곡의 가사찬양 행만: 같은 곡 악보가 있으면 [악보로], 짝을 물었는데 없으면 [악보 필요].
- function hint(item){const d=orderDoc(item);if(!d||d.category!==LYRICS||songOf(d.id)||!pairCache.has(d.id))return null;const targets=counterparts(d,SCORE);return targets.length?{want:SCORE,targets}:{need:true,name:d.name};}
+ // 목록 밖 곡의 가사찬양 행만('가사로 쓰는 곡'은 빼고): 같은 곡 악보가 있으면 [악보로], 짝을 물었는데 없으면 [악보 필요].
+ const freeLyrics=item=>{const d=orderDoc(item);return d&&d.category===LYRICS&&!songOf(d.id)?d:null;};
+ function hint(item){const d=freeLyrics(item);if(!d||state.lyricsOnly.has(d.id)||!pairCache.has(d.id))return null;const targets=counterparts(d,SCORE);return targets.length?{want:SCORE,targets}:{need:true,name:d.name,id:d.id};}
+ // '가사로 쓰는 곡' 지정·해제(누구나). 곡 목록은 그대로이고 짝 찾기 결과도 그대로 둔다.
+ async function setLyricsOnly(id,on){const data=await(await C().api('/songbook/lyrics-only',json('POST',{id,on}))).json();accept(data,true,true);}
+ function lyricsOnlyItem(item){const d=freeLyrics(item);if(!d)return null;const on=state.lyricsOnly.has(d.id);return {label:on?'가사로 쓰기 해제':'가사로 쓰기',action:()=>setLyricsOnly(d.id,!on).catch(error=>alert(error.message))};}
  const hints=items=>items.map(hint);
  // 순서 항목 메뉴의 악보로·가사로 바꾸기 대상(없으면 빈 목록). 찬양이 아니면 null.
  function switches(item){const d=orderDoc(item);return d?{[SCORE]:d.category===LYRICS?counterparts(d,SCORE):[],[LYRICS]:d.category===SCORE?counterparts(d,LYRICS):[]}:null;}
- // 머리줄: [악보로 n] [악보 필요 n]과, 찬양 행이 있으면 색 범례(가사·악보).
- function summary(items,list){const go=list.filter(h=>h?.want).length,need=list.filter(h=>h?.need).length,parts=[];
-  if(go)parts.push(el('span','order-tag go','악보로 '+go));if(need)parts.push(el('span','order-tag need','악보 필요 '+need));
-  if(items.some(x=>SONG.has(x?.document?.category)))parts.push(el('span','order-legend'),chip({category:LYRICS}),chip({category:SCORE}));return parts;}
+ // 머리줄: 찬양 행이 있으면 색 범례(행 바탕과 같은 색의 네모에 가사·악보).
+ function summary(items){return items.some(x=>SONG.has(x?.document?.category))?[el('span','order-legend'),el('span','order-swatch song-lyrics','가사'),el('span','order-swatch song-score','악보')]:[];}
  // 순서를 열 때 한 번: 목록 버전을 확인하고, 목록 밖 찬양 행의 같은 곡 다른 버전을 한 요청으로 묻는다.
  async function prepareOrder(items){try{await revalidate();}catch(_){return false;}
   const ids=[...new Set(items.map(x=>x.kind==='document'?x.document:null).filter(d=>d&&d.state!=='trashed'&&SONG.has(d.category)&&!songOf(d.id)&&!pairCache.has(d.id)).map(d=>d.id))].slice(0,60);
@@ -64,15 +66,16 @@
   return true;}
  const stem=name=>String(name||'').replace(/\.pro6$/i,'');
  function hintElement(h,{disabled,onPick}){
-  if(h.need){const b=el('button','order-tag need','악보 필요');b.type='button';b.onclick=e=>{e.stopPropagation();needDialog(stem(h.name));};return b;}
+  if(h.need){const b=el('button','order-tag need','악보 필요');b.type='button';b.onclick=e=>{e.stopPropagation();needDialog(stem(h.name),h.id);};return b;}
   const button=el('button','order-tag go','악보로');button.type='button';button.disabled=!!disabled;
   button.title=h.targets.length===1?stem(h.targets[0].name):`${h.targets.length}개 중 고르기`;
   button.onclick=e=>{e.stopPropagation();if(h.targets.length===1)onPick(h.targets[0]);else window.YebaeonSelection.menu(e,h.targets.map(t=>({label:stem(t.name),action:()=>onPick(t)})));};
   return button;}
  // [악보 필요]: 작업된 악보가 없다는 안내와 PPT 가져오기(악보 용도·악보찬양·이름을 미리 채움).
- function needDialog(name){const {el:make}=P(),box=make('dialog',{class:'entry-dialog songbook-need'});
+ function needDialog(name,id){const {el:make}=P(),box=make('dialog',{class:'entry-dialog songbook-need'}),note=make('p',{class:'dialog-message',role:'status'});
   const go=make('button',{type:'button',class:'primary',onclick:()=>{box.close();window.YebaeonPPTImport?.openFor({name:name+' (악보)'});}},'PPT 가져오기');
-  box.append(make('h2',{},name),make('p',{class:'dialog-help'},'영광임하소서에 없는 곡이라 악보찬양을 씁니다.\n아직 악보가 없습니다.'),make('div',{class:'dialog-buttons'},make('button',{type:'button',onclick:()=>box.close()},'닫기'),go));
+  const keep=make('button',{type:'button',title:'이 가사 문서는 가사로 씁니다. 순서 항목 메뉴에서 해제할 수 있습니다.',onclick:async()=>{keep.disabled=true;try{await setLyricsOnly(id,true);box.close();}catch(error){note.textContent=error.message;keep.disabled=false;}}},'가사로 쓰기');
+  box.append(make('h2',{},name),make('p',{class:'dialog-help'},'영광임하소서에 없는 곡이라 악보찬양을 씁니다.\n아직 악보가 없습니다.'),note,make('div',{class:'dialog-buttons'},make('button',{type:'button',onclick:()=>box.close()},'닫기'),keep,go));
   box.addEventListener('close',()=>box.remove());document.body.append(box);box.showModal();go.focus();}
  // PPT 가져오기로 악보찬양을 만들면(어디서 열었든) 열린 순서의 짝을 다시 물어 [악보 필요]가 [악보로]가 되게 한다.
  window.addEventListener('yebaeonpptimported',e=>{if(e.detail?.document?.category!==SCORE)return;pairCache.clear();const items=window.YebaeonPlaylists?.items()||[];prepareOrder(items).then(ok=>{if(ok)window.dispatchEvent(new Event('yebaeonsongbook'));});});
@@ -232,5 +235,5 @@
 
  document.getElementById('songbookOpen')?.addEventListener('click',open);
  window.addEventListener('yebaeonsession',e=>{if(!e.detail?.authenticated){state=null;pairCache.clear();byDoc=new Map();}});
- window.YebaeonSongbook={ensure,revalidate,reload,info,chip,tint,number,arrange,hints,switches,summary,prepareOrder,hintElement,open,state:()=>state,parse};
+ window.YebaeonSongbook={ensure,revalidate,reload,info,chip,tint,number,arrange,hints,switches,lyricsOnlyItem,summary,prepareOrder,hintElement,open,state:()=>state,parse};
 })();

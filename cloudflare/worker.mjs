@@ -43,7 +43,7 @@ export default {
       const mediaReferences = pathname === '/api/media/references', mediaPaths = pathname === '/api/media/paths';
       const admin = /^\/api\/admin(\/trash|\/orphans)?$/.exec(pathname), categories = /^\/api\/categories(?:\/([^/]{1,40}))?$/.exec(pathname), editing = pathname === '/api/editing';
       const questions = /^\/api\/questions(?:\/([^/]+))?$/.exec(pathname);
-      const songbook = /^\/api\/songbook(?:\/(pairs|candidates))?$/.exec(pathname);
+      const songbook = /^\/api\/songbook(?:\/(pairs|candidates|lyrics-only))?$/.exec(pathname);
       const userTemplates = /^\/api\/templates(?:\/([0-9a-f-]{36}))?$/.exec(pathname);
       const appUpdate = /^\/api\/sync\/app(\/download)?$/.exec(pathname);
       const remote = /^\/api\/sync\/devices\/([0-9a-f]{32})\/(status|support|commands|review)(?:\/([^/]+))?$/.exec(pathname);

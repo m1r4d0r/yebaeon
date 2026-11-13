@@ -17,7 +17,9 @@ async function table(db) {
 }
 async function current(db) {
   const row = await db.prepare('SELECT version,data,updated_by,updated_at FROM yebaeon_songbook WHERE id=1').first();
-  return row ? { version: row.version, songs: JSON.parse(row.data), updatedBy: row.updated_by, updatedAt: row.updated_at } : { version: 0, songs: [], updatedBy: null, updatedAt: null };
+  // data: {songs, lyricsOnly}. 예전 행은 곡 배열만 있다.
+  const data = row ? JSON.parse(row.data) : null, songs = Array.isArray(data) ? data : data?.songs || [], lyricsOnly = Array.isArray(data) ? [] : data?.lyricsOnly || [];
+  return row ? { version: row.version, songs, lyricsOnly, updatedBy: row.updated_by, updatedAt: row.updated_at } : { version: 0, songs: [], lyricsOnly: [], updatedBy: null, updatedAt: null };
 }
 const etag = version => `"${version}"`;
 function baseVersion(request) {
@@ -88,13 +90,13 @@ function invalid(errors) {
   const error = new HttpError(400, 'invalid_songbook', shown);
   return error;
 }
-async function write(db, user, base, songs) {
-  const now = new Date().toISOString(), data = JSON.stringify(songs), next = base + 1;
+async function write(db, user, base, songs, lyricsOnly = []) {
+  const now = new Date().toISOString(), data = JSON.stringify({ songs, lyricsOnly }), next = base + 1;
   const result = base === 0
     ? await db.prepare('INSERT OR IGNORE INTO yebaeon_songbook(id,version,data,updated_by,updated_at) VALUES (1,1,?,?,?)').bind(data, user.author, now).run()
     : await db.prepare('UPDATE yebaeon_songbook SET version=?,data=?,updated_by=?,updated_at=? WHERE id=1 AND version=?').bind(next, data, user.author, now, base).run();
   if (result.meta.changes !== 1) throw conflict();
-  return { version: next, songs, updatedBy: user.author, updatedAt: now };
+  return { version: next, songs, lyricsOnly, updatedBy: user.author, updatedAt: now };
 }
 
 export async function songbookRoute(request, env, user, action) {
@@ -102,6 +104,7 @@ export async function songbookRoute(request, env, user, action) {
   await table(db);
   if (action === 'pairs') return pairsRoute(request, env);
   if (action === 'candidates') return candidatesRoute(request, env);
+  if (action === 'lyrics-only') return lyricsOnlyRoute(request, env, user);
   if (action) throw new HttpError(404, 'not_found', '없는 요청입니다.');
   method(request, ['GET', 'PUT', 'PATCH']);
   if (request.method === 'GET') {
@@ -122,7 +125,7 @@ export async function songbookRoute(request, env, user, action) {
     if (dryRun) return json({ errors, documents: docs });
     const base = baseVersion(request);
     if (errors.length) throw invalid(errors);
-    const state = await write(db, user, base, songs);
+    const state = await write(db, user, base, songs, (await current(db)).lyricsOnly);
     return json({ ...state, documents: docs }, 200, { ETag: etag(state.version) });
   }
   // PATCH: 곡 하나. {number: 지금 번호(새 곡이면 null), song: 바뀐 곡(지우면 null)}
@@ -141,8 +144,30 @@ export async function songbookRoute(request, env, user, action) {
   const docs = added.length && !errors.length ? await documentsOf(db, added) : {};
   if (changed && !errors.length) errors.push(...documentErrors([changed], docs, new Set(added)));
   if (errors.length) throw invalid(errors);
-  const saved = await write(db, user, base, songs);
+  const saved = await write(db, user, base, songs, state.lyricsOnly);
   return json({ ...saved, documents: docs }, 200, { ETag: etag(saved.version) });
+}
+
+// '가사로 쓰는 곡': 영광임하소서에 없지만 가사찬양으로 쓰는 문서(id). 순서에 [악보로]·[악보 필요]를 달지 않는다.
+// 누구나 지정·해제한다(표시만 바꾸고 되돌리기 쉽다). 곡 목록은 건드리지 않고, 다른 쓰기와 겹치면 버전을 다시 읽어 한 번 더 쓴다.
+async function lyricsOnlyRoute(request, env, user) {
+  method(request, ['POST']); sameOrigin(request);
+  if (user.device) throw new HttpError(403, 'device_forbidden', 'Studio에서 해 주세요.');
+  const db = env.DB, body = await bodyJSON(request), id = typeof body?.id === 'string' ? body.id.trim().toLowerCase() : '';
+  if (!UUID.test(id) || typeof body?.on !== 'boolean') throw new HttpError(400, 'invalid_lyrics_only', '문서와 지정 여부를 확인해 주세요.');
+  if (body.on) {
+    const doc = await db.prepare('SELECT category FROM yebaeon_documents WHERE id=?').bind(id).first();
+    if (!doc) throw new HttpError(404, 'not_found', '문서를 찾지 못했습니다.');
+    if (doc.category !== '가사찬양') throw new HttpError(400, 'invalid_lyrics_only', '가사찬양 문서만 지정할 수 있습니다.');
+  }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const state = await current(db), set = new Set(state.lyricsOnly);
+    if (body.on ? set.has(id) : !set.has(id)) return json({ ...state, documents: {} }, 200, { ETag: etag(state.version) });
+    if (body.on) { if (set.size >= 2000) throw new HttpError(400, 'invalid_lyrics_only', '가사로 쓰는 곡은 2,000개까지입니다.'); set.add(id); } else set.delete(id);
+    try { const saved = await write(db, user, state.version, state.songs, [...set]); return json({ ...saved, documents: {} }, 200, { ETag: etag(saved.version) }); }
+    catch (error) { if (error?.code !== 'songbook_conflict') throw error; }
+  }
+  throw conflict();
 }
 
 // 이름 맞추기 질의: 열쇠들에 맞는 사용 중 찬양 문서. 행은 색인으로 찾은 것만 읽는다.

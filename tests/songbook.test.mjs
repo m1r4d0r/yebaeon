@@ -123,8 +123,25 @@ test('영광임하소서 목록 API와 이름 맞추기 색인', { timeout: 1200
   assert.deepEqual((await ok(await call('/songbook/pairs?ids=' + otherCategory.id))).pairs, {}, '찬양이 아닌 문서는 짝을 찾지 않는다');
   assert.equal((await call('/songbook/pairs?ids=nope')).status, 400);
 
+  // '가사로 쓰는 곡': 관리자가 아니어도 지정·해제, 가사찬양만, 곡 목록 전체 교체(PUT) 뒤에도 남는다.
+  const plainAdmin = admin; admin = '';
+  const lyricsOnly = (id, on) => call('/songbook/lyrics-only', 'POST', JSON.stringify({ id, on }));
+  let marked = await ok(await lyricsOnly(free.id, true));
+  assert.deepEqual(marked.lyricsOnly, [free.id]);
+  assert.equal((await lyricsOnly(freeScore.id, true)).status, 400, '악보찬양은 지정할 수 없다');
+  assert.equal((await lyricsOnly('nope', true)).status, 400);
+  assert.deepEqual((await ok(await call('/songbook'))).lyricsOnly, [free.id]);
+  admin = plainAdmin;
+  const kept = await ok(await call('/songbook'));
+  await ok(await call('/songbook', 'PUT', JSON.stringify({ songs: kept.songs }), { 'If-Match': `"${kept.version}"` }));
+  assert.deepEqual((await ok(await call('/songbook'))).lyricsOnly, [free.id], '목록 붙여넣기는 가사로 쓰는 곡을 지우지 않는다');
+  admin = '';
+  marked = await ok(await lyricsOnly(free.id, false));
+  assert.deepEqual(marked.lyricsOnly, []);
+  admin = plainAdmin;
   // 비용: 목록 GET 304는 1행, 전체 GET은 1행 + 연결 문서 수
   const measure = async headers => { const DB = measuredDB(db); await songbookRoute(new Request(origin + '/api/songbook', { headers }), { DB }, { author: 'fixture' }); return DB.metrics().reduce((n, q) => n + q.rowsRead, 0); };
-  assert.equal(await measure({ 'If-None-Match': '"4"' }), 1);
+  const latest = (await ok(await call('/songbook'))).version;
+  assert.equal(await measure({ 'If-None-Match': `"${latest}"` }), 1);
   const full = await measure({}); assert.ok(full <= 1 + 2 * 3, String(full));
 });
