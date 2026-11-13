@@ -52,7 +52,7 @@
  function hint(item){const d=freeLyrics(item);if(!d||state.lyricsOnly.has(d.id)||!pairCache.has(d.id))return null;const targets=counterparts(d,SCORE);return targets.length?{want:SCORE,targets}:{need:true,name:d.name,id:d.id};}
  // '가사로 쓰는 곡' 지정·해제(누구나). 곡 목록은 그대로이고 짝 찾기 결과도 그대로 둔다.
  async function setLyricsOnly(id,on){const data=await(await C().api('/songbook/lyrics-only',json('POST',{id,on}))).json();accept(data,true,true);}
- function lyricsOnlyItem(item){const d=freeLyrics(item);if(!d)return null;const on=state.lyricsOnly.has(d.id);return {label:on?'가사로 쓰기 해제':'가사로 쓰기',action:()=>setLyricsOnly(d.id,!on).catch(error=>alert(error.message))};}
+ function lyricsOnlyItem(item){const d=freeLyrics(item);if(!d)return null;const on=state.lyricsOnly.has(d.id);return {label:on?'예외 처리 해제':'예외 처리',action:()=>setLyricsOnly(d.id,!on).catch(error=>alert(error.message))};}
  const hints=items=>items.map(hint);
  // 순서 항목 메뉴의 악보로·가사로 바꾸기 대상(없으면 빈 목록). 찬양이 아니면 null.
  function switches(item){const d=orderDoc(item);return d?{[SCORE]:d.category===LYRICS?counterparts(d,SCORE):[],[LYRICS]:d.category===SCORE?counterparts(d,LYRICS):[]}:null;}
@@ -74,7 +74,7 @@
  // [악보 필요]: 작업된 악보가 없다는 안내와 PPT 가져오기(악보 용도·악보찬양·이름을 미리 채움).
  function needDialog(name,id){const {el:make}=P(),box=make('dialog',{class:'entry-dialog songbook-need'}),note=make('p',{class:'dialog-message',role:'status'});
   const go=make('button',{type:'button',class:'primary',onclick:()=>{box.close();window.YebaeonPPTImport?.openFor({name:name+' (악보)'});}},'PPT 가져오기');
-  const keep=make('button',{type:'button',title:'이 가사 문서는 가사로 씁니다. 순서 항목 메뉴에서 해제할 수 있습니다.',onclick:async()=>{keep.disabled=true;try{await setLyricsOnly(id,true);box.close();}catch(error){note.textContent=error.message;keep.disabled=false;}}},'가사로 쓰기');
+  const keep=make('button',{type:'button',title:'이 곡은 가사로 씁니다. 악보 표시를 달지 않고, 순서 항목 메뉴에서 해제할 수 있습니다.',onclick:async()=>{keep.disabled=true;try{await setLyricsOnly(id,true);box.close();}catch(error){note.textContent=error.message;keep.disabled=false;}}},'예외 처리');
   box.append(make('h2',{},name),make('p',{class:'dialog-help'},'영광임하소서에 없는 곡이라 악보찬양을 씁니다.\n아직 악보가 없습니다.'),note,make('div',{class:'dialog-buttons'},make('button',{type:'button',onclick:()=>box.close()},'닫기'),keep,go));
   box.addEventListener('close',()=>box.remove());document.body.append(box);box.showModal();go.focus();}
  // PPT 가져오기로 악보찬양을 만들면(어디서 열었든) 열린 순서의 짝을 다시 물어 [악보 필요]가 [악보로]가 되게 한다.

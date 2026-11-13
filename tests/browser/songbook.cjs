@@ -107,15 +107,15 @@ const assert=require('node:assert/strict');
   assert.equal(await summaryText(),'가사악보');
   const saved=await page.evaluate(async()=>{const s=YebaeonPlaylists.selectedPlaylist(),[lib,node]=s.key.split('/');return (await(await YebaeonCloud.api(`/playlists/${lib}/plan?node=${node}`)).json()).items.map(x=>x.document?.name);});
   assert.deepEqual(saved,['목록밖 노래 하나 둘.pro6','합성 찬양 하나_Wide.pro6','합성 예배순서.pro6','악보 없는 노래.pro6','가사로 쓰는 노래.pro6']);
-  // '가사로 쓰는 곡': [악보 필요] 창의 [가사로 쓰기]로 지정하면 표시가 사라지고, 항목 메뉴 '가사로 쓰기 해제'로 되돌린다(누구나).
+  // '가사로 쓰는 곡': [악보 필요] 창의 [예외 처리]로 지정하면 표시가 사라지고, 항목 메뉴 '예외 처리 해제'로 되돌린다(누구나).
   await rows.nth(4).locator('.order-tag.need').click();await page.locator('.songbook-need[open]').waitFor();
-  await page.locator('.songbook-need').getByRole('button',{name:'가사로 쓰기'}).click();await page.locator('.songbook-need').waitFor({state:'detached'});
+  await page.locator('.songbook-need').getByRole('button',{name:'예외 처리'}).click();await page.locator('.songbook-need').waitFor({state:'detached'});
   await page.waitForFunction(()=>!document.querySelector('#playlistItems .order-item:nth-child(5) .order-tag'));
   assert.equal(await page.evaluate(id=>YebaeonSongbook.state().lyricsOnly.has(id),ids.keepLyrics),true);
-  await rows.nth(4).click({button:'right'});await page.getByRole('menuitem',{name:'가사로 쓰기 해제'}).click();
+  await rows.nth(4).click({button:'right'});await page.getByRole('menuitem',{name:'예외 처리 해제'}).click();
   await page.waitForFunction(()=>document.querySelector('#playlistItems .order-item:nth-child(5) .order-tag.need'));
   // [악보로]가 있는 곡도 지정하면 숨긴다
-  await rows.nth(3).click({button:'right'});await page.getByRole('menuitem',{name:'가사로 쓰기',exact:true}).click();
+  await rows.nth(3).click({button:'right'});await page.getByRole('menuitem',{name:'예외 처리',exact:true}).click();
   await page.waitForFunction(()=>!document.querySelector('#playlistItems .order-item:nth-child(4) .order-tag'));
   // [고르기] 내용 미리보기: 가사는 첫 가사 두 줄(제목 장 건너뜀), 악보는 첫 악보 장 그림, 누르면 앞 장 펼침, 문서마다 한 번만 받음, 못 읽으면 '미리보기 없음'.
   const preview=await page.evaluate(async()=>{const P=PP6,style={font:'NanumGothicOTF',size:80,color:'rgb(255,255,255)',align:'center'},text=t=>P.textElementXML({rect:{x:80,y:90,w:1760,h:900},rtf:P.textRTF(t,style)});
