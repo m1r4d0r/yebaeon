@@ -130,6 +130,65 @@ const assert=require('node:assert/strict');
   assert.equal(await rows.nth(6).locator('.order-tag').count(),0,'짝을 묻지 못한 문서에는 아무것도 달지 않는다');
   assert.equal(pairAsks.filter(u=>u.includes(ids.failLyrics)).length,1,'실패한 문서는 다시 묻지 않는다');
   await page.unroute('**/api/songbook/pairs**');
+  // 목록 밖 짝: 이름이 달라 못 찾는 곡을 '짝 고르기…'로 묶고 빼기. 가사·악보가 함께 있어야 [짝으로]가 켜진다.
+  const pairs=await page.evaluate(async()=>{const make=async(name,category)=>(await(await YebaeonCloud.api('/documents?'+new URLSearchParams({path:name+'.pro6'}),{method:'POST',headers:{'Content-Type':'application/xml','X-YebaeOn-Client':'studio'},body:YebaeonLibraryActions.blankDocument(category)})).json()).document.id;
+   return {lyrics:await make('합성 선포 노래 긴 제목','가사찬양'),score:await make('선포곡','악보찬양'),lyrics2:await make('합성 선포 둘째 가사','가사찬양'),saved:await make('짝 저장 노래','가사찬양')};});
+  await append([pairs.lyrics]);
+  await page.waitForFunction(()=>document.querySelectorAll('#playlistItems .order-item')[8]?.querySelector('.order-tag.need'));
+  await rows.nth(8).click({button:'right'});
+  const menuLabels=await page.locator('[role="menuitem"]').allTextContents();
+  assert.ok(menuLabels.indexOf('가사로 바꾸기')<menuLabels.indexOf('짝 고르기…')&&menuLabels.indexOf('짝 고르기…')<menuLabels.indexOf('예외 처리'),menuLabels.join(','));
+  await page.getByRole('menuitem',{name:'짝 고르기…'}).click();
+  const pairBox=page.locator('.songbook-pair'),pairRow=name=>pairBox.locator('.songbook-pick-row',{has:page.locator('.songbook-pick-name',{hasText:name})});
+  await pairBox.waitFor();assert.match(await pairRow('합성 선포 노래 긴 제목').textContent(),/이 문서/);
+  await pairBox.locator('input[type="search"]').fill('선포');await pairBox.getByRole('button',{name:'검색'}).click();
+  await pairRow('선포곡').waitFor();
+  assert.equal(await pairRow('합성 선포 둘째 가사').getByRole('button',{name:'짝으로'}).isDisabled(),true,'가사끼리는 묶지 않는다');
+  await page.screenshot({path:'artifacts/songbook-pair.png'});
+  await pairRow('선포곡').getByRole('button',{name:'짝으로'}).click();
+  await page.waitForFunction(()=>/짝으로 두었습니다/.test(document.querySelector('.songbook-pair .panel-foot').textContent));
+  assert.deepEqual(await page.evaluate(()=>YebaeonSongbook.state().groups),[[pairs.lyrics,pairs.score]]);
+  assert.match(await pairRow('선포곡').textContent(),/빼기/);
+  await page.waitForFunction(()=>document.querySelectorAll('#playlistItems .order-item')[8]?.querySelector('.order-tag.go'));
+  // [빼기]: 가사만 남은 짝은 지워지고 [악보 필요]로 돌아간다.
+  await pairRow('선포곡').getByRole('button',{name:'빼기'}).click();
+  await page.waitForFunction(()=>/짝에서 뺐습니다/.test(document.querySelector('.songbook-pair .panel-foot').textContent));
+  assert.deepEqual(await page.evaluate(()=>YebaeonSongbook.state().groups),[]);
+  await page.waitForFunction(()=>document.querySelectorAll('#playlistItems .order-item')[8]?.querySelector('.order-tag.need'));
+  await pairRow('선포곡').getByRole('button',{name:'짝으로'}).click();
+  await page.waitForFunction(()=>YebaeonSongbook.state().groups.length===1);
+  await pairBox.locator('.panel-close').click();
+  // 검색: 가사찬양 바로 다음에 짝 악보를 잇고 '가사로 찾음'. 같은 문서는 한 번만.
+  await search('합성 선포 노래');
+  const found=await page.locator('#libraryList .document-item').evaluateAll(list=>list.map(r=>[r.querySelector('strong').firstChild.textContent,r.querySelector('.song-paired')?.textContent||'']));
+  const at=found.findIndex(([n])=>n==='합성 선포 노래 긴 제목');
+  assert.deepEqual(found.slice(at,at+2),[['합성 선포 노래 긴 제목',''],['선포곡','가사로 찾음']],JSON.stringify(found));
+  assert.equal(found.filter(([n])=>n==='선포곡').length,1);
+  await page.screenshot({path:'artifacts/songbook-search-pair.png',clip:{x:0,y:0,width:420,height:320}});
+  const arranged=await page.evaluate(p=>{const d=(id,name,category)=>({id,name:name+'.pro6',path:name+'.pro6',category});return YebaeonSongbook.arrange([d(p.score,'선포곡','악보찬양'),d('x','다른 문서','예배순서'),d(p.lyrics,'합성 선포 노래 긴 제목','가사찬양')]).map(x=>[x.name,x.matchedBy||'']);},pairs);
+  assert.deepEqual(arranged,[['합성 선포 노래 긴 제목.pro6',''],['선포곡.pro6',''],['다른 문서.pro6','']],'앞에 있던 악보 자리로 가사를 올리고 악보를 잇는다');
+  // 짝에 든 문서는 이름 맞추기를 묻지 않는다. [악보 필요]에서 연 PPT 가져오기로 악보를 만들면 가사와 짝으로 저장한다.
+  await page.evaluate(async p=>{await YebaeonCloud.api('/songbook/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({add:[p.lyrics,p.score,p.lyrics2]})});await YebaeonSongbook.revalidate();},pairs);
+  const asked=pairAsks.length;await append([pairs.lyrics2]);
+  await page.waitForFunction(()=>document.querySelectorAll('#playlistItems .order-item')[9]?.querySelector('.order-tag.go'));
+  assert.equal(pairAsks.length,asked,'짝에 든 문서는 묻지 않는다');
+  await page.evaluate(async p=>{const made=(await(await YebaeonCloud.api('/documents?'+new URLSearchParams({path:'다른 이름 악보.pro6'}),{method:'POST',headers:{'Content-Type':'application/xml','X-YebaeOn-Client':'studio'},body:YebaeonLibraryActions.blankDocument('악보찬양')})).json()).document;window.dispatchEvent(new CustomEvent('yebaeonpptimported',{detail:{document:made,pairWith:p.saved}}));},pairs);
+  await page.waitForFunction(id=>YebaeonSongbook.state().groups.some(g=>g.includes(id)),pairs.saved);
+  // 짝 붙여넣기(관리자): 메모·주석은 건너뛰고, 오류가 있으면 저장 단추를 끈다.
+  await openSongbook();
+  await page.locator('#songbookGroupPaste').click();await page.locator('#songbookGroupText').waitFor();
+  const pasteGroups=async text=>{await page.locator('#songbookGroupText').fill(text);await page.waitForFunction(()=>document.querySelector('#songbookGroupPreview .songbook-preview-sum')&&!document.querySelector('#songbookGroupPreview .hint'));};
+  await pasteGroups(`# 짝 표\n${pairs.lyrics},${pairs.score}\t선포\n\n${ids.listLyrics},${pairs.score}\n${pairs.lyrics2},00000000-0000-4000-8000-000000000000`);
+  const groupProblems=await page.locator('#songbookGroupPreview .songbook-errors').textContent();
+  assert.match(groupProblems,/4줄: 두 짝에 들어간 문서/);assert.match(groupProblems,/4줄: 목록 곡 문서 ‘합성 찬양 하나’\(영 58\)/);assert.match(groupProblems,/5줄: 없는 문서/);
+  assert.equal(await page.locator('#songbookGroupSave').isDisabled(),true);
+  await pasteGroups(`# 짝 표\n${pairs.lyrics},${pairs.score}\t선포\n${pairs.lyrics2},${ids.lateScore}`);
+  assert.match(await page.locator('#songbookGroupPreview .songbook-preview-sum').textContent(),/짝 2 · 문서 4.*새로 0 · 바뀜 2 · 빠짐 1/);
+  await page.screenshot({path:'artifacts/songbook-group-paste.png'});
+  await page.locator('#songbookGroupSave').click();await page.locator('.songbook-paste').waitFor({state:'detached'});
+  assert.match(await page.locator('#songbookMessage').textContent(),/짝을 저장했습니다. 짝 2/);
+  assert.deepEqual(await page.evaluate(()=>YebaeonSongbook.state().groups),[[pairs.lyrics,pairs.score],[pairs.lyrics2,ids.lateScore]]);
+  await page.locator('#songbookDialog .panel-close').first().click();
   // [고르기] 내용 미리보기: 가사는 첫 가사 두 줄(제목 장 건너뜀), 악보는 첫 악보 장 그림, 누르면 앞 장 펼침, 문서마다 한 번만 받음, 못 읽으면 '미리보기 없음'.
   const preview=await page.evaluate(async()=>{const P=PP6,style={font:'NanumGothicOTF',size:80,color:'rgb(255,255,255)',align:'center'},text=t=>P.textElementXML({rect:{x:80,y:90,w:1760,h:900},rtf:P.textRTF(t,style)});
    const xml=(category,slides)=>P.documentXML({category,groups:[{name:'기본',slides:slides.join('')}]});
@@ -161,6 +220,6 @@ const assert=require('node:assert/strict');
   await page.waitForFunction(()=>document.querySelectorAll('.songbook-pick .songbook-pick-slides').length===1&&document.querySelectorAll('.songbook-pick .songbook-preview-text').length===1);
   assert.deepEqual([preview.lyrics,preview.score,preview.broken].map(id=>contentReads.get(id)),[1,1,1],'each document is read once while the window is open, even after a redraw');
   await page.locator('.songbook-pick .panel-close').click();await page.locator('#songbookDialog .panel-close').first().click();
-  assert.deepEqual(errors,[]);console.log('Songbook UI passed: chips and order in search, admin-only buttons, paste preview errors and save, order tint and score buttons, need dialog to PPT import, re-pairing after a score import, row menu switches, pick-window previews');
+  assert.deepEqual(errors,[]);console.log('Songbook UI passed: chips and order in search, admin-only buttons, paste preview errors and save, order tint and score buttons, need dialog to PPT import, re-pairing after a score import, row menu switches, pair dialog and group paste, search pairs, pick-window previews');
  }finally{await browser.close();await new Promise(r=>server.close(r));await mf.dispose();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

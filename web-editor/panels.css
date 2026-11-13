@@ -197,3 +197,4 @@ dialog.songbook-dialog{width:min(1000px,94vw)}.songbook-dialog .panel-head>h2{fl
 .songbook-preview canvas{display:block;width:176px;height:auto;border-radius:4px;background:#101216}.songbook-preview-none{font-size:12px;color:var(--muted)}
 .songbook-pick-slides{display:flex;flex-wrap:wrap;gap:8px;padding:4px 16px 12px 20px;border-bottom:1px solid var(--row-line)}.songbook-pick-slides canvas{width:240px;max-width:calc(50% - 4px);height:auto;border-radius:4px;background:#101216}
 .songbook-need .dialog-help{white-space:pre-line}
+.songbook-pair .panel-head>h2{flex:none}.songbook-pair-name{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.songbook-pick-row.dim{opacity:.55}
