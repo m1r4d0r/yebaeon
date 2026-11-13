@@ -88,7 +88,7 @@
   return button;}
  // [악보 필요]: 작업된 악보가 없다는 안내와 PPT 가져오기(악보 용도·악보찬양·이름을 미리 채움).
  function needDialog(name,id){const {el:make}=P(),box=make('dialog',{class:'entry-dialog songbook-need'}),note=make('p',{class:'dialog-message',role:'status'});
-  const go=make('button',{type:'button',class:'primary',onclick:()=>{box.close();window.YebaeonPPTImport?.openFor({name:name+' (악보)',pairWith:{id,name}});}},'PPT 가져오기');
+  const go=make('button',{type:'button',class:'primary',onclick:()=>{box.close();window.YebaeonPPTImport?.openFor({name:name+' (악보)',pairWith:{id,name,order:window.YebaeonPlaylists?.selectedPlaylist()?.key||null}});}},'PPT 가져오기');
   const keep=make('button',{type:'button',title:'이 곡은 가사로 씁니다. 악보 표시를 달지 않고, 순서 항목 메뉴에서 해제할 수 있습니다.',onclick:async()=>{keep.disabled=true;try{await setLyricsOnly(id,true);box.close();}catch(error){note.textContent=error.message;keep.disabled=false;}}},'예외 처리');
   box.append(make('h2',{},name),make('p',{class:'dialog-help'},'영광임하소서에 없는 곡이라 악보찬양을 씁니다.\n아직 악보가 없습니다.'),note,make('div',{class:'dialog-buttons'},make('button',{type:'button',onclick:()=>box.close()},'닫기'),keep,go));
   box.addEventListener('close',()=>box.remove());document.body.append(box);box.showModal();go.focus();}
@@ -148,10 +148,12 @@
  // 짝 저장(누구나): add는 그 문서들을 한 짝으로(다른 짝에 있던 문서는 옮긴다), remove는 짝에서 뺀다.
  async function saveGroup(body){const data=await(await C().api('/songbook/groups',json('POST',body))).json();accept(data,true,true);return state;}
  // PPT 가져오기로 악보찬양을 만들면(어디서 열었든) 열린 순서의 짝을 다시 물어 [악보 필요]가 [악보로]가 되게 한다.
- // [악보 필요]에서 연 가져오기면 그 가사 문서(목록 곡이 아니면)와 새 악보를 짝으로 저장한다.
+ // [악보 필요]에서 연 가져오기면 그 가사 문서(목록 곡이 아니면)와 새 악보를 짝으로 저장하고, 그 순서가 아직 열려 있으면 가사 항목을 새 악보로 바꿔 저장한다.
  window.addEventListener('yebaeonpptimported',async e=>{const made=e.detail?.document,lyrics=e.detail?.pairWith;if(made?.category!==SCORE)return;
   const drop=new Set(e.detail?.pairDrop||[]);
   if(lyrics&&state&&!songOf(lyrics))try{await saveGroup({add:[...(groupOf(lyrics)||[lyrics]).filter(id=>!drop.has(id)),made.id]});}catch(error){window.YebaeonEditor?.status?.('짝을 저장하지 못했습니다: '+error.message);}
+  const order=e.detail?.replaceIn,L=window.YebaeonPlaylists;
+  if(lyrics&&order&&L?.selectedPlaylist()?.key===order)L.replaceDocument(lyrics,made).then(ok=>{if(ok)window.YebaeonEditor?.status?.(`순서의 ‘${stem(made.name||made.path?.split('/').pop())}’로 바꿔 저장했습니다.`);},()=>{});
   pairCache.clear();const items=window.YebaeonPlaylists?.items()||[];prepareOrder(items).then(ok=>{if(ok)window.dispatchEvent(new Event('yebaeonsongbook'));});});
 
  // ── 영광임하소서 목록 창 ──
